@@ -140,13 +140,23 @@ to be scrolled.
 
 ## Screenshots
 
-`docs/preview-*.webp` are captured from the running app reading **NASA's** feed.
-That is not an arbitrary choice of example: NASA media is public domain, so a
-screenshot containing its photography can live in a public repository. A news
-feed's pictures could not.
+Four, all captured from the running app at 1440x1000 (the phone shot at
+390x844):
 
-They are WebP at quality 88 — around 120KB each against 570KB as PNG, at a
-measured 41dB PSNR, which is visually lossless for a screenshot.
+| File                  | Shows                                                         |
+| --------------------- | ------------------------------------------------------------- |
+| `preview-sample.webp` | the built-in sample edition on first launch — the README hero |
+| `preview-real.webp`   | a real subscription, NASA's, with its own photograph          |
+| `preview-dark.webp`   | the same edition in dark mode                                 |
+| `preview-mobile.webp` | the article as a full-screen reading sheet                    |
+
+The real-feed shots use **NASA's** feed, and that is a constraint rather than a
+favourite: NASA media is public domain, so a screenshot containing its
+photography can live in a public repository. A news publication's pictures could
+not, which rules out every other source in the suggested list.
+
+They are WebP at quality 88 — 100-165KB each against 570KB as PNG, at a measured
+41dB PSNR, which is visually lossless for a screenshot.
 
 ## Layout rule
 

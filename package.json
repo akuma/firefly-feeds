@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "bun@1.4.0",
   "dependencies": {
+    "@vinext/cloudflare": "^1.0.0-beta.7",
     "fast-xml-parser": "^5.11.1",
     "idb": "^8.0.3",
     "lucide-react": "^1.44.0",
@@ -13,6 +14,7 @@
     "vinext": "^1.0.0-beta.9"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.54.7",
     "@tailwindcss/postcss": "latest",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
@@ -31,7 +33,8 @@
     "tailwindcss": "latest",
     "typescript": "latest",
     "vite": "^8.3.0",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.0",
+    "wrangler": "^4.131.0"
   },
   "type": "module",
   "scripts": {
@@ -48,7 +51,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "check": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build",
-    "good": "bun run format && bun run lint && bun run typecheck && bun run test"
+    "good": "bun run format && bun run lint && bun run typecheck && bun run test",
+    "deploy": "vinext build && vinext-cloudflare deploy",
+    "preview": "vinext build && vinext-cloudflare deploy --preview"
   },
   "description": "An editorial RSS reader for thoughtful, unhurried reading."
 }

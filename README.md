@@ -12,12 +12,9 @@ constant refreshing or infinite scrolling.
 Everything you read, save, or queue stays on your device. There is no account, no
 sync service, and no reading history stored on our servers.
 
-![Firefly Feeds reading a NASA feed, light](docs/preview-desktop.webp)
+![The Firefly Feeds reading stream, showing the built-in sample edition](docs/preview-sample.webp)
 
-![The same edition in dark mode](docs/preview-dark.webp)
-
-_The same edition, light and dark. Screenshots are captured from the running app
-reading a real feed — NASA's, because its imagery is public domain._
+_The built-in sample edition, shown on first launch._
 
 ## Features
 
@@ -91,6 +88,20 @@ and a new device re-fetches prose rather than downloading a corpus.
 down: invented publications on reserved `.example` hosts, invented bylines, no
 outbound links. It is active only while you have subscribed to nothing, so
 invented and real stories can never mix.
+
+## Screenshots
+
+![Firefly Feeds reading NASA's real RSS feed](docs/preview-real.webp)
+
+_Reading NASA's real RSS feed. Publisher-provided imagery is shown as-is._
+
+![The same edition in dark mode](docs/preview-dark.webp)
+
+_Dark mode._
+
+<img src="docs/preview-mobile.webp" alt="Firefly Feeds on a phone, showing the article as a full-screen reading sheet" width="300" />
+
+_On a phone, the article becomes a full-screen reading sheet._
 
 ## Documentation
 
