@@ -6,7 +6,6 @@ import {
   Check,
   Clock,
   ExternalLink,
-  Maximize2,
   Moon,
   PanelLeft,
   Plus,
@@ -78,6 +77,12 @@ function StreamHeader({
             {r.edition.long}
           </span>
         </div>
+        {/*
+         * These three are here because collapsing the navigation hides them
+         * with it: source, search and theme. Nothing that acts on the reading
+         * pane belongs in this column — a "fullscreen" glyph up here is
+         * ambiguous about what it expands, and the pane has its own control.
+         */}
         <div className="flex items-center gap-0.5">
           <IconButton
             icon={Plus}
@@ -96,12 +101,6 @@ function StreamHeader({
             label="Theme (T)"
             size={26}
             onClick={() => r.setTheme(r.theme === "dark" ? "light" : "dark")}
-          />
-          <IconButton
-            icon={Maximize2}
-            label="Immersive reading (F)"
-            size={26}
-            onClick={() => r.setImmersive(true)}
           />
         </div>
       </div>

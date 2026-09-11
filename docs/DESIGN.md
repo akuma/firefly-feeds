@@ -110,6 +110,14 @@ the bottom. Navigation moves into a drawer.
 Safe-area insets are honoured top and bottom, because a full-screen reading
 surface is the one place a notch actually matters.
 
+## Which column a control belongs to
+
+A control lives in the column it acts on. The stream header carries only the
+three things that collapsing the navigation would otherwise hide — add a source,
+search, theme. Immersive reading acts on the **reader**, so it lives in the
+reader's toolbar and nowhere else; a "fullscreen" glyph in the stream column is
+ambiguous about what it expands, and the reader already has its own control.
+
 ## Dialogs
 
 A dialog is capped at `86vh` with a scrolling body and a **pinned commit bar**.

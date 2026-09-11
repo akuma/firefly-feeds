@@ -127,6 +127,12 @@ Rules that are easy to break by accident:
 
 ---
 
+### Where a control lives
+
+A control belongs to the column it acts on. The stream header carries only what
+collapsing the navigation would hide — add, search, theme. Immersive reading
+acts on the reader, so it lives in the reader's toolbar and nowhere else.
+
 ### Folders
 
 Seven, in `lib/sources.ts`: News, Science, Technology, AI, Culture, Design,
