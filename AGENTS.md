@@ -129,9 +129,12 @@ Rules that are easy to break by accident:
 
 ### Where a control lives
 
-A control belongs to the column it acts on. The stream header carries only what
-collapsing the navigation would hide — add, search, theme. Immersive reading
-acts on the reader, so it lives in the reader's toolbar and nowhere else.
+A control belongs to the column it acts on, and an action gets **one** control.
+The stream header's add, search and theme buttons are a fallback for the
+collapsed navigation, so they render only while `navOpen` is false — the rest of
+the time they are a second entry point for something already on screen.
+Immersive reading acts on the reader, so it lives in the reader's toolbar and
+nowhere else. The `⌘K` chip in the navigation is a hint, not a button.
 
 ### Folders
 

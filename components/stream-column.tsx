@@ -78,31 +78,34 @@ function StreamHeader({
           </span>
         </div>
         {/*
-         * These three are here because collapsing the navigation hides them
-         * with it: source, search and theme. Nothing that acts on the reading
-         * pane belongs in this column — a "fullscreen" glyph up here is
-         * ambiguous about what it expands, and the pane has its own control.
+         * A fallback, and shown only when it is one. These three exist because
+         * collapsing the navigation takes them with it — so they belong here
+         * exactly when the navigation is closed, and are duplication the rest
+         * of the time. Nothing that acts on the reading pane appears in this
+         * column: the reader has its own controls.
          */}
-        <div className="flex items-center gap-0.5">
-          <IconButton
-            icon={Plus}
-            label="Add a feed or site"
-            size={26}
-            onClick={() => r.setAddOpen(true)}
-          />
-          <IconButton
-            icon={Search}
-            label="Search (⌘K)"
-            size={26}
-            onClick={() => r.setSearchOpen(true)}
-          />
-          <IconButton
-            icon={r.theme === "dark" ? Sun : Moon}
-            label="Theme (T)"
-            size={26}
-            onClick={() => r.setTheme(r.theme === "dark" ? "light" : "dark")}
-          />
-        </div>
+        {!r.navOpen && (
+          <div className="flex items-center gap-0.5">
+            <IconButton
+              icon={Plus}
+              label="Add a feed or site"
+              size={26}
+              onClick={() => r.setAddOpen(true)}
+            />
+            <IconButton
+              icon={Search}
+              label="Search (⌘K)"
+              size={26}
+              onClick={() => r.setSearchOpen(true)}
+            />
+            <IconButton
+              icon={r.theme === "dark" ? Sun : Moon}
+              label="Theme (T)"
+              size={26}
+              onClick={() => r.setTheme(r.theme === "dark" ? "light" : "dark")}
+            />
+          </div>
+        )}
       </div>
 
       {/* --------------------------------------------------- date block */}

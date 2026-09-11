@@ -110,13 +110,24 @@ the bottom. Navigation moves into a drawer.
 Safe-area insets are honoured top and bottom, because a full-screen reading
 surface is the one place a notch actually matters.
 
-## Which column a control belongs to
+## One action, one control
 
-A control lives in the column it acts on. The stream header carries only the
-three things that collapsing the navigation would otherwise hide — add a source,
-search, theme. Immersive reading acts on the **reader**, so it lives in the
-reader's toolbar and nowhere else; a "fullscreen" glyph in the stream column is
-ambiguous about what it expands, and the reader already has its own control.
+A control lives in the column it acts on, and an action has one control — not a
+second copy somewhere else.
+
+The stream header's add, search and theme buttons are a **fallback for the
+collapsed navigation**, so they appear only when the navigation is closed. Tripled
+up on a wide screen they were two entry points for one action, which makes a
+reader hesitate; shown only when the navigation has gone, they are the reason
+that reader is not stranded.
+
+Immersive reading acts on the **reader**, so it lives in the reader's toolbar and
+nowhere else. It used to sit in the stream header too, where a "fullscreen" glyph
+is ambiguous about what it expands — and it hid the very column it sat in.
+
+The `⌘K` chip in the navigation is a **hint, not a second way in**: it teaches
+the shortcut and the search icon beside it is the control. A label that is also a
+button is two things pretending to be one.
 
 ## Dialogs
 

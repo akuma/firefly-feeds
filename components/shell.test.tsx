@@ -298,6 +298,37 @@ describe("the navigation", () => {
     expect(folders.textContent).not.toContain("Science");
   });
 
+  it("shows the fallback controls only while the navigation is closed", async () => {
+    const { user } = await mount();
+    const inHeader = (label: string) =>
+      stream().querySelectorAll(`button[aria-label="${label}"]`).length;
+
+    // with the navigation open, its own controls are the only ones — the stream
+    // header repeating them would just be two entry points for one action
+    expect(inHeader("Add a feed or site")).toBe(0);
+    expect(inHeader("Search (⌘K)")).toBe(0);
+    expect(inHeader("Theme (T)")).toBe(0);
+    // ...and the navigation's are present
+    expect(within(nav()).getAllByLabelText("Search").length).toBeGreaterThan(0);
+    expect(within(nav()).getByLabelText("Light")).toBeInTheDocument();
+    expect(within(nav()).getByLabelText("Dark")).toBeInTheDocument();
+
+    await user.click(within(stream()).getByLabelText("Hide navigation"));
+    await waitFor(() => expect(inHeader("Add a feed or site")).toBe(1));
+    expect(inHeader("Search (⌘K)")).toBe(1);
+    expect(inHeader("Theme (T)")).toBe(1);
+  });
+
+  it("gives search one control and one shortcut hint, not two controls", async () => {
+    await mount();
+    const footer = within(nav()).getAllByLabelText("Search")[0].closest("div.justify-between")!;
+    // the ⌘K chip teaches the shortcut; it is not a second button
+    expect(footer.textContent).toContain("K");
+    expect([...footer.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(
+      ["Light", "Dark", "Search", "Keyboard shortcuts (?)"],
+    );
+  });
+
   it("offers suggested sources while onboarding", async () => {
     await mount();
     expect(within(nav()).getByText("Suggested")).toBeInTheDocument();

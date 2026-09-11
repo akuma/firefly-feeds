@@ -449,13 +449,13 @@ export function NavRail({
             onClick={() => r.setShortcutsOpen(true)}
           />
         </div>
-        <button
-          type="button"
-          onClick={() => r.setSearchOpen(true)}
-          className="mono flex items-center gap-1.5 text-[9px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink"
+        {/* A hint, not a second way in: the icon beside it is the control. */}
+        <span
+          title="Search with ⌘K"
+          className="mono flex items-center gap-1.5 text-[9px] tracking-[0.14em] text-ink4 uppercase"
         >
           <Command size={10} strokeWidth={1.6} />K
-        </button>
+        </span>
       </div>
     </div>
   );
