@@ -111,10 +111,16 @@ rules and the commands.
 Fonts are self-hosted in `public/fonts`, so there is no font CDN in the request
 path.
 
+## Built with vibe coding
+
+Firefly Feeds is a product built with **vibe coding**, using **Pi Coding Agent** and **DeepSeek-V4.1-Flash**.
+
+The first usable version consumed about **$1.40 in LLM API usage**.
+
 ## License
 
-FireflyFeeds is open source under the [MIT License](LICENSE).
+Firefly Feeds is open source under the [MIT License](LICENSE).
 
-The FireflyFeeds name, logo, visual identity, and other brand assets are not included in the MIT License. The license does not grant permission to use these assets to represent modified or derivative versions as official FireflyFeeds products.
+The Firefly Feeds name, logo, visual identity, and other brand assets are not included in the MIT License. The license does not grant permission to use these assets to represent modified or derivative versions as official Firefly Feeds products.
 
 Third-party fonts, images, and other assets remain subject to their respective licenses.
