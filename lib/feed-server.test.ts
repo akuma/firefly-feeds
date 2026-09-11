@@ -126,6 +126,32 @@ describe("parseFeedXml", () => {
     const b = parseFeedXml(RSS, "https://example.com/feed");
     expect(a.items.map((i) => i.id)).toEqual(b.items.map((i) => i.id));
   });
+
+  it("tells a full body from a summary by which field it came from", () => {
+    const feed = parseFeedXml(RSS, "https://example.com/feed");
+    // `<content:encoded>` is the publisher handing over the piece
+    expect(feed.items[0].contentState).toBe("full");
+    // `<description>` alone is their summary
+    expect(feed.items[1].contentState).toBe("summary");
+  });
+
+  it("downgrades a content body that ends in a read-more stub", () => {
+    const body = "Substantial paragraph text that runs on. ".repeat(20);
+    const feed = parseFeedXml(
+      `<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>T</title><item><title>A</title><link>https://x.example/a</link><content:encoded><![CDATA[<p>${body}</p><p><a href="/a">Continue reading</a></p>]]></content:encoded></item></channel></rss>`,
+      "https://x.example/feed",
+    );
+    expect(feed.items[0].contentState).toBe("summary");
+  });
+
+  it("marks a body cut by our own budget as truncated", () => {
+    const huge = `<p>${"word ".repeat(3000)}</p>`;
+    const feed = parseFeedXml(
+      `<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>T</title><item><title>A</title><link>https://x.example/a</link><content:encoded><![CDATA[${huge}]]></content:encoded></item></channel></rss>`,
+      "https://x.example/feed",
+    );
+    expect(feed.items[0].contentState).toBe("truncated");
+  });
 });
 
 describe("readCapped", () => {

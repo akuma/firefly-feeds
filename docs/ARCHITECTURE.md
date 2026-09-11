@@ -127,6 +127,37 @@ Two things feeds do that a naive pipeline gets wrong:
   about 400 a minute and space-delimited words at about 225, and handles both in
   one body.
 
+## Full text, on demand
+
+A feed that carries only a summary leaves the reader two bad options: read the
+summary twice, or leave. When a story's body is not the publisher's full text,
+the article itself is fetched **the moment the reader opens that story** — never
+as a background sweep of the subscriptions.
+
+Whether a body is full is decided by which feed field it came from, not its
+length. `<content:encoded>` / `<content>` is the publisher handing over the
+piece (`full`); `<description>` / `<summary>` alone is their summary
+(`summary`). A body our own budget cut is `truncated`, and a `content` body that
+ends in a “Read more” stub is downgraded to `summary`. Only `summary` and
+`truncated` are fetched.
+
+`GET /api/article?url=…` runs `fetch → linkedom → Readability` on the server and
+returns the same `Block[]` model, so the reading surface is unchanged and no
+publisher HTML reaches the DOM. `linkedom` rather than `jsdom`: the deployment
+is a Worker, and jsdom does not run there. The result replaces the cached body
+and the state becomes `full`, so the second visit reads locally.
+
+Failure is recorded (`extractionState: "failed"`) and never retried — a page
+that will not hand over its text is not asked again on every visit. The feed's
+own text stays, and the reader keeps the link to the original. It does not
+defeat paywalls, logins or JavaScript challenges: a page that will not offer its
+text is a page we keep the summary for.
+
+`lib/url-safety.ts` is the target's safety contract — http/https only, no
+loopback or private ranges, re-checked after every redirect. It is deliberately
+separate from the same-origin guard, because an article URL is normally a
+different origin from ours.
+
 ## Suggested sources
 
 Six publications — BBC News, NPR, Smithsonian Magazine, NASA, Ars Technica and

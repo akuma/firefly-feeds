@@ -1,13 +1,14 @@
 import { XMLParser } from "fast-xml-parser";
 import {
   hashString,
+  hasReadMoreCue,
   htmlToBlocks,
   htmlToSummary,
   htmlToText,
   resolveUrl,
   sharedOpening,
 } from "./feed-html";
-import type { Block, Story, StoryLayout } from "./types";
+import type { Block, ContentState, Story, StoryLayout } from "./types";
 
 /* --------------------------------------------------------------- types */
 
@@ -20,7 +21,7 @@ export type ParsedItem = {
   summary: string;
   body: Block[];
   image?: string;
-  truncated?: boolean;
+  contentState: ContentState;
 };
 
 export type ParsedFeed = {
@@ -44,7 +45,7 @@ export class FeedError extends Error {
 
 // No contact URL: we do not have one to give, and inventing one would be worse
 // than a plain product identifier.
-const UA = "Mozilla/5.0 (compatible; FireflyFeeds/1.0) AppleWebKit/537.36";
+export const USER_AGENT = "Mozilla/5.0 (compatible; FireflyFeeds/1.0) AppleWebKit/537.36";
 
 const FEED_TYPES = [
   "application/rss+xml",
@@ -79,7 +80,7 @@ async function request(
     res = await fetch(url, {
       redirect: "follow",
       headers: {
-        "user-agent": UA,
+        "user-agent": USER_AGENT,
         accept: `${FEED_TYPES.join(", ")}, text/html;q=0.8, */*;q=0.5`,
         "accept-language": "en",
       },
@@ -313,13 +314,9 @@ function normalizeItem(
 ): ParsedItem | null {
   const title = htmlToText(firstText(raw.title)).slice(0, 300);
   const link = pickLink(raw.link, baseUrl) || resolveUrl(firstText(raw.guid), baseUrl);
-  const contentHtml =
-    [
-      firstText(raw["content:encoded"]),
-      firstText(raw.content),
-      firstText(raw.description),
-      firstText(raw.summary),
-    ].find((x) => x && x.length > 0) ?? "";
+  const rich = firstText(raw["content:encoded"]) || firstText(raw.content);
+  const plain = firstText(raw.description) || firstText(raw.summary);
+  const contentHtml = rich || plain;
 
   if (!title && !contentHtml) return null;
 
@@ -340,6 +337,15 @@ function normalizeItem(
     parseDate(raw.date);
 
   const { blocks: body, truncated } = htmlToBlocks(contentHtml, baseUrl);
+  /*
+   * Which field the body came from is the first signal, not its length: a
+   * `<content:encoded>` body is the publisher saying “this is the piece”, while
+   * `<description>` is their summary. A “read more” stub can still downgrade a
+   * content body, and our own cut wins over both.
+   */
+  let contentState: ContentState = rich ? "full" : "summary";
+  if (contentState === "full" && hasReadMoreCue(contentHtml)) contentState = "summary";
+  if (truncated) contentState = "truncated";
   const summary = htmlToSummary(
     firstText(raw.description) || firstText(raw.summary) || contentHtml,
   );
@@ -354,7 +360,7 @@ function normalizeItem(
     summary: summary || htmlToText(contentHtml).slice(0, 220),
     body,
     image,
-    truncated,
+    contentState,
   };
 }
 

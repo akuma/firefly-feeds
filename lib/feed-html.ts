@@ -362,3 +362,23 @@ export function htmlToText(input: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+/**
+ * A “keep reading” stub dressed up as content.
+ *
+ * Some feeds put a short “Read more” / “Continue reading” paragraph (or its
+ * Chinese equivalent) at the end of an entry that otherwise looks like a full
+ * body. It came from `content:encoded`, but it is a signpost, not the article.
+ *
+ * Read from the raw HTML, not the block model: `scrub` already strips these
+ * phrases from a block, so by the time the blocks exist the evidence is gone.
+ * Only the tail is examined — scanning the whole body would downgrade an
+ * article *about* “read more” links.
+ */
+const READ_MORE_CUE =
+  /(read more|continue reading|read the full|full (?:article|story)|阅读全文|阅读原文|全文)/i;
+
+export function hasReadMoreCue(input: string): boolean {
+  const body = htmlToText(input);
+  return body.length > 0 && READ_MORE_CUE.test(body.slice(-160));
+}

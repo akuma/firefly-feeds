@@ -18,8 +18,7 @@ import { feedFromSource, readingFlags, storyFromArticle } from "./shaping";
 import * as repo from "./storage/repository";
 import { loadPrefs, savePrefs } from "./storage/prefs";
 import type { ArticleRecord, ReadingRecord, SourceRecord } from "./storage/types";
-import type { Feed, FeedId, FolderId, Story, StoryLayout, ViewId } from "./types";
-
+import type { ContentState, Feed, FeedId, FolderId, Story, StoryLayout, ViewId } from "./types";
 /**
  * The theme is written by an inline boot script before React hydrates, so the
  * first apply pass must run before paint to avoid a light-mode flash.
@@ -55,7 +54,7 @@ export type SubscribeInput = {
     image?: string;
     minutes: number;
     layout: StoryLayout;
-    truncated?: boolean;
+    contentState: ContentState;
   }[];
 };
 
@@ -86,6 +85,9 @@ type Ctx = {
   editSource: (id: string, patch: { name: string; folder: FolderId | null }) => Promise<void>;
   refreshing: string | null;
   refresh: (id: string) => Promise<void>;
+
+  /** The story whose full text is being fetched, if any. */
+  extracting: string | null;
 
   addOpen: boolean;
   setAddOpen: (v: boolean) => void;
@@ -163,6 +165,8 @@ export function useReaderState(edition: Edition): Ctx {
   const [ready, setReady] = useState(false);
   const [sources, setSources] = useState<SourceRecord[]>([]);
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
+  /** The story whose full text is being fetched, if any. */
+  const [extracting, setExtracting] = useState<string | null>(null);
   const [reading, setReading] = useState<ReadingRecord[]>([]);
 
   const [view, setViewRaw] = useState<ViewId>("today");
@@ -397,7 +401,8 @@ export function useReaderState(edition: Edition): Ctx {
         image: item.image,
         minutes: item.minutes,
         layout: item.layout,
-        truncated: item.truncated,
+        contentState: item.contentState,
+        extractionState: "idle",
       }));
 
       await repo.putSource(source);
@@ -463,7 +468,8 @@ export function useReaderState(edition: Edition): Ctx {
             image: item.image,
             minutes: item.minutes,
             layout: item.layout,
-            truncated: item.truncated,
+            contentState: item.contentState,
+            extractionState: "idle",
           }));
 
         // anything the reader kept is exempt from cache eviction
@@ -602,6 +608,66 @@ export function useReaderState(edition: Edition): Ctx {
   const currentStory = useMemo(() => stories.find((s) => s.id === activeId), [stories, activeId]);
 
   /*
+   * Full text on demand.
+   *
+   * A feed that gave only a summary is fetched from the publisher the moment the
+   * reader opens that story — never as a background sweep of the subscriptions.
+   * The result replaces the cached body, so the second visit reads it locally.
+   * Failure is recorded and left alone: a page that will not hand over its text
+   * is not asked again every time the story is opened.
+   */
+  const extractingRef = useRef(new Set<string>());
+
+  const extract = useCallback(
+    async (target: Story) => {
+      const record = articles.find((a) => a.id === target.id);
+      const url = originalUrl(target);
+      if (!record || !url) return;
+      extractingRef.current.add(target.id);
+      setExtracting(target.id);
+      const persist = async (patch: Partial<ArticleRecord>) => {
+        const next: ArticleRecord = { ...record, ...patch };
+        await repo.putArticle(next);
+        setArticles((current) => current.map((a) => (a.id === next.id ? next : a)));
+      };
+      try {
+        const res = await fetch(`/api/article?url=${encodeURIComponent(url)}`);
+        const data = await res.json();
+        if (!data?.ok) throw new Error(data?.error ?? "failed");
+        const article = data.article as {
+          title?: string;
+          author?: string;
+          blocks: ArticleRecord["body"];
+          image?: string;
+        };
+        await persist({
+          title: article.title || record.title,
+          author: article.author || record.author,
+          body: article.blocks,
+          image: article.image ?? record.image,
+          contentState: "full",
+          extractionState: "success",
+        });
+      } catch {
+        await persist({ extractionState: "failed" });
+      } finally {
+        extractingRef.current.delete(target.id);
+        setExtracting((current) => (current === target.id ? null : current));
+      }
+    },
+    [articles, originalUrl],
+  );
+
+  useEffect(() => {
+    if (!ready) return;
+    const current = stories.find((s) => s.id === activeId);
+    if (!current) return;
+    if (current.contentState === "full" || current.extractionState !== "idle") return;
+    if (extractingRef.current.has(current.id)) return;
+    void extract(current);
+  }, [ready, activeId, stories, extract]);
+
+  /*
    * Selecting is not reading. Marking on selection quietly consumes anything
    * you only meant to glance at, and it makes the unread count a record of what
    * you clicked rather than what you read — see `readSignal` in `lib/reading.ts`
@@ -671,6 +737,7 @@ export function useReaderState(edition: Edition): Ctx {
     editSource,
     refreshing,
     refresh,
+    extracting,
     addOpen,
     setAddOpen,
     editingId,

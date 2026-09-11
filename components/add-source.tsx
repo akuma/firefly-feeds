@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { FOLDERS } from "@/lib/sources";
 import { useReader } from "@/lib/store";
-import type { Block, FolderId, StoryLayout } from "@/lib/types";
+import type { Block, ContentState, FolderId, StoryLayout } from "@/lib/types";
 
 type ApiItem = {
   id: string;
@@ -18,6 +18,7 @@ type ApiItem = {
   image?: string;
   minutes: number;
   layout: StoryLayout;
+  contentState: ContentState;
 };
 
 type ApiFeed = {

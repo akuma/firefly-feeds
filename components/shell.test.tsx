@@ -76,6 +76,39 @@ async function seedOutOfOrder() {
   });
 }
 
+async function seedSummary() {
+  const repo = await import("@/lib/storage/repository");
+  const now = Date.now();
+  await repo.putSource({
+    id: "sfull",
+    url: "https://full.example/feed.xml",
+    siteUrl: "https://full.example",
+    title: "Full Source",
+    host: "full.example",
+    folder: "news",
+    addedAt: now,
+    fetchedAt: now,
+    updatedAt: now,
+  });
+  await repo.replaceArticles("sfull", [
+    {
+      id: "sfull~a",
+      sourceId: "sfull",
+      title: "Summarised piece",
+      link: "https://full.example/a",
+      publishedAt: now,
+      fetchedAt: now,
+      summary: "Just a summary",
+      body: [{ kind: "p", text: "A short summary." }],
+      minutes: 1,
+      layout: "compact",
+      contentState: "summary",
+      extractionState: "idle",
+    },
+  ]);
+  return repo;
+}
+
 beforeEach(async () => {
   // each test starts with an empty registry, so the sample edition is what shows
   const repo = await import("@/lib/storage/repository");
@@ -246,6 +279,8 @@ describe("open original", () => {
         image: "https://images.example/photo.jpg",
         minutes: 2,
         layout: "standard",
+        contentState: "full",
+        extractionState: "idle",
       },
       {
         id: "spainter~without",
@@ -258,6 +293,8 @@ describe("open original", () => {
         body: [],
         minutes: 2,
         layout: "compact",
+        contentState: "full",
+        extractionState: "idle",
       },
     ]);
 
@@ -533,6 +570,65 @@ describe("the source list", () => {
     await waitFor(() => expect(within(nav()).getByText("Renamed")).toBeInTheDocument());
     text = sourcesSection().textContent ?? "";
     expect(text.indexOf("Renamed")).toBeLessThan(text.indexOf("Older"));
+  });
+});
+
+describe("reading the full text on demand", () => {
+  it("fetches the article when a summary-only story is opened, and caches it", async () => {
+    const repo = await seedSummary();
+    const calls: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          article: {
+            title: "Summarised piece",
+            blocks: [{ kind: "p", text: "The full extracted body." }],
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await mount();
+      await waitFor(() => expect(reader().textContent).toContain("The full extracted body."));
+      expect(calls.some((url) => url.includes("/api/article"))).toBe(true);
+
+      const saved = (await repo.getArticles("sfull")).find((a) => a.id === "sfull~a");
+      expect(saved?.contentState).toBe("full");
+      expect(saved?.extractionState).toBe("success");
+      // a story that came back full no longer promises to continue elsewhere
+      expect(reader().textContent).not.toContain("Continues at");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("keeps the feed's text and does not retry when extraction fails", async () => {
+    await seedSummary();
+    const calls: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({ ok: false, error: "nope" }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      await mount();
+      await waitFor(() => expect(reader().textContent).toContain("Full text was unavailable"));
+      expect(reader().textContent).toContain("A short summary.");
+      expect(reader().textContent).toContain("Continues at");
+      // failure is sticky: one attempt, not one per render
+      expect(calls.filter((url) => url.includes("/api/article"))).toHaveLength(1);
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });
 

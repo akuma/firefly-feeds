@@ -475,13 +475,20 @@ export function ArticlePane() {
           )}
 
           <div className="mt-9" data-t="reader-body">
+            {r.extracting === s.id && (
+              <div className="mono mb-6 text-[10px] tracking-[0.14em] text-ink4 uppercase">
+                Reading the full article…
+              </div>
+            )}
             <Blocks blocks={s.body} />
           </div>
 
           {/* ------------------------------------------------------ closer */}
           <div className="mt-16 flex flex-col items-center gap-3">
-            <span className="label text-ink4">{s.truncated ? "Excerpt" : "End of story"}</span>
-            {s.truncated && (
+            <span className="label text-ink4">
+              {s.contentState === "full" ? "End of story" : "Excerpt"}
+            </span>
+            {s.contentState !== "full" && (
               <a
                 href={canonical}
                 target="_blank"
@@ -491,6 +498,11 @@ export function ArticlePane() {
                 Continues at {hostOf(canonical ?? feed.host)}
                 <ArrowUpRight size={10} strokeWidth={1.7} />
               </a>
+            )}
+            {s.extractionState === "failed" && (
+              <span className="mono text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
+                Full text was unavailable
+              </span>
             )}
           </div>
 

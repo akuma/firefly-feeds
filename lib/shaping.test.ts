@@ -252,6 +252,8 @@ describe("storyFromArticle", () => {
     image: "https://example.com/a.jpg",
     minutes: 4,
     layout: "standard",
+    contentState: "full",
+    extractionState: "idle",
   };
 
   it("converts a live record into a story with a relative age", () => {

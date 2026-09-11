@@ -1,6 +1,16 @@
 export type FolderId =
   "news" | "science" | "technology" | "culture" | "design" | "independent" | "ai";
 
+/**
+ * Whether a cached body is the publisher's full text, only what the feed
+ * summarised, or our own cut of something longer.
+ */
+export type ContentState = "full" | "summary" | "truncated";
+
+/** Whether an on-demand full-text extraction has run. Failure is sticky: it is
+ * recorded so opening the story again does not hammer the publisher. */
+export type ExtractionState = "idle" | "success" | "failed";
+
 export type SmartViewId = "all" | "today" | "saved" | "later";
 
 /** Seeded feeds have literal ids; subscribed feeds get a generated one. */
@@ -70,8 +80,10 @@ export type Article = {
   publishedLabel?: string;
   /** True for stories fetched from a subscription rather than seeded. */
   live?: boolean;
-  /** The feed body was longer than the reader caches, so the piece continues at the source. */
-  truncated?: boolean;
+  /** Whether the body is full, a feed summary, or our own cut. */
+  contentState: ContentState;
+  /** Whether an on-demand full-text fetch has run for this story. */
+  extractionState: ExtractionState;
 };
 
 export type Story = Article & {

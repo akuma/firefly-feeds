@@ -81,6 +81,8 @@ const article = (id: string, sourceId: string): ArticleRecord => ({
   body: [],
   minutes: 1,
   layout: "compact",
+  contentState: "full",
+  extractionState: "idle",
 });
 
 /* ---------------------------------------------------------- adoption */

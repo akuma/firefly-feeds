@@ -86,7 +86,7 @@ export const SAMPLE_FEEDS: Feed[] = [
 
 export const SAMPLE_FEED_BY_ID = new Map(SAMPLE_FEEDS.map((feed) => [feed.id, feed]));
 
-export const ARTICLES: Article[] = [
+export const ARTICLES: Omit<Article, "contentState" | "extractionState">[] = [
   /* ----------------------------------------------------------- 12 min --- */
   {
     id: "quiet-return",
@@ -942,8 +942,10 @@ export const ARTICLES: Article[] = [
 
 /* ------------------------------------------------------------------ derive */
 
-/** The sample edition's stories, with reading times derived from the bodies. */
+/** The sample edition is complete by construction — nothing to extract. */
 export const SAMPLE_STORIES: Story[] = ARTICLES.map((a) => ({
   ...a,
   minutes: readingTime(a.body),
+  contentState: "full",
+  extractionState: "idle",
 }));

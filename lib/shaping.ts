@@ -52,7 +52,8 @@ export function storyFromArticle(article: ArticleRecord, now: number): Story {
     link: article.link,
     publishedLabel: formatPublished(article.publishedAt),
     live: true,
-    truncated: article.truncated,
+    contentState: article.contentState ?? "full",
+    extractionState: article.extractionState ?? "idle",
   };
 }
 

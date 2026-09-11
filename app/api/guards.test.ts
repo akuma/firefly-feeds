@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromAnotherSite } from "./route";
+import { fromAnotherSite } from "./guards";
 
 /**
  * The rate limiter is a Cloudflare binding with no local implementation worth

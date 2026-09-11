@@ -1,4 +1,4 @@
-import type { Block, FolderId, StoryLayout } from "../types";
+import type { Block, ContentState, ExtractionState, FolderId, StoryLayout } from "../types";
 
 /**
  * Record shapes are designed for replication, not just for this browser.
@@ -51,7 +51,8 @@ export type ArticleRecord = {
   image?: string;
   minutes: number;
   layout: StoryLayout;
-  truncated?: boolean;
+  contentState: ContentState;
+  extractionState: ExtractionState;
 };
 
 export type ReadingRecord = {

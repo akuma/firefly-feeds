@@ -18,7 +18,7 @@ Firefly Feeds is an editorial RSS reader built with Next.js App Router on **vine
 - `components/` — UI components
 - `lib/store.tsx` — application state
 - `lib/storage/` — persistence layer
-- `app/api/feed/` — feed fetching and processing
+- `app/api/` — feed fetching, on-demand full-text extraction, and the request guards
 - `docs/` — architecture and design documentation
 
 ### Sources of truth
@@ -76,6 +76,7 @@ bun run test -- -t "<name>"
 - Persisted data is a compatibility surface. Storage names, keys, and record-shape changes require migration handling.
 - Browser code must not fetch publisher feeds directly; keep feed network access server-side.
 - Do not render publisher HTML with `dangerouslySetInnerHTML`; use the existing article representation.
+- Full text is fetched only when the reader opens a story whose feed body was a summary — never as a background crawl — and never to defeat a paywall, login, or challenge.
 - Never fabricate authors, publications, URLs, or artwork for real articles.
 - Follow the existing design system rather than introducing a new visual language casually.
 

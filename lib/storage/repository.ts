@@ -55,6 +55,12 @@ export async function putSource(source: SourceRecord): Promise<void> {
   await (await db()).put("sources", source);
 }
 
+/** Writes one article back — used when extraction replaces a summary body. */
+export async function putArticle(article: ArticleRecord): Promise<void> {
+  if (!available()) return;
+  await (await db()).put("articles", article);
+}
+
 /**
  * Replaces a source's cached articles in one transaction. Articles that are
  * kept for later are exempt from eviction, so pruning the cache can never
