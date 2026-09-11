@@ -140,6 +140,30 @@ request on the server (`app/page.tsx`) so the client cannot disagree with it.
 > the sample is fenced off rather than left masquerading as subscriptions.
 > `lib/shaping.test.ts` now fails the build if a real name reappears in it.
 
+## When a story counts as read
+
+Two triggers, because there are two ways a story reaches your eyes.
+
+**Selecting a story marks it read immediately** — a click, `J`, `K`. This is
+what makes the unread count a queue that clears as you go, and it is why the
+default is not "read only when you finish".
+
+**Reaching the end of a story also marks it read.** This exists for the case
+selection never fires: a story that was _shown_ rather than chosen — on first
+load, after a view switch, after a search. Those are displayed in the reading
+pane without ever being selected, so without this rule they could be read in
+full, top to bottom, and still sit in the unread count.
+
+Two deliberate limits. A story short enough to fit the pane is exempt, because
+there is no end to reach and being displayed is not the same as being read. And
+it fires once per story, so it never argues with `M`.
+
+Scroll depth is _not_ the primary trigger. A reader whose "read" means
+"finished" cannot clear a queue of things it has decided against — and for a
+link blog like Kottke the feed body is a two-paragraph excerpt with the real
+piece behind the link, so the bottom of our copy is not the end of anything.
+`lib/shaping.test.ts` pins both predicates.
+
 ## Opening the original
 
 An RSS reader should not be a roach motel. Every story has a canonical URL, and

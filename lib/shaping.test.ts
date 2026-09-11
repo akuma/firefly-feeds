@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agoLabel, readingTime } from "./reading";
+import { agoLabel, progressFor, reachedEnd, readingTime } from "./reading";
 import { FOLDERS, SUGGESTED_SOURCES } from "./sources";
 import { SAMPLE_FEED_BY_ID, SAMPLE_FEEDS, SAMPLE_STORIES } from "./sample";
 import { feedFromSource, formatPublished, readingFlags, storyFromArticle } from "./shaping";
@@ -21,6 +21,56 @@ describe("agoLabel", () => {
   it("never says '0 min ago' for a future or identical timestamp", () => {
     expect(agoLabel(0)).toBe("1 min ago");
     expect(agoLabel(-5)).toBe("1 min ago");
+  });
+});
+
+describe("progressFor", () => {
+  const pane = 900;
+
+  it("measures the distance travelled through a story", () => {
+    expect(progressFor({ scrollTop: 0, scrollHeight: 5000, clientHeight: pane })).toBe(0);
+    expect(progressFor({ scrollTop: 2050, scrollHeight: 5000, clientHeight: pane })).toBeCloseTo(
+      0.5,
+    );
+    expect(progressFor({ scrollTop: 4100, scrollHeight: 5000, clientHeight: pane })).toBe(1);
+  });
+
+  it("stays inside 0 and 1 even if the browser overshoots", () => {
+    expect(progressFor({ scrollTop: -40, scrollHeight: 5000, clientHeight: pane })).toBe(0);
+    expect(progressFor({ scrollTop: 9999, scrollHeight: 5000, clientHeight: pane })).toBe(1);
+  });
+
+  it("reports nothing for a story with no distance to travel", () => {
+    // a progress bar on a story that fits the pane would be noise, and it would
+    // also make the scroll-to-end rule fire the moment the story appeared
+    expect(progressFor({ scrollTop: 0, scrollHeight: 700, clientHeight: pane })).toBe(0);
+    expect(progressFor({ scrollTop: 0, scrollHeight: pane, clientHeight: pane })).toBe(0);
+  });
+});
+
+describe("reachedEnd", () => {
+  const pane = 900;
+
+  it("is true only at the end of a story long enough to have one", () => {
+    expect(reachedEnd({ scrollTop: 4100, scrollHeight: 5000, clientHeight: pane })).toBe(true);
+    expect(reachedEnd({ scrollTop: 2000, scrollHeight: 5000, clientHeight: pane })).toBe(false);
+  });
+
+  it("tolerates the sub-pixel shortfall at the very bottom", () => {
+    expect(reachedEnd({ scrollTop: 4095, scrollHeight: 5000, clientHeight: pane })).toBe(true);
+    // ...but not a story that is merely near the end
+    expect(reachedEnd({ scrollTop: 3900, scrollHeight: 5000, clientHeight: pane })).toBe(false);
+  });
+
+  it("exempts a story that fits the pane", () => {
+    // this is the whole point: a story shown on screen but never chosen must
+    // not be credited as read just for being displayed
+    expect(reachedEnd({ scrollTop: 0, scrollHeight: 700, clientHeight: pane })).toBe(false);
+    expect(reachedEnd({ scrollTop: 0, scrollHeight: pane, clientHeight: pane })).toBe(false);
+    // barely overflowing is still not a story you scroll through
+    expect(reachedEnd({ scrollTop: 100, scrollHeight: pane + 200, clientHeight: pane })).toBe(
+      false,
+    );
   });
 });
 

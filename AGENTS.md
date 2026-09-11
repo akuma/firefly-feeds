@@ -72,6 +72,13 @@ lib/
   exists, so invented and real stories can never mix. **Never attribute sample
   content to a real person or publication**, in a byline, a blurb or a pull
   quote; `lib/shaping.test.ts` asserts this and names the offenders.
+- **Read state has two triggers, and neither is scroll depth alone.** Selecting
+  a story marks it read at once; _reaching the end_ of one also marks it read,
+  which exists for stories that were shown rather than chosen (first load, view
+  switch, search). A story that fits the pane is exempt, and the end rule fires
+  once per story so it never argues with `M`. Scroll depth as the only trigger
+  would make the unread count a completion log instead of a queue — see
+  `reachedEnd` in `lib/reading.ts` for the full reasoning.
 - **Never invent artwork for a real article.** A fetched story carries a
   picture only if the publisher's feed supplied one; otherwise it renders with
   no artwork and the stream falls back to its text-only layouts. The generated

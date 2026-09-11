@@ -19,6 +19,7 @@ import { clsx } from "./clsx";
 import { IconButton, Rule } from "./brand";
 import { Firefly, Media, hasArt } from "./plate";
 import { FOLDERS } from "@/lib/sources";
+import { progressFor, reachedEnd } from "@/lib/reading";
 import { FONT_SIZES, useReader, type ReaderFont } from "@/lib/store";
 import type { Block } from "@/lib/types";
 
@@ -198,18 +199,24 @@ export function ArticlePane() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [progress, setProgress] = useState(0);
   const [fontOpen, setFontOpen] = useState(false);
+  /** Stories already credited by the scroll-to-end rule, so it fires once each. */
+  const credited = useRef(new Set<string>());
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    const max = el.scrollHeight - el.clientHeight;
-    setProgress(max > 8 ? Math.min(1, Math.max(0, el.scrollTop / max)) : 0);
+    if (el) setProgress(progressFor(el));
   }, []);
 
   /*
    * The scroll container is an external system, and its extent changes when the
    * story changes or immersive mode removes the toolbars — hence the extra
    * dependencies. Resetting and re-measuring here is the point of the effect.
+   *
+   * `ready` is one of those dependencies for a reason that is easy to miss: the
+   * container does not exist until storage has loaded, so on the first pass the
+   * ref is null and there is nothing to listen to. Without `ready` here the
+   * effect never runs again — which is exactly how the progress bar spent a
+   * while doing nothing at all.
    */
   /* oxlint-disable react/set-state-in-effect, react/exhaustive-effect-dependencies */
   useEffect(() => {
@@ -221,8 +228,26 @@ export function ArticlePane() {
     el.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
     return () => el.removeEventListener("scroll", onScroll);
-  }, [onScroll, r.selectedId, r.immersive]);
+  }, [onScroll, r.selectedId, r.immersive, r.ready]);
   /* oxlint-enable react/set-state-in-effect, react/exhaustive-effect-dependencies */
+
+  /*
+   * The second read trigger, for stories that were shown rather than chosen —
+   * see `reachedEnd` for why the rule exists and why it is not the first one.
+   * Lives in an effect rather than the scroll handler so it can consult the
+   * committed geometry, and reads the callback through a ref so this does not
+   * re-subscribe on every state change.
+   */
+  const creditRead = r.markRead;
+  useEffect(() => {
+    // cheap gate first: no reason to measure geometry on every scroll tick
+    if (progress < 0.98) return;
+    if (!s || credited.current.has(s.id)) return;
+    const el = scrollRef.current;
+    if (!el || !reachedEnd(el)) return;
+    credited.current.add(s.id);
+    creditRead(s.id);
+  }, [progress, s, creditRead]);
 
   if (!r.ready) {
     return (
