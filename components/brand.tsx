@@ -5,32 +5,32 @@ import { clsx } from "./clsx";
 import { Firefly } from "./plate";
 
 export function Wordmark({ size = "md", onClick }: { size?: "md" | "sm"; onClick?: () => void }) {
+  const small = size === "sm";
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group flex items-center gap-2.5 text-left"
-      aria-label="FireflyReader"
+      className="group flex items-start gap-2.5 text-left"
+      aria-label="FireflyReader — a quiet place to read the web"
     >
-      <Firefly size={size === "sm" ? 6 : 7} pulse />
-      <span className="flex flex-col justify-center">
+      <Firefly size={small ? 6 : 7} pulse className={small ? "mt-[5px]" : "mt-[6px]"} />
+      <span className="flex min-w-0 flex-col">
+        {/* One name, one size. The strapline below does the differentiating. */}
         <span
           className={clsx(
-            "display leading-[0.92] font-semibold tracking-[-0.022em] text-ink",
-            size === "sm" ? "text-[18px]" : "text-[20px]",
+            "display leading-[1] font-semibold tracking-[-0.022em] whitespace-nowrap text-ink",
+            small ? "text-[17px]" : "text-[19px]",
           )}
         >
-          Firefly
+          Firefly Reader
         </span>
         <span
           className={clsx(
-            "mono text-ink4 uppercase transition-colors group-hover:text-ink3",
-            size === "sm"
-              ? "mt-[2px] text-[7.5px] tracking-[0.34em]"
-              : "mt-[3px] text-[8.5px] tracking-[0.34em]",
+            "mono mt-1.5 truncate tracking-[0.12em] text-ink4 uppercase",
+            small ? "text-[7px]" : "text-[8px]",
           )}
         >
-          Reader
+          A quiet place to read
         </span>
       </span>
     </button>

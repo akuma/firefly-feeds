@@ -10,12 +10,55 @@ import { estimate } from "@/lib/storage/repository";
 import { useReader } from "@/lib/store";
 import type { Feed, FeedId, FolderId, ViewId } from "@/lib/types";
 
-function SectionLabel({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
+/**
+ * One section, one leading rule. Every divider in the navigation belongs to a
+ * section rather than sitting between them, which is what stops two adjacent
+ * sections from drawing two rules.
+ */
+function Section({
+  title,
+  action,
+  first = false,
+  last = false,
+  children,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  /** The first section is already separated by the rule under the masthead. */
+  first?: boolean;
+  last?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="flex h-7 items-center justify-between pr-3 pl-5">
-      <span className="label text-ink4">{children}</span>
-      {right}
-    </div>
+    <section>
+      <div className="px-5 pt-5">
+        {!first && <div className="h-px w-full bg-rule" />}
+        <div className="flex h-7 items-center justify-between">
+          <span className="label text-ink4">{title}</span>
+          {action}
+        </div>
+      </div>
+      <div className="flex flex-col">{children}</div>
+      {last && <div className="h-4" />}
+    </section>
+  );
+}
+
+function AddButton({ onDone }: { onDone?: () => void }) {
+  const r = useReader();
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        r.setAddOpen(true);
+        onDone?.();
+      }}
+      title="Add a feed or site"
+      className="mono flex items-center gap-1 text-[9px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-spark"
+    >
+      <Plus size={11} strokeWidth={2} />
+      Add
+    </button>
   );
 }
 
@@ -219,12 +262,10 @@ function Colophon() {
     <div className="px-5 pt-4 pb-5">
       <div className="label text-ink4">Colophon</div>
       <div className="mono mt-2.5 flex flex-col gap-1.5 text-[9.5px] leading-none tracking-[0.12em] text-ink4 uppercase">
-        <span>
-          Ed. {r.edition.slug}
-          {r.sample ? " · sample" : ""}
-        </span>
-        <span className="text-ink3">
-          {r.counts.all} unread · {r.feeds.length} sources
+        {r.sample && <span className="text-ink3">Sample edition</span>}
+        <span className={r.sample ? undefined : "text-ink3"}>
+          {r.counts.all} unread
+          {r.sources.length > 0 ? ` · ${r.sources.length} sources` : ""}
         </span>
         <span>
           {r.counts.saved} kept · {r.counts.later} queued
@@ -248,6 +289,9 @@ export function NavRail({
     r.setView(v);
     onNavigate?.();
   };
+
+  /** True until the reader has subscribed to anything, sample edition aside. */
+  const onboarding = r.sources.length === 0;
 
   const views: { id: ViewId; name: string; count: number }[] = [
     { id: "today", name: "Today", count: r.counts.today },
@@ -273,21 +317,15 @@ export function NavRail({
       <div className="h-px w-full shrink-0 bg-rule" />
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className="pt-5">
-          <SectionLabel>Reading</SectionLabel>
-          <div className="flex flex-col">
-            {views.map((v) => (
-              <Row key={v.id} active={r.view === v.id} onClick={() => go(v.id)} count={v.count}>
-                {v.name}
-              </Row>
-            ))}
-          </div>
-        </div>
+        <Section title="Reading" first>
+          {views.map((v) => (
+            <Row key={v.id} active={r.view === v.id} onClick={() => go(v.id)} count={v.count}>
+              {v.name}
+            </Row>
+          ))}
+        </Section>
 
-        <div className="mt-5 mb-5 ml-5 h-px w-[calc(100%-40px)] bg-rule" />
-
-        <SectionLabel>Folders</SectionLabel>
-        <div className="flex flex-col">
+        <Section title="Folders">
           {FOLDERS.map((f) => (
             <Row
               key={f.id}
@@ -299,37 +337,28 @@ export function NavRail({
               {f.name}
             </Row>
           ))}
-        </div>
+        </Section>
 
-        <div className="mt-5 mb-5 ml-5 h-px w-[calc(100%-40px)] bg-rule" />
-
-        {r.sample && (
-          <>
-            <div className="mb-5 ml-5 h-px w-[calc(100%-40px)] bg-rule" />
-            <SectionLabel>Sample</SectionLabel>
-            <div className="flex flex-col">
-              {r.feeds
-                .filter((feed) => feed.sample)
-                .map((feed) => (
-                  <Row key={feed.id} onClick={() => go(`feed:${feed.id}`)} dot={false}>
-                    {feed.name}
-                  </Row>
-                ))}
-            </div>
-          </>
-        )}
-
-        <div className="mb-5 ml-5 h-px w-[calc(100%-40px)] bg-rule" />
-
-        <div className="pb-2">
-          <SectionLabel>Suggested</SectionLabel>
-          <div className="flex flex-col">
+        {/*
+         * The sample edition is named in the stream, not here: its seven
+         * publications are invented, so listing them as things you could
+         * navigate to would give them a standing they have not earned.
+         *
+         * Suggested sources are an onboarding affordance, so they retire with
+         * the sample — once you have subscribed to something, the + button is
+         * the way back to them.
+         */}
+        {onboarding && (
+          <Section title="Suggested" action={<AddButton onDone={onNavigate} />}>
             {r.suggested.map((source) => (
               <button
                 key={source.id}
                 type="button"
                 title={source.blurb}
-                onClick={() => r.suggest(source.id)}
+                onClick={() => {
+                  r.suggest(source.id);
+                  onNavigate?.();
+                }}
                 className="group relative flex h-[30px] w-full items-center gap-2.5 pr-4 pl-5 text-left text-ink2 transition-colors duration-150 hover:bg-hoverc hover:text-ink"
               >
                 <span
@@ -344,46 +373,30 @@ export function NavRail({
                 </span>
               </button>
             ))}
-          </div>
-        </div>
+          </Section>
+        )}
 
-        <div className="pb-2">
-          <SectionLabel
-            right={
-              <button
-                type="button"
-                onClick={() => {
-                  r.setAddOpen(true);
-                  onNavigate?.();
-                }}
-                title="Add a feed or site"
-                className="mono flex items-center gap-1 text-[9px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-spark"
-              >
-                <Plus size={11} strokeWidth={2} />
-                Add
-              </button>
-            }
-          >
-            Sources
-          </SectionLabel>
-          <div className="flex flex-col">
-            {r.feeds
-              .filter((feed) => !feed.sample)
-              .map((feed) => (
+        {!onboarding && (
+          <Section title="Sources" action={<AddButton onDone={onNavigate} />} last>
+            {r.sources.map((source) => {
+              const feed = r.feedById(source.id);
+              if (!feed) return null;
+              return (
                 <SourceRow
                   key={feed.id}
                   feed={feed}
                   active={r.view === `feed:${feed.id}`}
                   count={r.counts.feeds[feed.id as FeedId] ?? 0}
                   refreshing={r.refreshing === feed.id}
-                  error={r.sources.find((x) => x.id === feed.id)?.error}
+                  error={source.error}
                   onSelect={() => go(`feed:${feed.id}`)}
                   onRefresh={() => void r.refresh(feed.id)}
-                  onRemove={() => r.unsubscribe(feed.id)}
+                  onRemove={() => void r.unsubscribe(feed.id)}
                 />
-              ))}
-          </div>
-        </div>
+              );
+            })}
+          </Section>
+        )}
       </div>
 
       <div className="h-px w-full shrink-0 bg-rule" />

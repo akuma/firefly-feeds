@@ -75,7 +75,7 @@ function StreamHeader({
             onClick={() => r.setNavOpen(!r.navOpen)}
           />
           <span className="mono truncate text-[9.5px] tracking-[0.18em] text-ink4 uppercase">
-            {r.edition.weekday} · Ed. {r.edition.slug}
+            {r.edition.long}
           </span>
         </div>
         <div className="flex items-center gap-0.5">

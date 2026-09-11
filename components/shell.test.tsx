@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { editionFor } from "@/lib/edition";
 import { Shell } from "./shell";
 
 /**
@@ -22,17 +23,16 @@ const rows = () =>
   );
 
 /** Reads "N unread · M sources" out of the navigation colophon. */
-function colophon(): { unread: number; sources: number } {
+function colophon(): { unread: number } {
   const line = [...nav().querySelectorAll("span")]
     .map((node) => node.textContent ?? "")
-    .find((text) => /^\d+ unread · \d+ sources$/.test(text));
-  const [, unread, sources] = /^(\d+) unread · (\d+) sources$/.exec(line ?? "") ?? [];
-  return { unread: Number(unread ?? -1), sources: Number(sources ?? -1) };
+    .find((text) => /^\d+ unread( · \d+ sources)?$/.test(text));
+  return { unread: Number(/^(\d+)/.exec(line ?? "")?.[1] ?? -1) };
 }
 
 async function mount() {
   const user = userEvent.setup();
-  const result = render(<Shell />);
+  const result = render(<Shell edition={editionFor(new Date("2026-09-11T09:00:00Z"))} />);
   await waitFor(() => expect(screen.getByText("Reading Stream")).toBeInTheDocument());
   await waitFor(() => expect(screen.queryByText("Opening the edition")).not.toBeInTheDocument());
   return { user, ...result };
@@ -150,6 +150,70 @@ describe("open original", () => {
   });
 });
 
+describe("the navigation", () => {
+  it("draws one rule between sections, and none above the first", async () => {
+    await mount();
+    const sections = nav().querySelectorAll("section");
+    const rules = nav().querySelectorAll("section > div > .bg-rule");
+    expect(sections.length).toBeGreaterThan(1);
+    // a rule belongs to a section, so two sections can never draw two rules
+    // against each other — the first is separated by the masthead's rule
+    expect(rules.length).toBe(sections.length - 1);
+  });
+
+  it("offers suggested sources while onboarding", async () => {
+    await mount();
+    expect(within(nav()).getByText("Suggested")).toBeInTheDocument();
+    expect(within(nav()).queryByText("Sources")).not.toBeInTheDocument();
+  });
+
+  it("swaps the suggestions for real sources once subscribed", async () => {
+    const repo = await import("@/lib/storage/repository");
+    await repo.putSource({
+      id: "sone",
+      url: "https://example.com/f.xml",
+      siteUrl: "https://example.com",
+      title: "One Source",
+      host: "example.com",
+      folder: "independent",
+      addedAt: Date.now(),
+      fetchedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    await mount();
+    expect(within(nav()).getByText("Sources")).toBeInTheDocument();
+    expect(within(nav()).getByText("One Source")).toBeInTheDocument();
+    expect(within(nav()).queryByText("Suggested")).not.toBeInTheDocument();
+  });
+});
+
+describe("the wordmark", () => {
+  it("sets the name as one word at one size, with a strapline beneath", async () => {
+    await mount();
+    const mark = nav().querySelector("button[aria-label^='FireflyReader']")!;
+    const name = mark.querySelector("span.display")!;
+    const strapline = mark.querySelector("span.mono")!;
+
+    expect(name.textContent).toBe("Firefly Reader");
+    // one element, so one face and one size — the name never changes typeface
+    // or size part-way through
+    expect(name.querySelectorAll("span")).toHaveLength(0);
+    expect(name.getAttribute("class")).not.toMatch(/mono/);
+    expect(strapline.textContent).toMatch(/a quiet place to read/i);
+    expect(name.compareDocumentPosition(strapline) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("writes the date out rather than abbreviating it", async () => {
+    await mount();
+    // "Ed. 11.09.2026" read as *editor*, and 11.09 is ambiguous between
+    // 11 September and 9 November
+    expect(nav().textContent).not.toMatch(/Ed\./);
+    // the uppercase is a CSS transform, so the text itself is mixed case
+    expect(stream().textContent).toMatch(/Friday, 11 September 2026/i);
+  });
+});
+
 describe("the sample edition", () => {
   it("is labelled and explainable", async () => {
     await mount();
@@ -182,10 +246,10 @@ describe("the sample edition", () => {
 describe("columns", () => {
   it("switches source and carries the reader with it", async () => {
     const { user } = await mount();
-    await user.click(within(nav()).getByRole("button", { name: /^The Slow Web/ }));
+    await user.click(within(nav()).getByRole("button", { name: /^Independent Web/ }));
 
     await waitFor(() =>
-      expect(stream().querySelector("[data-t='viewtitle']")).toHaveTextContent("The Slow Web"),
+      expect(stream().querySelector("[data-t='viewtitle']")).toHaveTextContent("Independent Web"),
     );
     expect(rows().length).toBeGreaterThan(0);
     // the open story must belong to the column that is showing
