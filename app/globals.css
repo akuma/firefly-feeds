@@ -1,0 +1,512 @@
+@import "tailwindcss";
+
+/* Self-hosted webfonts — no external font CDN required. */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/ibm-plex-mono-italic-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/ibm-plex-mono-italic-400-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/ibm-plex-mono-normal-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/ibm-plex-mono-normal-400-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/fonts/ibm-plex-mono-normal-500-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/fonts/ibm-plex-mono-normal-500-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/instrument-serif-italic-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/instrument-serif-italic-400-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/instrument-serif-normal-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/instrument-serif-normal-400-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: italic;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url(/fonts/newsreader-italic-300_700-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: italic;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url(/fonts/newsreader-italic-300_700-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url(/fonts/newsreader-normal-300_700-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url(/fonts/newsreader-normal-300_700-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-serif: "Newsreader", ui-serif, Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: "Instrument Serif", "Newsreader", ui-serif, Georgia, serif;
+
+  --color-canvas: var(--c-canvas);
+  --color-stream: var(--c-stream);
+  --color-reader: var(--c-reader);
+  --color-ink: var(--c-ink);
+  --color-ink2: var(--c-ink-2);
+  --color-ink3: var(--c-ink-3);
+  --color-ink4: var(--c-ink-4);
+  --color-rule: var(--c-rule);
+  --color-rulesoft: var(--c-rule-soft);
+  --color-rulestrong: var(--c-rule-strong);
+  --color-hoverc: var(--c-hover);
+  --color-activec: var(--c-active);
+  --color-spark: var(--c-spark);
+  --color-sparksoft: var(--c-spark-soft);
+  --color-plate: var(--c-plate);
+  --color-plateink: var(--c-plate-ink);
+}
+
+:root {
+  color-scheme: light;
+
+  --c-canvas: #e9e4d9;
+  --c-stream: #f4f1e9;
+  --c-reader: #fcfaf5;
+
+  /* The ink ramp is calibrated so every tier clears 4.5:1 against the
+     darkest paper tone, including 9.5px mono captions. */
+  --c-ink: #17150f;
+  --c-ink-2: #433e35;
+  --c-ink-3: #5b5647;
+  --c-ink-4: #6a6353;
+
+  --c-rule: rgba(23, 21, 15, 0.15);
+  --c-rule-soft: rgba(23, 21, 15, 0.08);
+  --c-rule-strong: rgba(23, 21, 15, 0.3);
+  --c-hover: rgba(23, 21, 15, 0.04);
+  --c-active: rgba(23, 21, 15, 0.066);
+
+  --c-spark: #b53a1d;
+  --c-spark-soft: rgba(181, 58, 29, 0.14);
+
+  --c-plate: #e0dacb;
+  --c-plate-ink: #4c463a;
+
+  --reader-size: 19.5px;
+  --reader-leading: 1.76;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --c-canvas: #0b0a09;
+  --c-stream: #131210;
+  --c-reader: #1b1a17;
+
+  --c-ink: #f1ede4;
+  --c-ink-2: #c6bfb0;
+  --c-ink-3: #a49c8c;
+  --c-ink-4: #8b8474;
+
+  --c-rule: rgba(240, 236, 227, 0.15);
+  --c-rule-soft: rgba(240, 236, 227, 0.08);
+  --c-rule-strong: rgba(240, 236, 227, 0.3);
+  --c-hover: rgba(240, 236, 227, 0.045);
+  --c-active: rgba(240, 236, 227, 0.075);
+
+  --c-spark: #ff6a3d;
+  --c-spark-soft: rgba(255, 106, 61, 0.16);
+
+  --c-plate: #232019;
+  --c-plate-ink: #b6ae9d;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    margin: 0;
+    background: var(--c-canvas);
+    color: var(--c-ink);
+    font-family: var(--font-serif);
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-synthesis-weight: none;
+    overscroll-behavior: none;
+  }
+
+  ::selection {
+    background: var(--c-spark-soft);
+    color: var(--c-ink);
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--c-spark);
+    outline-offset: 2px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+}
+
+/* ---------------------------------------------------------------- typekit */
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "ss02" 1;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
+.display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-optical-sizing: auto;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* -------------------------------------------------------------- scrollbar */
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-rule-strong) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 4px solid transparent;
+  background-clip: content-box;
+}
+.scroll-thin:hover::-webkit-scrollbar-thumb {
+  background: var(--c-rule-strong);
+  background-clip: content-box;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ------------------------------------------------------------ firefly dot */
+
+@keyframes ff-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.42;
+    transform: scale(0.82);
+  }
+}
+
+.ff-pulse {
+  animation: ff-pulse 3.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes ff-glow {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
+.ff-glow {
+  animation: ff-glow 4.4s ease-in-out infinite;
+}
+
+@keyframes ff-rise {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ff-rise {
+  animation: ff-rise 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes ff-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ff-fade {
+  animation: ff-fade 0.28s ease-out both;
+}
+
+@keyframes ff-sheet {
+  from {
+    transform: translateY(3%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.ff-sheet {
+  animation: ff-sheet 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes ff-drawer {
+  from {
+    transform: translateX(-102%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.ff-drawer {
+  animation: ff-drawer 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes ff-stagger {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ff-stagger {
+  animation: ff-stagger 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ff-pulse,
+  .ff-glow,
+  .ff-rise,
+  .ff-fade,
+  .ff-sheet,
+  .ff-drawer,
+  .ff-stagger {
+    animation: none !important;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ------------------------------------------------------------------ prose */
+
+.reading {
+  font-size: var(--reader-size);
+  line-height: var(--reader-leading);
+  color: var(--c-ink-2);
+  font-optical-sizing: auto;
+}
+
+.reading p {
+  margin: 0 0 1.18em;
+  text-wrap: pretty;
+}
+
+.reading > p:first-of-type {
+  margin-top: 0;
+}
+
+/*
+ * The opening paragraph is set as a lede: a touch larger, full-strength ink,
+ * and slightly tighter leading. A drop cap was rejected here because these
+ * essays open on one-line paragraphs, where a float breaks the measure.
+ */
+.reading.lede > p:first-of-type {
+  font-size: 1.09em;
+  line-height: 1.62;
+  letter-spacing: -0.008em;
+  color: var(--c-ink);
+  margin-bottom: 1.5em;
+}
+
+.reading.lede > p:first-of-type + p {
+  margin-top: 0;
+}
+
+.reading a {
+  color: var(--c-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--c-spark);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.reading a:hover {
+  color: var(--c-spark);
+}
+
+.reading h2 {
+  font-family: var(--font-serif);
+  font-size: 1.32em;
+  font-weight: 500;
+  line-height: 1.24;
+  letter-spacing: -0.012em;
+  color: var(--c-ink);
+  margin: 2.3em 0 0.75em;
+}
+
+.reading strong {
+  font-weight: 600;
+  color: var(--c-ink);
+}
+
+.reading em {
+  font-style: italic;
+}
+
+.reading ul {
+  margin: 0 0 1.3em;
+  padding: 0;
+  list-style: none;
+}
+
+.reading ul li {
+  position: relative;
+  padding-left: 1.5em;
+  margin-bottom: 0.55em;
+  text-wrap: pretty;
+}
+
+.reading ul li::before {
+  content: "";
+  position: absolute;
+  left: 0.15em;
+  top: 0.72em;
+  width: 5px;
+  height: 1px;
+  background: var(--c-spark);
+}
+
+/* --------------------------------------------------------------- helpers */
+
+.hairline-t {
+  box-shadow: inset 0 1px 0 var(--c-rule);
+}
+.hairline-b {
+  box-shadow: inset 0 -1px 0 var(--c-rule);
+}
+
+.vert-text {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+}

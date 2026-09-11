@@ -1,0 +1,76 @@
+export type FolderId = "design" | "technology" | "ai" | "independent" | "culture";
+
+export type SmartViewId = "all" | "today" | "saved" | "later";
+
+/** Seeded feeds have literal ids; subscribed feeds get a generated one. */
+export type FeedId = string;
+
+export type ViewId = SmartViewId | `folder:${FolderId}` | `feed:${FeedId}`;
+
+export type Feed = {
+  id: FeedId;
+  name: string;
+  folder: FolderId;
+  /** Host shown in the reader's provenance line. */
+  host: string;
+  /** Two-letter monogram used in dense list contexts. */
+  mark: string;
+  /** Present only on feeds the reader subscribed to themselves. */
+  feedUrl?: string;
+  siteUrl?: string;
+  subscribed?: boolean;
+};
+
+export type Folder = {
+  id: FolderId;
+  name: string;
+};
+
+export type Block =
+  | { kind: "p"; text: string }
+  | { kind: "h2"; text: string }
+  | { kind: "quote"; text: string; cite?: string }
+  /** `src` is set when the artwork came from the feed; otherwise a plate is generated. */
+  | { kind: "figure"; caption: string; seed: number; src?: string }
+  | { kind: "list"; items: string[] }
+  | { kind: "note"; text: string }
+  | { kind: "code"; text: string }
+  | { kind: "rule" };
+
+/**
+ * Stream rhythm. The stream deliberately does not render every story the same
+ * way — `layout` decides how much space a story is given in the column.
+ */
+export type StoryLayout = "feature" | "standard" | "compact" | "quote" | "brief";
+
+export type Article = {
+  id: string;
+  title: string;
+  feedId: FeedId;
+  /** Standfirst / summary shown in the stream and under the headline. */
+  dek: string;
+  /** Minutes before the edition closed. Drives every relative timestamp. */
+  minutesAgo: number;
+  layout: StoryLayout;
+  /** Seed for the generative plate, when the story carries artwork. */
+  plate?: number;
+  /** Photograph supplied by the feed, used instead of a generated plate. */
+  image?: string;
+  /** Pull quote used by the `quote` layout in the stream. */
+  pull?: string;
+  byline?: string;
+  body: Block[];
+  /** Canonical URL, for stories that came from a real feed. */
+  link?: string;
+  /** Pre-formatted publication date for the reader's provenance line. */
+  publishedLabel?: string;
+  /** True for stories fetched from a subscription rather than seeded. */
+  live?: boolean;
+  /** The feed body was longer than the reader caches, so the piece continues at the source. */
+  truncated?: boolean;
+};
+
+export type Story = Article & {
+  /** Reading time derived from the body. */
+  minutes: number;
+};
