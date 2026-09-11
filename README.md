@@ -12,7 +12,12 @@ constant refreshing or infinite scrolling.
 Everything you read, save, or queue stays on your device. There is no account, no
 sync service, and no reading history stored on our servers.
 
-![Firefly Feeds showing the three-column edition view](docs/preview-desktop.png)
+![Firefly Feeds reading a NASA feed, light](docs/preview-desktop.webp)
+
+![The same edition in dark mode](docs/preview-dark.webp)
+
+_The same edition, light and dark. Screenshots are captured from the running app
+reading a real feed — NASA's, because its imagery is public domain._
 
 ## Features
 

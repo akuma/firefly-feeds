@@ -100,7 +100,7 @@ state. It pulses slowly, and stops entirely under `prefers-reduced-motion`.
 
 ## Mobile
 
-![Firefly Feeds on a phone](preview-mobile.png)
+![Firefly Feeds on a phone](preview-mobile.webp)
 
 Mobile is not the desktop stack squashed. Below 1024px the structure changes:
 a compact masthead, the stream at full width, a four-item tab bar, and **the
@@ -137,6 +137,16 @@ laptop window, and a primary action that scrolls out of view is an action the
 reader cannot find. Both decisions live in the pinned bar — which folder it files
 into, and the button that does it — so neither depends on where the body happens
 to be scrolled.
+
+## Screenshots
+
+`docs/preview-*.webp` are captured from the running app reading **NASA's** feed.
+That is not an arbitrary choice of example: NASA media is public domain, so a
+screenshot containing its photography can live in a public repository. A news
+feed's pictures could not.
+
+They are WebP at quality 88 — around 120KB each against 570KB as PNG, at a
+measured 41dB PSNR, which is visually lossless for a screenshot.
 
 ## Layout rule
 

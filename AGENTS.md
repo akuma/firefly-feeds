@@ -49,6 +49,7 @@ components/
   plate.tsx           generative SVG artwork + the firefly mark
 docs/
   DESIGN.md           the visual language, and why it is that way
+  preview-*.webp      screenshots, captured reading NASA's feed (public domain)
   ARCHITECTURE.md     how a feed becomes a page
   STORAGE.md          the three stores and the repository contract
 lib/
