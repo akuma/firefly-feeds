@@ -1,5 +1,5 @@
 import { XMLParser } from "fast-xml-parser";
-import { hashString, htmlToBlocks, htmlToSummary, htmlToText, isSafeUrl } from "./feed-html";
+import { hashString, htmlToBlocks, htmlToSummary, htmlToText, resolveUrl } from "./feed-html";
 import type { Block, Story, StoryLayout } from "./types";
 
 /* --------------------------------------------------------------- types */
@@ -63,7 +63,9 @@ export function normalizeInputUrl(raw: string): string {
   return url.toString();
 }
 
-async function request(url: string): Promise<{ body: string; contentType: string; finalUrl: string }> {
+async function request(
+  url: string,
+): Promise<{ body: string; contentType: string; finalUrl: string }> {
   let res: Response;
   try {
     res = await fetch(url, {
@@ -114,7 +116,8 @@ function discoverFeeds(html: string, baseUrl: string): { href: string; title: st
     if (!href) continue;
     try {
       const abs = new URL(href, baseUrl).toString();
-      if (!found.some((f) => f.href === abs)) found.push({ href: abs, title: attr(tag, "title") ?? "" });
+      if (!found.some((f) => f.href === abs))
+        found.push({ href: abs, title: attr(tag, "title") ?? "" });
     } catch {
       /* skip malformed */
     }
@@ -132,9 +135,7 @@ function looksLikeFeed(body: string, contentType: string): boolean {
   const head = body.slice(0, 900);
   if (/^\s*\{/.test(head)) return contentType.includes("json");
   return (
-    contentType.includes("xml") ||
-    /^\s*<\?xml/i.test(head) ||
-    /<(rss|feed|rdf:RDF)\b/i.test(head)
+    contentType.includes("xml") || /^\s*<\?xml/i.test(head) || /<(rss|feed|rdf:RDF)\b/i.test(head)
   );
 }
 
@@ -197,12 +198,9 @@ function pickLink(value: unknown, baseUrl: string): string {
       else if (rel === "self") score = 0;
       if (typeof o["@_type"] === "string" && o["@_type"].includes("html")) score += 1;
     }
-    if (!href || !isSafeUrl(href)) continue;
-    try {
-      scored.push({ href: new URL(href, baseUrl).toString(), score });
-    } catch {
-      /* skip */
-    }
+    const resolved = resolveUrl(href, baseUrl);
+    if (!resolved) continue;
+    scored.push({ href: resolved, score });
   }
   scored.sort((a, b) => b.score - a.score);
   return scored[0]?.href ?? "";
@@ -215,7 +213,11 @@ function parseDate(value: unknown): number | undefined {
   return Number.isFinite(ms) ? ms : undefined;
 }
 
-function pickImage(item: Record<string, unknown>, html: string, baseUrl: string): string | undefined {
+function pickImage(
+  item: Record<string, unknown>,
+  html: string,
+  baseUrl: string,
+): string | undefined {
   const candidates: string[] = [
     firstAttr(item["media:content"], "@_url"),
     firstAttr(item["media:thumbnail"], "@_url"),
@@ -233,19 +235,12 @@ function pickImage(item: Record<string, unknown>, html: string, baseUrl: string)
     }
   }
   for (const candidate of candidates) {
-    if (isSafeUrl(candidate)) return new URL(candidate, baseUrl).toString();
+    const resolved = resolveUrl(candidate, baseUrl);
+    if (resolved) return resolved;
   }
   // last resort: the first real image in the body
   const match = /<img\b[^>]*>/i.exec(html);
-  const src = match ? attr(match[0], "src") : undefined;
-  if (isSafeUrl(src)) {
-    try {
-      return new URL(src, baseUrl).toString();
-    } catch {
-      /* skip */
-    }
-  }
-  return undefined;
+  return resolveUrl(match ? attr(match[0], "src") : undefined, baseUrl);
 }
 
 function normalizeItem(
@@ -255,13 +250,14 @@ function normalizeItem(
   channelAuthor: string,
 ): ParsedItem | null {
   const title = htmlToText(firstText(raw.title)).slice(0, 300);
-  const link = pickLink(raw.link, baseUrl) || firstText(raw.guid);
-  const contentHtml = [
-    firstText(raw["content:encoded"]),
-    firstText(raw.content),
-    firstText(raw.description),
-    firstText(raw.summary),
-  ].find((x) => x && x.length > 0) ?? "";
+  const link = pickLink(raw.link, baseUrl) || resolveUrl(firstText(raw.guid), baseUrl);
+  const contentHtml =
+    [
+      firstText(raw["content:encoded"]),
+      firstText(raw.content),
+      firstText(raw.description),
+      firstText(raw.summary),
+    ].find((x) => x && x.length > 0) ?? "";
 
   if (!title && !contentHtml) return null;
 
@@ -282,13 +278,15 @@ function normalizeItem(
     parseDate(raw.date);
 
   const { blocks: body, truncated } = htmlToBlocks(contentHtml, baseUrl);
-  const summary = htmlToSummary(firstText(raw.description) || firstText(raw.summary) || contentHtml);
+  const summary = htmlToSummary(
+    firstText(raw.description) || firstText(raw.summary) || contentHtml,
+  );
   const image = pickImage(raw, contentHtml, baseUrl);
 
   return {
     id: hashString(`${link || title}|${index}`).toString(36),
     title: title || "Untitled",
-    link: isSafeUrl(link) ? link : undefined,
+    link,
     author: author ? htmlToText(author).slice(0, 120) : undefined,
     publishedMs,
     summary: summary || htmlToText(contentHtml).slice(0, 220),
@@ -322,7 +320,8 @@ export function parseFeedXml(xml: string, feedUrl: string): ParsedFeed {
     rawItems = asArray(atomRoot.entry as never);
   } else if (rdfRoot) {
     kind = "rdf";
-    channel = rdfRoot;
+    // RSS 1.0 keeps its metadata on <channel> alongside the top-level <item>s
+    channel = (asArray(rdfRoot.channel as never)[0] as Record<string, unknown>) ?? rdfRoot;
     rawItems = asArray(rdfRoot.item as never);
   } else if (rssRoot) {
     channel = (asArray(rssRoot.channel as never)[0] as Record<string, unknown>) ?? {};
@@ -339,7 +338,8 @@ export function parseFeedXml(xml: string, feedUrl: string): ParsedFeed {
     firstText(channel.author) ||
     firstText((channel["atom:author"] as Record<string, unknown> | undefined)?.name) ||
     "";
-  const title = htmlToText(firstText(channel.title)) || new URL(feedUrl).hostname.replace(/^www\./, "");
+  const title =
+    htmlToText(firstText(channel.title)) || new URL(feedUrl).hostname.replace(/^www\./, "");
 
   const items: ParsedItem[] = [];
   for (const [index, raw] of rawItems.slice(0, 40).entries()) {
@@ -354,7 +354,9 @@ export function parseFeedXml(xml: string, feedUrl: string): ParsedFeed {
     title: title.slice(0, 120),
     siteUrl,
     feedUrl,
-    description: htmlToText(firstText(channel.description) || firstText(channel.subtitle) || firstText(channel.tagline)),
+    description: htmlToText(
+      firstText(channel.description) || firstText(channel.subtitle) || firstText(channel.tagline),
+    ),
     kind,
     items,
   };
@@ -376,6 +378,9 @@ export async function readFeed(input: string): Promise<ParsedFeed> {
   }
 
   let lastError: unknown;
+  // candidates are tried in document order and stop at the first that parses,
+  // so these requests are deliberately sequential
+  /* oxlint-disable no-await-in-loop */
   for (const candidate of discovered.slice(0, 3)) {
     try {
       const next = await request(candidate.href);
@@ -384,7 +389,10 @@ export async function readFeed(input: string): Promise<ParsedFeed> {
       lastError = error;
     }
   }
-  throw lastError instanceof FeedError ? lastError : new FeedError("No readable feed was found.", 422);
+  /* oxlint-enable no-await-in-loop */
+  throw lastError instanceof FeedError
+    ? lastError
+    : new FeedError("No readable feed was found.", 422);
 }
 
 /* ------------------------------------------------------------- shaping */

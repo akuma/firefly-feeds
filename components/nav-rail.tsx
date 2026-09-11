@@ -12,7 +12,7 @@ import type { Feed, FeedId, FolderId, ViewId } from "@/lib/types";
 
 function SectionLabel({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
   return (
-    <div className="flex h-7 items-center justify-between pl-5 pr-3">
+    <div className="flex h-7 items-center justify-between pr-3 pl-5">
       <span className="label text-ink4">{children}</span>
       {right}
     </div>
@@ -39,14 +39,14 @@ function Row({
       type="button"
       onClick={onClick}
       className={clsx(
-        "group relative flex h-[30px] w-full items-center gap-2.5 pl-5 pr-4 text-left transition-colors duration-150",
+        "group relative flex h-[30px] w-full items-center gap-2.5 pr-4 pl-5 text-left transition-colors duration-150",
         active ? "bg-activec text-ink" : "text-ink2 hover:bg-hoverc hover:text-ink",
       )}
     >
       <span
         aria-hidden
         className={clsx(
-          "absolute left-0 top-0 h-full w-[2px] transition-colors duration-150",
+          "absolute top-0 left-0 h-full w-[2px] transition-colors duration-150",
           active ? "bg-spark" : "bg-transparent group-hover:bg-rule",
         )}
       />
@@ -68,7 +68,7 @@ function Row({
       {count !== undefined && count > 0 && (
         <span
           className={clsx(
-            "mono shrink-0 text-[10px] leading-none tnum",
+            "mono tnum shrink-0 text-[10px] leading-none",
             active ? "text-spark" : "text-ink4 group-hover:text-ink3",
           )}
         >
@@ -106,14 +106,14 @@ function SourceRow({
   return (
     <div
       className={clsx(
-        "group relative flex h-[30px] items-center gap-2.5 pl-5 pr-2.5 transition-colors duration-150",
+        "group relative flex h-[30px] items-center gap-2.5 pr-2.5 pl-5 transition-colors duration-150",
         active ? "bg-activec text-ink" : "text-ink2 hover:bg-hoverc hover:text-ink",
       )}
     >
       <span
         aria-hidden
         className={clsx(
-          "absolute left-0 top-0 h-full w-[2px] transition-colors duration-150",
+          "absolute top-0 left-0 h-full w-[2px] transition-colors duration-150",
           active ? "bg-spark" : "bg-transparent group-hover:bg-rule",
         )}
       />
@@ -121,15 +121,18 @@ function SourceRow({
         type="button"
         onClick={onSelect}
         aria-current={active ? "true" : undefined}
+        aria-label={count > 0 ? `${feed.name}, ${count} unread` : feed.name}
         className="absolute inset-0 cursor-pointer"
-      >
-        <span className="sr-only">{feed.name}</span>
-      </button>
+      />
 
-      <span className="pointer-events-none relative flex w-[7px] shrink-0 justify-start">
+      <span
+        aria-hidden="true"
+        className="pointer-events-none relative flex w-[7px] shrink-0 justify-start"
+      >
         {count > 0 ? <Firefly size={5} glow={false} pulse={active} /> : null}
       </span>
       <span
+        aria-hidden="true"
         title={error ? `Last refresh failed: ${error}` : undefined}
         className={clsx(
           "pointer-events-none relative min-w-0 flex-1 truncate font-mono text-[11.5px] leading-none",
@@ -139,7 +142,7 @@ function SourceRow({
         {feed.name}
       </span>
 
-      <span className="relative flex shrink-0 items-center gap-1.5">
+      <span aria-hidden="true" className="relative flex shrink-0 items-center gap-1.5">
         {refreshing ? (
           <Firefly size={5} pulse />
         ) : error ? (
@@ -154,7 +157,7 @@ function SourceRow({
           count > 0 && (
             <span
               className={clsx(
-                "mono text-[10px] leading-none tnum",
+                "mono tnum text-[10px] leading-none",
                 active ? "text-spark" : "text-ink4 group-hover:text-ink3",
               )}
             >
@@ -194,9 +197,14 @@ function formatBytes(bytes: number): string {
 function Colophon() {
   const r = useReader();
   const [usage, setUsage] = useState<number | null>(null);
+  const ready = r.ready;
+  const storedRecords = r.sources.length + r.stories.length;
 
+  // `storedRecords` is a deliberate trigger, not a read: the browser's storage
+  // estimate is only meaningful once something has been written to it.
+  /* oxlint-disable react/exhaustive-effect-dependencies */
   useEffect(() => {
-    if (!r.ready) return;
+    if (!ready) return;
     let cancelled = false;
     void estimate().then((value) => {
       if (!cancelled && value) setUsage(value.usage);
@@ -204,22 +212,23 @@ function Colophon() {
     return () => {
       cancelled = true;
     };
-  }, [r.ready, r.sources.length, r.stories.length]);
+  }, [ready, storedRecords]);
+  /* oxlint-enable react/exhaustive-effect-dependencies */
 
   return (
-    <div className="px-5 pb-5 pt-4">
+    <div className="px-5 pt-4 pb-5">
       <div className="label text-ink4">Colophon</div>
-      <div className="mono mt-2.5 flex flex-col gap-1.5 text-[9.5px] uppercase leading-none tracking-[0.12em] text-ink4">
-        <span>Ed. {EDITION.slug} · Vol. {EDITION.volume}</span>
+      <div className="mono mt-2.5 flex flex-col gap-1.5 text-[9.5px] leading-none tracking-[0.12em] text-ink4 uppercase">
+        <span>
+          Ed. {EDITION.slug} · Vol. {EDITION.volume}
+        </span>
         <span className="text-ink3">
           {r.counts.all} unread · {r.feeds.length} sources
         </span>
         <span>
           {r.counts.saved} kept · {r.counts.later} queued
         </span>
-        <span className="text-ink4">
-          {usage === null ? "—" : formatBytes(usage)} on device
-        </span>
+        <span className="text-ink4">{usage === null ? "—" : formatBytes(usage)} on device</span>
       </div>
     </div>
   );
@@ -254,7 +263,7 @@ export function NavRail({
           <button
             type="button"
             onClick={onNavigate}
-            className="mono text-[9.5px] uppercase tracking-[0.16em] text-ink4 transition-colors hover:text-ink"
+            className="mono text-[9.5px] tracking-[0.16em] text-ink4 uppercase transition-colors hover:text-ink"
           >
             Close
           </button>
@@ -274,7 +283,7 @@ export function NavRail({
           </div>
         </div>
 
-        <div className="mb-5 mt-5 ml-5 h-px w-[calc(100%-40px)] bg-rule" />
+        <div className="mt-5 mb-5 ml-5 h-px w-[calc(100%-40px)] bg-rule" />
 
         <SectionLabel>Folders</SectionLabel>
         <div className="flex flex-col">
@@ -291,7 +300,7 @@ export function NavRail({
           ))}
         </div>
 
-        <div className="mb-5 mt-5 ml-5 h-px w-[calc(100%-40px)] bg-rule" />
+        <div className="mt-5 mb-5 ml-5 h-px w-[calc(100%-40px)] bg-rule" />
 
         <div className="pb-2">
           <SectionLabel
@@ -303,7 +312,7 @@ export function NavRail({
                   onNavigate?.();
                 }}
                 title="Add a feed or site"
-                className="mono flex items-center gap-1 text-[9px] uppercase tracking-[0.14em] text-ink4 transition-colors hover:text-spark"
+                className="mono flex items-center gap-1 text-[9px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-spark"
               >
                 <Plus size={11} strokeWidth={2} />
                 Add
@@ -349,12 +358,17 @@ export function NavRail({
             active={r.theme === "dark"}
             onClick={() => r.setTheme("dark")}
           />
-          <IconButton icon={Search} label="Search" size={24} onClick={() => r.setSearchOpen(true)} />
+          <IconButton
+            icon={Search}
+            label="Search"
+            size={24}
+            onClick={() => r.setSearchOpen(true)}
+          />
         </div>
         <button
           type="button"
           onClick={() => r.setSearchOpen(true)}
-          className="mono flex items-center gap-1.5 text-[9px] uppercase tracking-[0.14em] text-ink4 transition-colors hover:text-ink"
+          className="mono flex items-center gap-1.5 text-[9px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink"
         >
           <Command size={10} strokeWidth={1.6} />K
         </button>

@@ -43,7 +43,11 @@ export async function GET(request: Request) {
           body: full ? item.body : [],
           truncated: Boolean(item.truncated),
           minutes: readingTime(item.body),
-          layout: layoutFor(index, Boolean(item.image), item.body.some((b) => b.kind === "quote")),
+          layout: layoutFor(
+            index,
+            Boolean(item.image),
+            item.body.some((b) => b.kind === "quote"),
+          ),
         })),
       },
       { headers: { "cache-control": "no-store" } },

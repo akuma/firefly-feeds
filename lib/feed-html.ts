@@ -68,10 +68,14 @@ export function decodeEntities(input: string): string {
 }
 
 function text(html: string): string {
-  return decodeEntities(html.replace(/<[^>]*>/g, " "))
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    decodeEntities(html.replace(/<[^>]*>/g, " "))
+      // feed bodies carry stray control characters that would corrupt the layout
+      // oxlint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 function attr(tag: string, name: string): string | undefined {
@@ -89,23 +93,43 @@ export function isSafeUrl(url: string | undefined): url is string {
   return /^https?:\/\//i.test(u);
 }
 
-function absolute(url: string, base?: string): string {
-  if (url.startsWith("//")) return `https:${url}`;
-  if (/^https?:\/\//i.test(url)) return url;
-  if (!base) return url;
+/**
+ * Absolute-ises a URL against the document it came from, then decides whether
+ * it is safe to fetch. Order matters: feeds routinely publish `src="/photo.jpg"`
+ * or `<link href="/entry">`, and testing safety *before* resolution threw those
+ * away — which silently broke images and made Atom `rel="alternate"` lose to
+ * `rel="self"`.
+ */
+export function resolveUrl(raw: string | undefined, base?: string): string | undefined {
+  if (!raw) return undefined;
+  const value = raw.trim();
+  if (!value) return undefined;
+  if (value.startsWith("//")) return `https:${value}`;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (!base) return undefined;
   try {
-    return new URL(url, base).toString();
+    const resolved = new URL(value, base);
+    return resolved.protocol === "http:" || resolved.protocol === "https:"
+      ? resolved.toString()
+      : undefined;
   } catch {
-    return url;
+    return undefined;
   }
 }
 
-/** Publisher boilerplate that has no business appearing in a reading surface. */
+/**
+ * Publisher boilerplate that has no business appearing in a reading surface.
+ * The WordPress trailer is matched loosely — the title between "The post" and
+ * "appeared first on" is often absent, which an over-specified pattern misses.
+ */
 function scrub(s: string): string {
   return s
-    .replace(/\s*(Read more|Continue reading|Read the full (?:post|article|story)|The post .{0,120}? appeared first on .{0,80}?\.?)\s*[»→….]*\s*$/i, " ")
+    .replace(/\s*The post\b[\s\S]{0,200}?appeared first on\b[\s\S]{0,160}?\.?\s*$/i, " ")
+    .replace(
+      /\s*(Read more|Continue reading|Read the full (?:post|article|story)|View comments)\s*[»→….]*\s*$/i,
+      " ",
+    )
     .replace(/\s*\[…\]\s*$/, " ")
-    .replace(/\s*The post .{0,120}? appeared first on .{0,80}?\.?\s*/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -116,7 +140,8 @@ function isMeaningfulImage(tag: string): boolean {
   const h = Number(attr(tag, "height") ?? 0);
   if ((w && w <= 64) || (h && h <= 64)) return false;
   const src = attr(tag, "src") ?? "";
-  if (/feedburner|feeds\.wordpress|pixel|spacer|1x1|doubleclick|gravatar|avatar/i.test(src)) return false;
+  if (/feedburner|feeds\.wordpress|pixel|spacer|1x1|doubleclick|gravatar|avatar/i.test(src))
+    return false;
   const alt = (attr(tag, "alt") ?? "").trim();
   if (/^(share|tweet|facebook|linkedin|whatsapp|email|print)$/i.test(alt)) return false;
   return true;
@@ -127,41 +152,40 @@ const DEFAULT_BUDGET = { blocks: 60, chars: 8_000 };
 
 export type Extraction = { blocks: Block[]; truncated: boolean };
 
-export function htmlToBlocks(
-  input: string,
-  baseUrl?: string,
-  budget = DEFAULT_BUDGET,
-): Extraction {
+export function htmlToBlocks(input: string, baseUrl?: string, budget = DEFAULT_BUDGET): Extraction {
   if (!input) return { blocks: [], truncated: false };
 
   let s = input
     .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<(script|style|head|noscript|iframe|svg|canvas|form|button|select|textarea|video|audio)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
+    .replace(
+      /<(script|style|head|noscript|iframe|svg|canvas|form|button|select|textarea|video|audio)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+      "",
+    )
     .replace(/<(script|style|iframe|input|link|meta|source|track)\b[^>]*\/?>/gi, "");
 
   const vault: Block[] = [];
   const hold = (block: Block) => {
     vault.push(block);
-    return `\u0000${vault.length - 1}\u0000`;
+    return `\uE000${vault.length - 1}\uE000`;
   };
 
   // ---------------------------------------------------------- figures
   s = s.replace(/<figure\b[^>]*>([\s\S]*?)<\/figure\s*>/gi, (_m, inner: string) => {
     const img = /<img\b[^>]*>/i.exec(inner);
     if (!img || !isMeaningfulImage(img[0])) return "";
-    const src = attr(img[0], "src");
-    if (!isSafeUrl(src)) return "";
+    const src = resolveUrl(attr(img[0], "src"), baseUrl);
+    if (!src) return "";
     const caption = text(inner.replace(/<img\b[^>]*>/gi, "")) || attr(img[0], "alt") || "";
-    return hold({ kind: "figure", src: absolute(src, baseUrl), caption, seed: hashString(src) });
+    return hold({ kind: "figure", src, caption, seed: hashString(src) });
   });
 
   s = s.replace(/<img\b[^>]*>/gi, (tag: string) => {
     if (!isMeaningfulImage(tag)) return "";
-    const src = attr(tag, "src");
-    if (!isSafeUrl(src)) return "";
+    const src = resolveUrl(attr(tag, "src"), baseUrl);
+    if (!src) return "";
     return hold({
       kind: "figure",
-      src: absolute(src, baseUrl),
+      src,
       caption: attr(tag, "alt") ?? "",
       seed: hashString(src),
     });
@@ -172,7 +196,11 @@ export function htmlToBlocks(
     const body = text(inner.replace(/<\/?(cite|footer)\b[^>]*>/gi, " "));
     if (body.length < 12) return "";
     const cite = /<cite\b[^>]*>([\s\S]*?)<\/cite\s*>/i.exec(inner);
-    return hold({ kind: "quote", text: scrub(body).slice(0, 700), cite: cite ? text(cite[1]).slice(0, 120) : undefined });
+    return hold({
+      kind: "quote",
+      text: scrub(body).slice(0, 700),
+      cite: cite ? text(cite[1]).slice(0, 120) : undefined,
+    });
   });
 
   s = s.replace(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]\s*>/gi, (_m, inner: string) => {
@@ -216,12 +244,15 @@ export function htmlToBlocks(
   };
 
   for (const chunk of decodeEntities(s).split(/\n{2,}/)) {
-    const clean = chunk.replace(/[ \t]+/g, " ").replace(/\n/g, " ").trim();
+    const clean = chunk
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n/g, " ")
+      .trim();
     if (!clean) continue;
     // a chunk is either a held block, body text, or body text wrapped around held blocks
-    for (const piece of clean.split(/(\u0000\d+\u0000)/)) {
+    for (const piece of clean.split(/(\uE000\d+\uE000)/)) {
       if (!piece) continue;
-      const token = /^\u0000(\d+)\u0000$/.exec(piece);
+      const token = /^\uE000(\d+)\uE000$/.exec(piece);
       if (token) {
         const block = vault[Number(token[1])];
         if (block) blocks.push(block);
@@ -271,9 +302,7 @@ export function htmlToBlocks(
 /** Plain-text standfirst for the stream, from whatever HTML the feed offers. */
 export function htmlToSummary(input: string, limit = 260): string {
   if (!input) return "";
-  const stripped = scrub(
-    htmlToText(input)
-  );
+  const stripped = scrub(htmlToText(input));
   if (stripped.length <= limit) return stripped;
   const cut = stripped.slice(0, limit);
   const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
@@ -286,7 +315,7 @@ export function htmlToText(input: string): string {
       .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
       .replace(/<\/(p|div|section|article|li|h[1-6]|blockquote|tr)\s*>/gi, "\n\n")
       .replace(/<br\b[^>]*\/?>/gi, "\n")
-      .replace(/<[^>]*>/g, "")
+      .replace(/<[^>]*>/g, ""),
   )
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")

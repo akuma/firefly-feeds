@@ -64,6 +64,8 @@ type Ctx = {
   feedById: (id: FeedId) => Feed | undefined;
   /** Canonical URL for a story: its own link, else its source's site. */
   originalUrl: (story: Story) => string | undefined;
+  /** Canonical URL for whatever the reader currently has open. */
+  currentUrl: () => string | undefined;
 
   sources: SourceRecord[];
   subscribe: (input: SubscribeInput) => Promise<void>;
@@ -224,10 +226,7 @@ export function useReaderState(): Ctx {
 
   /* ------------------------------------------------------ derive views */
 
-  const feeds = useMemo<Feed[]>(
-    () => [...SEED_FEEDS, ...sources.map(feedFromSource)],
-    [sources],
-  );
+  const feeds = useMemo<Feed[]>(() => [...SEED_FEEDS, ...sources.map(feedFromSource)], [sources]);
 
   const feedIndex = useMemo(() => {
     const map = new Map<FeedId, Feed>();
@@ -241,7 +240,7 @@ export function useReaderState(): Ctx {
 
   const stories = useMemo<Story[]>(
     () =>
-      [...articles.map((a) => storyFromArticle(a, now)), ...SEED_STORIES].sort(
+      [...articles.map((a) => storyFromArticle(a, now)), ...SEED_STORIES].toSorted(
         (a, b) => a.minutesAgo - b.minutesAgo,
       ),
     [articles, now],
@@ -361,15 +360,12 @@ export function useReaderState(): Ctx {
     [reloadSource],
   );
 
-  const unsubscribe = useCallback(
-    async (id: string) => {
-      await repo.removeSource(id);
-      setSources((current) => current.filter((s) => s.id !== id));
-      setArticles((current) => current.filter((a) => a.sourceId !== id));
-      setViewRaw((current) => (current === `feed:${id}` ? "today" : current));
-    },
-    [],
-  );
+  const unsubscribe = useCallback(async (id: string) => {
+    await repo.removeSource(id);
+    setSources((current) => current.filter((s) => s.id !== id));
+    setArticles((current) => current.filter((a) => a.sourceId !== id));
+    setViewRaw((current) => (current === `feed:${id}` ? "today" : current));
+  }, []);
 
   const refresh = useCallback(
     async (id: string) => {
@@ -382,8 +378,9 @@ export function useReaderState(): Ctx {
         if (!data?.ok) throw new Error(data?.error ?? "failed");
 
         const at = Date.now();
-        const items: ArticleRecord[] = data.items.slice(0, MAX_ARTICLES).map(
-          (item: SubscribeInput["items"][number]) => ({
+        const items: ArticleRecord[] = data.items
+          .slice(0, MAX_ARTICLES)
+          .map((item: SubscribeInput["items"][number]) => ({
             id: `${id}~${item.id}`,
             sourceId: id,
             title: item.title,
@@ -397,13 +394,10 @@ export function useReaderState(): Ctx {
             minutes: item.minutes,
             layout: item.layout,
             truncated: item.truncated,
-          }),
-        );
+          }));
 
         // anything the reader kept is exempt from cache eviction
-        const keep = new Set(
-          reading.filter((r) => r.saved || r.later).map((r) => r.id),
-        );
+        const keep = new Set(reading.filter((r) => r.saved || r.later).map((r) => r.id));
         await repo.putSource({ ...source, fetchedAt: at, error: null, updatedAt: at });
         await repo.replaceArticles(id, items, keep);
         await reloadSource(id);
@@ -450,7 +444,7 @@ export function useReaderState(): Ctx {
     if (streamFilter === "unread") {
       list = list.filter((s) => !state.read[s.id]);
     }
-    return [...list].sort((a, b) => a.minutesAgo - b.minutesAgo);
+    return list.toSorted((a, b) => a.minutesAgo - b.minutesAgo);
   }, [stories, view, query, state.saved, state.later, state.read, streamFilter, feedIndex]);
 
   const story = useCallback((id: string) => stories.find((s) => s.id === id), [stories]);
@@ -500,16 +494,17 @@ export function useReaderState(): Ctx {
 
   /*
    * When the visible column changes underneath the reader — a new view, a
-   * filter, a search — the open story should follow it rather than linger on
-   * something that is no longer listed. Selection only, so nothing is
-   * silently marked read just because a view was switched.
+   * filter, a search — the open story follows it rather than lingering on
+   * something that is no longer listed. This is derived rather than corrected
+   * in an effect, so there is no second render pass and no flash of the wrong
+   * article. Selection only: nothing is silently marked read by a view switch.
    */
-  useEffect(() => {
-    if (!filtered.length) return;
-    if (!filtered.some((x) => x.id === selectedId)) {
-      setSelectedId(filtered[0].id);
-    }
+  const activeId = useMemo(() => {
+    if (filtered.some((candidate) => candidate.id === selectedId)) return selectedId;
+    return filtered[0]?.id ?? selectedId;
   }, [filtered, selectedId]);
+
+  const currentStory = useMemo(() => stories.find((s) => s.id === activeId), [stories, activeId]);
 
   const select = useCallback(
     (id: string) => {
@@ -523,11 +518,11 @@ export function useReaderState(): Ctx {
     (dir: 1 | -1) => {
       const list = filtered;
       if (!list.length) return;
-      const idx = list.findIndex((s) => s.id === selectedId);
+      const idx = list.findIndex((candidate) => candidate.id === activeId);
       const next = idx === -1 ? 0 : Math.min(list.length - 1, Math.max(0, idx + dir));
       select(list[next].id);
     },
-    [filtered, selectedId, select],
+    [filtered, activeId, select],
   );
 
   /* ---------------------------------------------------------- appearance */
@@ -545,6 +540,8 @@ export function useReaderState(): Ctx {
    */
   useEffect(() => {
     if (shapedOwnNav.current) return;
+    // one read of an external system on mount, not a state correction
+    // oxlint-disable-next-line react/set-state-in-effect
     if (window.matchMedia("(max-width: 1319px)").matches) setNavOpen(false);
   }, []);
 
@@ -554,6 +551,11 @@ export function useReaderState(): Ctx {
     root.style.setProperty("--reader-leading", FONT_LEADING[font]);
   }, [font]);
 
+  const currentUrl = useCallback(
+    () => (currentStory ? originalUrl(currentStory) : undefined),
+    [currentStory, originalUrl],
+  );
+
   return {
     ready,
     stories,
@@ -561,6 +563,7 @@ export function useReaderState(): Ctx {
     feeds,
     feedById,
     originalUrl,
+    currentUrl,
     sources,
     subscribe,
     unsubscribe,
@@ -579,7 +582,7 @@ export function useReaderState(): Ctx {
     streamFilter,
     setStreamFilter,
     filtered,
-    selectedId,
+    selectedId: activeId,
     select,
     step,
     counts,
@@ -608,7 +611,11 @@ export { ReaderContext, FONT_SIZES };
 
 export function useKeyboardShortcuts(ctx: Ctx) {
   const ref = useRef(ctx);
-  ref.current = ctx;
+  // assigned after commit rather than during render — a render-phase write
+  // would tear under concurrent rendering
+  useEffect(() => {
+    ref.current = ctx;
+  });
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -655,8 +662,7 @@ export function useKeyboardShortcuts(ctx: Ctx) {
           break;
         case "o":
         case "v": {
-          const current = c.story(c.selectedId);
-          const url = current ? c.originalUrl(current) : undefined;
+          const url = c.currentUrl();
           if (url) window.open(url, "_blank", "noopener,noreferrer");
           break;
         }

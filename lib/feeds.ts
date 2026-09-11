@@ -26,13 +26,62 @@ export const FOLDERS: Folder[] = [
 
 /** The edition's own subscriptions. User-added sources are merged in at runtime. */
 export const SEED_FEEDS: Feed[] = [
-  { id: "kottke", name: "Kottke", folder: "independent", host: "kottke.org", mark: "KO", siteUrl: "https://kottke.org" },
-  { id: "simonw", name: "Simon Willison", folder: "ai", host: "simonwillison.net", mark: "SW", siteUrl: "https://simonwillison.net" },
-  { id: "dense", name: "Dense Discovery", folder: "design", host: "densediscovery.com", mark: "DD", siteUrl: "https://www.densediscovery.com" },
-  { id: "aeon", name: "Aeon", folder: "culture", host: "aeon.co", mark: "AE", siteUrl: "https://aeon.co" },
-  { id: "verge", name: "The Verge", folder: "technology", host: "theverge.com", mark: "TV", siteUrl: "https://www.theverge.com" },
-  { id: "creativeboom", name: "Creative Boom", folder: "design", host: "creativeboom.com", mark: "CB", siteUrl: "https://www.creativeboom.com" },
-  { id: "stratechery", name: "Stratechery", folder: "technology", host: "stratechery.com", mark: "ST", siteUrl: "https://stratechery.com" },
+  {
+    id: "kottke",
+    name: "Kottke",
+    folder: "independent",
+    host: "kottke.org",
+    mark: "KO",
+    siteUrl: "https://kottke.org",
+  },
+  {
+    id: "simonw",
+    name: "Simon Willison",
+    folder: "ai",
+    host: "simonwillison.net",
+    mark: "SW",
+    siteUrl: "https://simonwillison.net",
+  },
+  {
+    id: "dense",
+    name: "Dense Discovery",
+    folder: "design",
+    host: "densediscovery.com",
+    mark: "DD",
+    siteUrl: "https://www.densediscovery.com",
+  },
+  {
+    id: "aeon",
+    name: "Aeon",
+    folder: "culture",
+    host: "aeon.co",
+    mark: "AE",
+    siteUrl: "https://aeon.co",
+  },
+  {
+    id: "verge",
+    name: "The Verge",
+    folder: "technology",
+    host: "theverge.com",
+    mark: "TV",
+    siteUrl: "https://www.theverge.com",
+  },
+  {
+    id: "creativeboom",
+    name: "Creative Boom",
+    folder: "design",
+    host: "creativeboom.com",
+    mark: "CB",
+    siteUrl: "https://www.creativeboom.com",
+  },
+  {
+    id: "stratechery",
+    name: "Stratechery",
+    folder: "technology",
+    host: "stratechery.com",
+    mark: "ST",
+    siteUrl: "https://stratechery.com",
+  },
 ];
 
 export const FEED_BY_ID: Record<FeedId, Feed> = SEED_FEEDS.reduce(

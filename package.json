@@ -1,5 +1,5 @@
 {
-  "name": "frv",
+  "name": "firefly-reader",
   "version": "0.1.0",
   "private": true,
   "packageManager": "bun@1.4.0",
@@ -14,19 +14,40 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "latest",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@vitejs/plugin-react": "^6.1.1",
     "@vitejs/plugin-rsc": "^0.5.34",
+    "@vitest/coverage-v8": "^5.0.0",
+    "fake-indexeddb": "^6.2.5",
+    "jsdom": "^30.0.1",
+    "oxlint": "^1.82.0",
+    "prettier": "^3.9.6",
+    "prettier-plugin-tailwindcss": "^0.8.1",
     "tailwindcss": "latest",
     "typescript": "latest",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
   },
   "type": "module",
   "scripts": {
     "dev": "firefly-ports dev -- vinext dev",
     "build": "vinext build",
-    "start": "vinext start"
-  }
+    "start": "vinext start",
+    "lint": "oxlint --deny-warnings",
+    "lint:fix": "oxlint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build",
+    "good": "bun run format && bun run lint && bun run typecheck && bun run test"
+  },
+  "description": "An editorial RSS reader for people who read slowly and often."
 }

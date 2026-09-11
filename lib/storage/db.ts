@@ -47,6 +47,21 @@ export function db(): Promise<IDBPDatabase<FireflyDB>> {
   return connection;
 }
 
+/**
+ * Releases the connection. Needed before the database can be deleted or
+ * upgraded by another tab, and the hook the tests use to get a clean instance.
+ */
+export async function close(): Promise<void> {
+  if (!connection) return;
+  const pending = connection;
+  connection = null;
+  try {
+    (await pending).close();
+  } catch {
+    /* already closed or never opened */
+  }
+}
+
 async function connect(): Promise<IDBPDatabase<FireflyDB>> {
   const database = await openDB<FireflyDB>(DB_NAME, DB_VERSION, {
     upgrade(instance) {

@@ -24,7 +24,7 @@ import { ReaderContext, useKeyboardShortcuts, useReader, useReaderState } from "
 function MobileTopBar() {
   const r = useReader();
   return (
-    <div className="flex min-h-[54px] shrink-0 items-center justify-between border-b border-rule bg-canvas pl-4 pr-2 pt-[env(safe-area-inset-top)] lg:hidden">
+    <div className="flex min-h-[54px] shrink-0 items-center justify-between border-b border-rule bg-canvas pt-[env(safe-area-inset-top)] pr-2 pl-4 lg:hidden">
       <Wordmark size="sm" onClick={() => r.setView("today")} />
       <div className="flex items-center gap-0.5">
         <IconButton icon={Plus} label="Add a feed" onClick={() => r.setAddOpen(true)} />
@@ -86,9 +86,9 @@ function MobileTabBar() {
             it.active ? "text-spark" : "text-ink3 active:bg-hoverc",
           )}
         >
-          {it.active && <span className="absolute left-0 top-0 h-[2px] w-full bg-spark" />}
+          {it.active && <span className="absolute top-0 left-0 h-[2px] w-full bg-spark" />}
           <it.icon size={16} strokeWidth={1.6} />
-          <span className="mono text-[8.5px] uppercase tracking-[0.14em]">{it.label}</span>
+          <span className="mono text-[8.5px] tracking-[0.14em] uppercase">{it.label}</span>
         </button>
       ))}
     </nav>
@@ -115,13 +115,19 @@ export function Shell() {
     <ReaderContext.Provider value={r}>
       <div className="flex h-dvh w-full flex-col overflow-hidden bg-canvas lg:flex-row">
         {r.navOpen && !r.immersive && (
-          <div data-col="nav" className="hidden min-h-0 w-[254px] shrink-0 border-r border-rule lg:block">
+          <div
+            data-col="nav"
+            className="hidden min-h-0 w-[254px] shrink-0 border-r border-rule lg:block"
+          >
             <NavRail />
           </div>
         )}
 
         {!r.immersive && (
-          <div data-col="stream" className="flex min-h-0 min-w-0 flex-1 flex-col lg:w-[468px] lg:flex-none lg:border-r lg:border-rule xl:w-[500px]">
+          <div
+            data-col="stream"
+            className="flex min-h-0 min-w-0 flex-1 flex-col lg:w-[468px] lg:flex-none lg:border-r lg:border-rule xl:w-[500px]"
+          >
             <MobileTopBar />
             <div className="min-h-0 flex-1">
               <StreamColumn />
@@ -150,8 +156,8 @@ export function Shell() {
         </div>
       )}
 
-      <SearchPalette />
-      <AddSource />
+      {r.searchOpen && <SearchPalette />}
+      {r.addOpen && <AddSource />}
     </ReaderContext.Provider>
   );
 }

@@ -4,13 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import { clsx } from "./clsx";
 import { Firefly } from "./plate";
 
-export function Wordmark({
-  size = "md",
-  onClick,
-}: {
-  size?: "md" | "sm";
-  onClick?: () => void;
-}) {
+export function Wordmark({ size = "md", onClick }: { size?: "md" | "sm"; onClick?: () => void }) {
   return (
     <button
       type="button"
@@ -30,8 +24,10 @@ export function Wordmark({
         </span>
         <span
           className={clsx(
-            "mono uppercase text-ink4 transition-colors group-hover:text-ink3",
-            size === "sm" ? "mt-[2px] text-[7.5px] tracking-[0.34em]" : "mt-[3px] text-[8.5px] tracking-[0.34em]",
+            "mono text-ink4 uppercase transition-colors group-hover:text-ink3",
+            size === "sm"
+              ? "mt-[2px] text-[7.5px] tracking-[0.34em]"
+              : "mt-[3px] text-[8.5px] tracking-[0.34em]",
           )}
         >
           Reader

@@ -1,0 +1,55 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "import", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "env": {
+    "browser": true,
+    "es2024": true
+  },
+  "ignorePatterns": ["dist/**", ".next/**", ".vinext/**", "node_modules/**", "next-env.d.ts"],
+  "rules": {
+    "no-console": "off",
+    "no-unused-vars": "off",
+    "typescript/no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ],
+    "typescript/no-explicit-any": "warn",
+    "react/react-in-jsx-scope": "off",
+    "react/jsx-key": "error",
+    "import/no-duplicates": "error",
+    "unicorn/prefer-node-protocol": "error",
+    "import/no-unassigned-import": [
+      "error",
+      {
+        "allow": ["**/*.css"]
+      }
+    ],
+    "oxc/no-map-spread": "off"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "vitest.setup.ts"],
+      "env": {
+        "node": true
+      },
+      "rules": {
+        "import/no-unassigned-import": "off"
+      }
+    },
+    {
+      "files": ["components/article-pane.tsx", "components/plate.tsx"],
+      "rules": {
+        "react/no-array-index-key": "off"
+      }
+    }
+  ]
+}

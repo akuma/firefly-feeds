@@ -1,42 +1,45 @@
 "use client";
 
-import { CornerDownLeft, Search, X } from "lucide-react";
+import { CornerDownLeft, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { Firefly } from "./plate";
 import { agoLabel } from "@/lib/articles";
-
 import { useReader } from "@/lib/store";
 
+/**
+ * Mounted only while open, so the highlight resets by construction rather than
+ * by an effect. The cursor is stored alongside the query it belongs to, which
+ * means a new query cannot leave a stale highlight behind — derived state
+ * instead of a correction pass.
+ */
 export function SearchPalette() {
   const r = useReader();
-  const [cursor, setCursor] = useState(0);
+  const { query, stories, feedById } = r;
+  const [highlight, setHighlight] = useState({ query: "", index: 0 });
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const cursor = highlight.query === query ? highlight.index : 0;
+  const setCursor = (index: number) => setHighlight({ query, index });
+
   const results = useMemo(() => {
-    const q = r.query.trim().toLowerCase();
-    if (!q) return r.stories.slice(0, 7);
-    return r.stories
+    const q = query.trim().toLowerCase();
+    if (!q) return stories.slice(0, 7);
+    return stories
       .filter(
         (s) =>
           s.title.toLowerCase().includes(q) ||
           s.dek.toLowerCase().includes(q) ||
           (s.byline ?? "").toLowerCase().includes(q) ||
-          (r.feedById(s.feedId)?.name ?? "").toLowerCase().includes(q),
+          (feedById(s.feedId)?.name ?? "").toLowerCase().includes(q),
       )
       .slice(0, 24);
-  }, [r.query, r.stories, r.feedById]);
+  }, [query, stories, feedById]);
 
   useEffect(() => {
-    if (r.searchOpen) {
-      setCursor(0);
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
-  }, [r.searchOpen]);
-
-  useEffect(() => setCursor(0), [r.query]);
-
-  if (!r.searchOpen) return null;
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   const choose = (id: string) => {
     r.select(id);
@@ -47,10 +50,10 @@ export function SearchPalette() {
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setCursor((c) => Math.min(results.length - 1, c + 1));
+      setCursor(Math.min(results.length - 1, cursor + 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setCursor((c) => Math.max(0, c - 1));
+      setCursor(Math.max(0, cursor - 1));
     } else if (e.key === "Enter" && results[cursor]) {
       e.preventDefault();
       choose(results[cursor].id);
@@ -82,13 +85,13 @@ export function SearchPalette() {
           <button
             type="button"
             onClick={() => r.setSearchOpen(false)}
-            className="mono shrink-0 text-[9px] uppercase tracking-[0.18em] text-ink4 transition-colors hover:text-ink"
+            className="mono shrink-0 text-[9px] tracking-[0.18em] text-ink4 uppercase transition-colors hover:text-ink"
           >
             Esc
           </button>
         </div>
 
-        <div className="mono flex items-center justify-between py-3 text-[9.5px] uppercase tracking-[0.16em] text-ink4">
+        <div className="mono flex items-center justify-between py-3 text-[9.5px] tracking-[0.16em] text-ink4 uppercase">
           <span>
             {r.query.trim()
               ? `${results.length} ${results.length === 1 ? "match" : "matches"}`
@@ -120,14 +123,14 @@ export function SearchPalette() {
                   onMouseEnter={() => setCursor(i)}
                   onClick={() => choose(s.id)}
                   className={clsx(
-                    "group relative flex w-full items-center gap-3.5 border-b border-rule py-3 pl-4 pr-3 text-left transition-colors",
+                    "group relative flex w-full items-center gap-3.5 border-b border-rule py-3 pr-3 pl-4 text-left transition-colors",
                     i === cursor ? "bg-activec" : "hover:bg-hoverc",
                   )}
                 >
                   <span
                     aria-hidden
                     className={clsx(
-                      "absolute left-0 top-0 h-full w-[2px] transition-colors",
+                      "absolute top-0 left-0 h-full w-[2px] transition-colors",
                       i === cursor ? "bg-spark" : "bg-transparent",
                     )}
                   />
@@ -143,7 +146,7 @@ export function SearchPalette() {
                     >
                       {s.title}
                     </span>
-                    <span className="mono mt-1 flex items-center gap-2 text-[9px] uppercase tracking-[0.15em] text-ink4">
+                    <span className="mono mt-1 flex items-center gap-2 text-[9px] tracking-[0.15em] text-ink4 uppercase">
                       <span>{feed.name}</span>
                       <span aria-hidden>·</span>
                       <span>{agoLabel(s.minutesAgo)}</span>
@@ -151,9 +154,7 @@ export function SearchPalette() {
                       <span>{s.minutes} min</span>
                     </span>
                   </span>
-                  {r.state.saved[s.id] && (
-                    <span className="label shrink-0 text-spark">Saved</span>
-                  )}
+                  {r.state.saved[s.id] && <span className="label shrink-0 text-spark">Saved</span>}
                 </button>
               );
             })

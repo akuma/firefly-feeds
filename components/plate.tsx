@@ -25,7 +25,7 @@ type Comp = { rnd: () => number; big: boolean };
 
 /* ---------------------------------------------------------- compositions */
 
-function Halftone({ rnd, big }: Comp) {
+function Halftone({ big }: Comp) {
   const cols = big ? 21 : 15;
   const rows = big ? 14 : 10;
   const sx = W / cols;
@@ -91,7 +91,15 @@ function Arcs({ rnd, big }: Comp) {
         opacity={0.09}
       />
       {solid && <circle cx={cx + 132} cy={cy - 132} r={7} fill={SPARK} />}
-      <rect x={0} y={cy - 1} width={W} height={1} fill={INK} opacity={0.35} vectorEffect="non-scaling-stroke" />
+      <rect
+        x={0}
+        y={cy - 1}
+        width={W}
+        height={1}
+        fill={INK}
+        opacity={0.35}
+        vectorEffect="non-scaling-stroke"
+      />
     </>
   );
 }
@@ -182,12 +190,18 @@ function Grid({ rnd, big }: Comp) {
   return <>{cells}</>;
 }
 
-function Hatch({ rnd, big }: Comp) {
+function Hatch({ big }: Comp) {
   const gap = big ? 9 : 12;
   return (
     <>
       <defs>
-        <pattern id="ff-hatch" width={gap} height={gap} patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
+        <pattern
+          id="ff-hatch"
+          width={gap}
+          height={gap}
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(35)"
+        >
           <line
             x1="0"
             y1="0"
@@ -225,7 +239,16 @@ function Horizon({ rnd, big }: Comp) {
           vectorEffect="non-scaling-stroke"
         />
       ))}
-      <circle cx={W * 0.62} cy={cy} r={r + 14} fill="none" stroke={INK} strokeWidth={1} opacity={0.4} vectorEffect="non-scaling-stroke" />
+      <circle
+        cx={W * 0.62}
+        cy={cy}
+        r={r + 14}
+        fill="none"
+        stroke={INK}
+        strokeWidth={1}
+        opacity={0.4}
+        vectorEffect="non-scaling-stroke"
+      />
       <circle cx={W * 0.62} cy={cy} r={r} fill={INK} opacity={0.14} />
       <circle cx={W * 0.62} cy={cy} r={r * 0.42} fill={SPARK} opacity={0.9} />
       <rect x={0} y={cy + r + 26} width={W} height={3} fill={INK} opacity={0.9} />
@@ -248,7 +271,15 @@ function Numeral({ rnd, big }: Comp) {
       >
         {g}
       </text>
-      <rect x={0} y={H * 0.86} width={W} height={1} fill={INK} opacity={0.6} vectorEffect="non-scaling-stroke" />
+      <rect
+        x={0}
+        y={H * 0.86}
+        width={W}
+        height={1}
+        fill={INK}
+        opacity={0.6}
+        vectorEffect="non-scaling-stroke"
+      />
       <rect x={0} y={H * 0.86 + 8} width={W * 0.42} height={2} fill={SPARK} />
       {Array.from({ length: 7 }).map((_, i) => (
         <rect
@@ -281,7 +312,8 @@ export function Plate({
   big?: boolean;
   bordered?: boolean;
 }) {
-  const Comp = COMPOSITIONS[((seed % COMPOSITIONS.length) + COMPOSITIONS.length) % COMPOSITIONS.length];
+  const Comp =
+    COMPOSITIONS[((seed % COMPOSITIONS.length) + COMPOSITIONS.length) % COMPOSITIONS.length];
   const rnd = rng(seed * 977 + 13);
   return (
     <div
@@ -327,9 +359,7 @@ export function Firefly({
           style={{ inset: -size * 0.55 }}
         />
       )}
-      <span
-        className={clsx("absolute inset-0 rounded-full bg-spark", pulse && "ff-pulse")}
-      />
+      <span className={clsx("absolute inset-0 rounded-full bg-spark", pulse && "ff-pulse")} />
     </span>
   );
 }
@@ -359,7 +389,7 @@ export function Media({
 
   return (
     <div className={clsx("relative overflow-hidden bg-plate", className)}>
-      <Plate seed={seed} big className="absolute inset-0 h-full w-full" />
+      <Plate seed={seed} big={big} className="absolute inset-0 h-full w-full" />
       {!broken && (
         <img
           src={src}

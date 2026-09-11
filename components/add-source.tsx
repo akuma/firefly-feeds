@@ -42,9 +42,7 @@ const SUGGESTIONS = [
 
 function shortDate(ms?: number): string {
   if (!ms) return "";
-  return new Date(ms)
-    .toLocaleDateString("en-GB", { day: "numeric", month: "short" })
-    .toUpperCase();
+  return new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" }).toUpperCase();
 }
 
 export function AddSource() {
@@ -58,20 +56,11 @@ export function AddSource() {
   const [faviconFailed, setFaviconFailed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // mounted only while open, so every field starts clean by construction
   useEffect(() => {
-    if (r.addOpen) {
-      setStatus("idle");
-      setError("");
-      setPreview(null);
-      setSaving(false);
-      setFaviconFailed(false);
-      requestAnimationFrame(() => inputRef.current?.focus());
-    } else {
-      setUrl("");
-    }
-  }, [r.addOpen]);
-
-  if (!r.addOpen) return null;
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   const close = () => r.setAddOpen(false);
 
@@ -153,14 +142,14 @@ export function AddSource() {
           <button
             type="button"
             onClick={close}
-            className="mono flex items-center gap-1.5 text-[9px] uppercase tracking-[0.18em] text-ink4 transition-colors hover:text-ink"
+            className="mono flex items-center gap-1.5 text-[9px] tracking-[0.18em] text-ink4 uppercase transition-colors hover:text-ink"
           >
             <X size={11} strokeWidth={1.8} />
             Esc
           </button>
         </div>
 
-        <div className="px-6 pb-6 pt-7">
+        <div className="px-6 pt-7 pb-6">
           <h2 className="display text-[27px] leading-[1.05] tracking-[-0.02em] text-ink">
             Subscribe to a feed
           </h2>
@@ -190,14 +179,14 @@ export function AddSource() {
               type="button"
               onClick={() => void look()}
               disabled={status === "loading" || !url.trim()}
-              className="mono shrink-0 bg-ink px-3 py-1.5 text-[9px] uppercase tracking-[0.16em] text-canvas transition-opacity disabled:opacity-25"
+              className="mono shrink-0 bg-ink px-3 py-1.5 text-[9px] tracking-[0.16em] text-canvas uppercase transition-opacity disabled:opacity-25"
             >
               Find
             </button>
           </div>
 
           {status === "idle" && (
-            <div className="mono mt-3.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-[9.5px] uppercase tracking-[0.14em] text-ink4">
+            <div className="mono mt-3.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
               <span>Try</span>
               {SUGGESTIONS.map((s) => (
                 <button
@@ -216,7 +205,7 @@ export function AddSource() {
           {status === "loading" && (
             <div className="flex items-center gap-3 py-7">
               <Firefly size={6} pulse />
-              <span className="mono text-[9.5px] uppercase tracking-[0.16em] text-ink3">
+              <span className="mono text-[9.5px] tracking-[0.16em] text-ink3 uppercase">
                 Looking for a feed…
               </span>
             </div>
@@ -250,7 +239,7 @@ export function AddSource() {
                   <h3 className="text-[21px] leading-[1.15] tracking-[-0.016em] text-ink">
                     {preview.feed.title}
                   </h3>
-                  <p className="mono mt-1.5 flex flex-wrap items-center gap-2 text-[9.5px] uppercase tracking-[0.14em] text-ink4">
+                  <p className="mono mt-1.5 flex flex-wrap items-center gap-2 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                     <span className="text-ink3">{preview.feed.host}</span>
                     <span aria-hidden>·</span>
                     <span>{preview.feed.kind}</span>
@@ -260,7 +249,7 @@ export function AddSource() {
                     </span>
                   </p>
                   {preview.feed.description && (
-                    <p className="mt-3 max-w-[56ch] text-[14px] italic leading-[1.5] text-ink3">
+                    <p className="mt-3 max-w-[56ch] text-[14px] leading-[1.5] text-ink3 italic">
                       {preview.feed.description}
                     </p>
                   )}
@@ -278,7 +267,7 @@ export function AddSource() {
                       <span className="min-w-0 flex-1 truncate text-[15px] leading-[1.35] text-ink2">
                         {item.title}
                       </span>
-                      <span className="mono shrink-0 text-[9px] uppercase tracking-[0.14em] text-ink4">
+                      <span className="mono shrink-0 text-[9px] tracking-[0.14em] text-ink4 uppercase">
                         {shortDate(item.publishedMs)}
                       </span>
                     </li>
@@ -294,7 +283,7 @@ export function AddSource() {
                     type="button"
                     onClick={() => setFolder(f.id)}
                     className={clsx(
-                      "mono px-2 py-1 text-[9.5px] uppercase leading-none tracking-[0.14em] transition-colors",
+                      "mono px-2 py-1 text-[9.5px] leading-none tracking-[0.14em] uppercase transition-colors",
                       folder === f.id
                         ? "bg-ink text-canvas"
                         : "text-ink3 ring-1 ring-rule ring-inset hover:bg-hoverc hover:text-ink",
@@ -308,14 +297,14 @@ export function AddSource() {
               {error && <p className="mt-4 text-[13.5px] leading-[1.5] text-spark">{error}</p>}
 
               <div className="mt-6 flex items-center justify-between gap-4">
-                <span className="mono text-[9.5px] uppercase tracking-[0.14em] text-ink4">
+                <span className="mono text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                   Kept on this device · IndexedDB
                 </span>
                 <button
                   type="button"
                   onClick={() => void commit()}
                   disabled={saving}
-                  className="mono group flex items-center gap-2 bg-ink px-4 py-2.5 text-[10px] uppercase tracking-[0.16em] text-canvas transition-opacity disabled:opacity-40"
+                  className="mono group flex items-center gap-2 bg-ink px-4 py-2.5 text-[10px] tracking-[0.16em] text-canvas uppercase transition-opacity disabled:opacity-40"
                 >
                   {saving ? "Subscribing…" : "Subscribe"}
                   <ArrowRight size={12} strokeWidth={1.8} />

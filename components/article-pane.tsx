@@ -74,8 +74,10 @@ function FontMenu({ onClose }: { onClose: () => void }) {
             type="button"
             onClick={() => r.setFont(i as ReaderFont)}
             className={clsx(
-              "flex items-end justify-center pb-1.5 pt-2 transition-colors",
-              r.font === i ? "bg-ink text-canvas" : "text-ink3 ring-1 ring-rule ring-inset hover:bg-hoverc",
+              "flex items-end justify-center pt-2 pb-1.5 transition-colors",
+              r.font === i
+                ? "bg-ink text-canvas"
+                : "text-ink3 ring-1 ring-rule ring-inset hover:bg-hoverc",
             )}
             style={{ height: 38 }}
             aria-label={`Text size ${i + 1}`}
@@ -85,7 +87,7 @@ function FontMenu({ onClose }: { onClose: () => void }) {
         ))}
       </div>
       <div className="mt-3.5 h-px w-full bg-rule" />
-      <div className="mono mt-3 flex items-center justify-between text-[9.5px] uppercase tracking-[0.14em] text-ink4">
+      <div className="mono mt-3 flex items-center justify-between text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
         <span className="flex items-center gap-1.5">
           <Sun size={11} strokeWidth={1.6} />
           <Moon size={11} strokeWidth={1.6} />
@@ -113,7 +115,7 @@ function Blocks({ blocks }: { blocks: Block[] }) {
             return (
               <h2
                 key={i}
-                className="relative before:absolute before:-left-5 before:top-[0.7em] before:h-px before:w-3 before:bg-spark before:content-['']"
+                className="relative before:absolute before:top-[0.7em] before:-left-5 before:h-px before:w-3 before:bg-spark before:content-['']"
               >
                 {b.text}
               </h2>
@@ -122,9 +124,9 @@ function Blocks({ blocks }: { blocks: Block[] }) {
           case "quote":
             return (
               <blockquote key={i} className="my-[2.2em] border-l-2 border-spark pl-5">
-                <p className="text-[1.16em] italic leading-[1.45] text-ink">“{b.text}”</p>
+                <p className="text-[1.16em] leading-[1.45] text-ink italic">“{b.text}”</p>
                 {b.cite && (
-                  <footer className="mono mt-3 text-[10px] uppercase tracking-[0.14em] text-ink4">
+                  <footer className="mono mt-3 text-[10px] tracking-[0.14em] text-ink4 uppercase">
                     — {b.cite}
                   </footer>
                 )}
@@ -143,8 +145,14 @@ function Blocks({ blocks }: { blocks: Block[] }) {
           case "figure":
             return (
               <figure key={i} className="my-[2.4em]">
-                <Media seed={b.seed} src={b.src} alt={b.caption} big className="aspect-[16/9] w-full" />
-                <figcaption className="mono mt-3 max-w-[62ch] text-[10px] uppercase leading-[1.75] tracking-[0.08em] text-ink4">
+                <Media
+                  seed={b.seed}
+                  src={b.src}
+                  alt={b.caption}
+                  big
+                  className="aspect-[16/9] w-full"
+                />
+                <figcaption className="mono mt-3 max-w-[62ch] text-[10px] leading-[1.75] tracking-[0.08em] text-ink4 uppercase">
                   {b.caption}
                 </figcaption>
               </figure>
@@ -198,20 +206,23 @@ export function ArticlePane() {
     setProgress(max > 8 ? Math.min(1, Math.max(0, el.scrollTop / max)) : 0);
   }, []);
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = 0;
-    setProgress(0);
-    setFontOpen(false);
-  }, [r.selectedId]);
-
+  /*
+   * The scroll container is an external system, and its extent changes when the
+   * story changes or immersive mode removes the toolbars — hence the extra
+   * dependencies. Resetting and re-measuring here is the point of the effect.
+   */
+  /* oxlint-disable react/set-state-in-effect, react/exhaustive-effect-dependencies */
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    el.scrollTop = 0;
+    setProgress(0);
+    setFontOpen(false);
     el.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
     return () => el.removeEventListener("scroll", onScroll);
   }, [onScroll, r.selectedId, r.immersive]);
+  /* oxlint-enable react/set-state-in-effect, react/exhaustive-effect-dependencies */
 
   if (!r.ready) {
     return (
@@ -290,7 +301,7 @@ export function ArticlePane() {
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-reader">
       {/* ------------------------------------------------------ progress */}
-      <div className="pointer-events-none absolute left-0 top-0 z-30 h-[2px] w-full bg-transparent">
+      <div className="pointer-events-none absolute top-0 left-0 z-30 h-[2px] w-full bg-transparent">
         <div
           className="h-full bg-spark transition-[width] duration-100 ease-linear"
           style={{ width: `${pct}%` }}
@@ -299,8 +310,8 @@ export function ArticlePane() {
 
       {/* ----------------------------------------------- desktop toolbar */}
       {!r.immersive && (
-        <div className="hidden h-12 shrink-0 items-center gap-3 border-b border-rule pl-6 pr-2.5 lg:flex">
-          <div className="mono flex min-w-0 items-center gap-2 text-[9.5px] uppercase tracking-[0.16em]">
+        <div className="hidden h-12 shrink-0 items-center gap-3 border-b border-rule pr-2.5 pl-6 lg:flex">
+          <div className="mono flex min-w-0 items-center gap-2 text-[9.5px] tracking-[0.16em] uppercase">
             <Firefly size={4.5} glow={false} />
             <span className="truncate text-ink3">{feed.name}</span>
             <span className="text-ink4" aria-hidden>
@@ -309,7 +320,7 @@ export function ArticlePane() {
             <span className="shrink-0 text-ink4">{folder.name}</span>
           </div>
           <div className="min-w-4 flex-1" />
-          <span className="mono shrink-0 text-[9.5px] uppercase tracking-[0.14em] text-ink4 tnum">
+          <span className="mono tnum shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
             {pct}%
           </span>
           {actions}
@@ -327,10 +338,10 @@ export function ArticlePane() {
             onClick={() => r.setMobileReading(false)}
           />
           <div className="min-w-0 flex-1">
-            <div className="mono truncate text-[9.5px] uppercase tracking-[0.16em] text-ink3">
+            <div className="mono truncate text-[9.5px] tracking-[0.16em] text-ink3 uppercase">
               {feed.name}
             </div>
-            <div className="mono truncate text-[9px] uppercase tracking-[0.14em] text-ink4 tnum">
+            <div className="mono tnum truncate text-[9px] tracking-[0.14em] text-ink4 uppercase">
               {s.minutes} min · {pct}%
             </div>
           </div>
@@ -340,17 +351,14 @@ export function ArticlePane() {
 
       {/* ------------------------------------------------- immersive bar */}
       {r.immersive && (
-        <div className="absolute right-0 top-0 z-30 flex items-center gap-1 p-2 opacity-25 transition-opacity duration-200 hover:opacity-100">
+        <div className="absolute top-0 right-0 z-30 flex items-center gap-1 p-2 opacity-25 transition-opacity duration-200 hover:opacity-100">
           {actions}
         </div>
       )}
 
       {/* --------------------------------------------- text size popover */}
       {fontOpen && (
-        <div
-          className="absolute right-3 z-40"
-          style={{ top: r.immersive ? 46 : 52 }}
-        >
+        <div className="absolute right-3 z-40" style={{ top: r.immersive ? 46 : 52 }}>
           <FontMenu onClose={() => setFontOpen(false)} />
         </div>
       )}
@@ -364,7 +372,9 @@ export function ArticlePane() {
           key={s.id}
           className={clsx(
             "ff-rise mx-auto w-full",
-            r.immersive ? "max-w-[724px] px-6 pb-28 pt-16 lg:px-11 lg:pt-24" : "max-w-[680px] px-6 pb-24 pt-9 lg:px-10 lg:pt-12",
+            r.immersive
+              ? "max-w-[724px] px-6 pt-16 pb-28 lg:px-11 lg:pt-24"
+              : "max-w-[680px] px-6 pt-9 pb-24 lg:px-10 lg:pt-12",
           )}
         >
           <div className="label flex flex-wrap items-center gap-2.5 text-spark">
@@ -385,13 +395,13 @@ export function ArticlePane() {
             {s.title}
           </h1>
 
-          <p className="mt-5 max-w-[54ch] text-[17px] italic leading-[1.5] tracking-[-0.006em] text-ink3">
+          <p className="mt-5 max-w-[54ch] text-[17px] leading-[1.5] tracking-[-0.006em] text-ink3 italic">
             {s.dek}
           </p>
 
           <div className="mt-7 h-px w-full bg-rule" />
 
-          <div className="mono mt-3.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 text-[9.5px] uppercase tracking-[0.15em] text-ink4">
+          <div className="mono mt-3.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 text-[9.5px] tracking-[0.15em] text-ink4 uppercase">
             <span>By {s.byline ?? feed.name}</span>
             <span className="tnum">
               {s.publishedLabel ?? EDITION.long} · {s.minutes} min read
@@ -407,7 +417,7 @@ export function ArticlePane() {
                 big
                 className="aspect-[16/9] w-full"
               />
-              <figcaption className="mono mt-2.5 text-[9.5px] uppercase tracking-[0.14em] text-ink4">
+              <figcaption className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                 {s.image ? feed.name : "Illustration · Firefly Studio"}
               </figcaption>
             </figure>
@@ -420,15 +430,13 @@ export function ArticlePane() {
           {/* ------------------------------------------------------ closer */}
           <div className="mt-16 flex flex-col items-center gap-3">
             <Firefly size={6} glow />
-            <span className="label text-ink4">
-              {s.truncated ? "Excerpt" : "End of story"}
-            </span>
+            <span className="label text-ink4">{s.truncated ? "Excerpt" : "End of story"}</span>
             {s.truncated && (
               <a
                 href={canonical}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mono mt-1 flex items-center gap-1.5 text-[9.5px] uppercase tracking-[0.14em] text-ink3 transition-colors hover:text-spark"
+                className="mono mt-1 flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-ink3 uppercase transition-colors hover:text-spark"
               >
                 Continues at {hostOf(canonical ?? feed.host)}
                 <ArrowUpRight size={10} strokeWidth={1.7} />
@@ -470,7 +478,7 @@ export function ArticlePane() {
                 <h3 className="mt-3 text-[23px] leading-[1.18] tracking-[-0.02em] text-ink transition-colors group-hover:text-ink2">
                   {next.title}
                 </h3>
-                <div className="mono mt-2.5 flex flex-wrap items-center gap-2 text-[9.5px] uppercase tracking-[0.14em] text-ink4">
+                <div className="mono mt-2.5 flex flex-wrap items-center gap-2 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                   <span>{r.feedById(next.feedId)?.name ?? ""}</span>
                   <span aria-hidden>·</span>
                   <span>{next.minutes} min</span>
@@ -525,7 +533,7 @@ export function ArticlePane() {
               )}
             >
               <a.icon size={16} strokeWidth={1.6} />
-              <span className="mono text-[8.5px] uppercase tracking-[0.14em]">{a.label}</span>
+              <span className="mono text-[8.5px] tracking-[0.14em] uppercase">{a.label}</span>
             </button>
           ))}
         </div>

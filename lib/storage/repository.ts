@@ -1,11 +1,5 @@
 import { articleIdFor, available, db, sourceIdFor } from "./db";
-import type {
-  ArticleRecord,
-  Changeset,
-  ReadingRecord,
-  SourceRecord,
-  StorageUsage,
-} from "./types";
+import type { ArticleRecord, Changeset, ReadingRecord, SourceRecord, StorageUsage } from "./types";
 
 /**
  * The application's storage contract. Nothing above this file imports `idb` or
@@ -140,6 +134,8 @@ export async function mergeChangeset(changes: Changeset): Promise<void> {
   const database = await db();
   const tx = database.transaction(["sources", "reading"], "readwrite");
 
+  // reads and writes share one transaction, so they must stay ordered
+  /* oxlint-disable no-await-in-loop */
   for (const incoming of changes.sources) {
     const local = await tx.objectStore("sources").get(incoming.id);
     // last write wins; ties always resolve toward deletion
@@ -156,6 +152,7 @@ export async function mergeChangeset(changes: Changeset): Promise<void> {
       tx.objectStore("reading").put(incoming);
     }
   }
+  /* oxlint-enable no-await-in-loop */
 
   await tx.done;
 }

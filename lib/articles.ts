@@ -297,8 +297,7 @@ export const ARTICLES: Article[] = [
     dek: "The enclosure of the open web was not a hostile takeover. It was a series of small, reasonable conveniences — which is exactly why it is so hard to reverse.",
     minutesAgo: 128,
     layout: "quote",
-    pull:
-      "We did not lose the open web to a competitor. We lost it to convenience, which is a much harder opponent to argue with.",
+    pull: "We did not lose the open web to a competitor. We lost it to convenience, which is a much harder opponent to argue with.",
     byline: "Lila Okonjo",
     body: [
       {

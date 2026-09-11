@@ -13,7 +13,7 @@ import {
   Search,
   Sun,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { clsx } from "./clsx";
 import { IconButton } from "./brand";
 import { Firefly, Media, hasArt } from "./plate";
@@ -35,7 +35,10 @@ function plural(n: number, one: string, many: string) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-function viewHead(view: string, feedById: (id: FeedId) => { host: string; name: string } | undefined) {
+function viewHead(
+  view: string,
+  feedById: (id: FeedId) => { host: string; name: string } | undefined,
+) {
   if (view.startsWith("folder:")) {
     const f = FOLDERS.find((x) => x.id === (view.slice(7) as FolderId));
     return { kicker: "Folder", title: f?.name ?? "" };
@@ -47,14 +50,22 @@ function viewHead(view: string, feedById: (id: FeedId) => { host: string; name: 
   return SMART_HEAD[view] ?? SMART_HEAD.today;
 }
 
-function StreamHeader({ count, minutes, sources }: { count: number; minutes: number; sources: number }) {
+function StreamHeader({
+  count,
+  minutes,
+  sources,
+}: {
+  count: number;
+  minutes: number;
+  sources: number;
+}) {
   const r = useReader();
   const head = viewHead(r.view, r.feedById);
   const hours = Math.floor(minutes / 60);
 
   return (
     <header className="shrink-0">
-      <div className="hidden h-11 items-center justify-between gap-2 pl-5 pr-3 lg:flex">
+      <div className="hidden h-11 items-center justify-between gap-2 pr-3 pl-5 lg:flex">
         <div className="flex min-w-0 items-center gap-3">
           <IconButton
             icon={PanelLeft}
@@ -63,7 +74,7 @@ function StreamHeader({ count, minutes, sources }: { count: number; minutes: num
             active={!r.navOpen}
             onClick={() => r.setNavOpen(!r.navOpen)}
           />
-          <span className="mono truncate text-[9.5px] uppercase tracking-[0.18em] text-ink4">
+          <span className="mono truncate text-[9.5px] tracking-[0.18em] text-ink4 uppercase">
             {EDITION.weekday} · Ed. {EDITION.slug}
           </span>
         </div>
@@ -74,7 +85,12 @@ function StreamHeader({ count, minutes, sources }: { count: number; minutes: num
             size={26}
             onClick={() => r.setAddOpen(true)}
           />
-          <IconButton icon={Search} label="Search (⌘K)" size={26} onClick={() => r.setSearchOpen(true)} />
+          <IconButton
+            icon={Search}
+            label="Search (⌘K)"
+            size={26}
+            onClick={() => r.setSearchOpen(true)}
+          />
           <IconButton
             icon={r.theme === "dark" ? Sun : Moon}
             label="Theme (T)"
@@ -91,20 +107,26 @@ function StreamHeader({ count, minutes, sources }: { count: number; minutes: num
       </div>
 
       {/* --------------------------------------------------- date block */}
-      <div className="flex items-end gap-4 px-5 pb-4 pt-1 lg:gap-5 lg:pb-6">
+      <div className="flex items-end gap-4 px-5 pt-1 pb-4 lg:gap-5 lg:pb-6">
         <div className="shrink-0 select-none">
-          <div data-t="day" className="display text-[44px] leading-[0.76] tracking-[-0.035em] text-ink tnum lg:text-[62px] lg:leading-[0.74]">
+          <div
+            data-t="day"
+            className="display tnum text-[44px] leading-[0.76] tracking-[-0.035em] text-ink lg:text-[62px] lg:leading-[0.74]"
+          >
             {EDITION.day}
           </div>
           <div className="label mt-1.5 text-ink4 lg:mt-2.5">{EDITION.month}</div>
         </div>
         <div className="min-w-0 flex-1 pb-[3px]">
           <div className="label text-spark">{head.kicker}</div>
-          <h1 data-t="viewtitle" className="display mt-2 text-[27px] leading-[1] tracking-[-0.018em] text-ink lg:text-[33px] lg:leading-[0.98]">
+          <h1
+            data-t="viewtitle"
+            className="display mt-2 text-[27px] leading-[1] tracking-[-0.018em] text-ink lg:text-[33px] lg:leading-[0.98]"
+          >
             {head.title}
           </h1>
           <div className="mt-3 h-px w-full bg-rule" />
-          <div className="mono mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.1em] text-ink4">
+          <div className="mono mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] tracking-[0.1em] text-ink4 uppercase">
             <span className="text-ink3">{plural(count, "story", "stories")}</span>
             <span aria-hidden>·</span>
             <span>{hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`} read</span>
@@ -115,7 +137,7 @@ function StreamHeader({ count, minutes, sources }: { count: number; minutes: num
       </div>
 
       {/* ------------------------------------------------- filter rail */}
-      <div className="flex h-9 items-stretch justify-between border-y border-rule pl-5 pr-4">
+      <div className="flex h-9 items-stretch justify-between border-y border-rule pr-4 pl-5">
         <div className="flex items-stretch gap-4">
           {(
             [
@@ -157,7 +179,10 @@ function Kicker({ s, selected }: { s: Story; selected: boolean }) {
   const r = useReader();
   const unread = !r.state.read[s.id];
   return (
-    <div data-t="kicker" className="mono flex min-w-0 items-center gap-2 text-[9.5px] uppercase tracking-[0.16em]">
+    <div
+      data-t="kicker"
+      className="mono flex min-w-0 items-center gap-2 text-[9.5px] tracking-[0.16em] uppercase"
+    >
       {unread && <Firefly size={4.5} glow={false} pulse={selected} />}
       <span
         className={clsx(
@@ -188,7 +213,7 @@ function Meta({ s, className }: { s: Story; className?: string }) {
   return (
     <div
       className={clsx(
-        "mono flex items-center gap-2 text-[9.5px] uppercase tracking-[0.14em] text-ink4",
+        "mono flex items-center gap-2 text-[9.5px] tracking-[0.14em] text-ink4 uppercase",
         className,
       )}
     >
@@ -218,7 +243,7 @@ function RowActions({ s }: { s: Story }) {
       // the whole row is a click target; the controls must not fall through to it
       onClick={(e) => e.stopPropagation()}
       className={clsx(
-        "hidden shrink-0 items-center gap-0.5 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100 lg:flex",
+        "hidden shrink-0 items-center gap-0.5 transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100 lg:flex",
         pinned ? "opacity-100" : "opacity-0",
       )}
     >
@@ -288,7 +313,7 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
     <span
       aria-hidden
       className={clsx(
-        "pointer-events-none absolute left-0 top-0 h-full w-[2px] origin-top transition-transform duration-200",
+        "pointer-events-none absolute top-0 left-0 h-full w-[2px] origin-top transition-transform duration-200",
         selected ? "scale-y-100 bg-spark" : "scale-y-0 bg-rulestrong group-hover:scale-y-100",
       )}
     />
@@ -308,13 +333,19 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
     return (
       <article className={clsx(shell, "ff-stagger")} {...a11y}>
         {rail}
-        <div className="px-5 pb-7 pt-5">
+        <div className="px-5 pt-5 pb-7">
           <div className="mb-5 flex items-start justify-between gap-3">
             <Kicker s={s} selected={selected} />
             <RowActions s={s} />
           </div>
           {hasArt(s) && (
-            <Media seed={s.plate ?? 0} src={s.image} alt={s.title} big className="aspect-[16/10] w-full" />
+            <Media
+              seed={s.plate ?? 0}
+              src={s.image}
+              alt={s.title}
+              big
+              className="aspect-[16/10] w-full"
+            />
           )}
           <h2
             data-t="feature-title"
@@ -337,12 +368,12 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
     return (
       <article className={clsx(shell, "ff-stagger")} {...a11y}>
         {rail}
-        <div className="px-5 pb-6 pt-5">
+        <div className="px-5 pt-5 pb-6">
           <div className="flex items-center justify-between gap-3">
             <Kicker s={s} selected={selected} />
             <RowActions s={s} />
           </div>
-          <blockquote className="mt-3.5 border-l-2 border-spark pl-4 text-[18.5px] italic leading-[1.36] tracking-[-0.012em] text-ink">
+          <blockquote className="mt-3.5 border-l-2 border-spark pl-4 text-[18.5px] leading-[1.36] tracking-[-0.012em] text-ink italic">
             “{s.pull}”
           </blockquote>
           <h2 className="mt-3.5 text-[15px] leading-[1.35] text-ink2">{s.title}</h2>
@@ -361,7 +392,7 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
           {unread && <Firefly size={4.5} glow={false} className="-translate-y-[2px]" />}
           <h2
             className={clsx(
-              "min-w-0 max-w-[58%] truncate text-[15px] leading-[1.35]",
+              "max-w-[58%] min-w-0 truncate text-[15px] leading-[1.35]",
               dim ? "text-ink3" : "text-ink",
             )}
           >
@@ -371,9 +402,10 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
             aria-hidden
             className="min-w-3 flex-1 -translate-y-[3px] border-b border-dotted border-rulestrong"
           />
-          <span className="mono shrink-0 text-[9.5px] uppercase tracking-[0.14em] text-ink4">
+          <span className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
             {r.feedById(s.feedId)?.name ?? ""}
           </span>
+          <RowActions s={s} />
         </div>
       </article>
     );
@@ -410,10 +442,13 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
   return (
     <article className={clsx(shell, "ff-stagger")} {...a11y}>
       {rail}
-      <div className={clsx(
+      <div
+        className={clsx(
           "px-5 py-[16px] lg:py-[18px]",
-          withPlate && "grid grid-cols-[minmax(0,1fr)_72px] gap-3.5 lg:grid-cols-[minmax(0,1fr)_84px] lg:gap-4",
-        )}>
+          withPlate &&
+            "grid grid-cols-[minmax(0,1fr)_72px] gap-3.5 lg:grid-cols-[minmax(0,1fr)_84px] lg:gap-4",
+        )}
+      >
         <div className="min-w-0">
           <div className="flex items-center justify-between gap-3">
             <Kicker s={s} selected={selected} />
@@ -453,11 +488,8 @@ export function StreamColumn() {
   const listRef = useRef<HTMLDivElement>(null);
   const filtered = r.filtered;
   const minutes = useMemo(() => filtered.reduce((n, s) => n + s.minutes, 0), [filtered]);
-  const [sources, setSources] = useState(0);
-
-  useEffect(() => {
-    setSources(new Set(filtered.map((s) => s.feedId)).size);
-  }, [filtered]);
+  // derived, not stored: there is no reason for this to cost a render pass
+  const sources = useMemo(() => new Set(filtered.map((s) => s.feedId)).size, [filtered]);
 
   useEffect(() => {
     const el = listRef.current?.querySelector<HTMLElement>(`[data-story="${r.selectedId}"]`);
@@ -500,7 +532,7 @@ export function StreamColumn() {
             <div className="flex flex-col items-center gap-2.5 border-t border-rule px-5 py-10">
               <Firefly size={5} glow={false} />
               <div className="label text-ink4">End of stream</div>
-              <div className="mono text-[10px] uppercase tracking-[0.1em] text-ink4">
+              <div className="mono text-[10px] tracking-[0.1em] text-ink4 uppercase">
                 {plural(filtered.length, "story", "stories")} · you are up to date
               </div>
             </div>
