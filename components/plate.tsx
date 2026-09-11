@@ -335,7 +335,7 @@ export function Plate({
   );
 }
 
-/** The firefly: a single point of light. Used for brand, unread, and focus. */
+/** The firefly: a single point of light. Used for the logotype and the unread marker. */
 export function Firefly({
   size = 8,
   className,

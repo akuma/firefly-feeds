@@ -107,8 +107,7 @@ export function SearchPalette() {
 
         <div className="max-h-[54vh] overflow-y-auto overscroll-contain border-t border-rule">
           {results.length === 0 ? (
-            <div className="flex flex-col items-center gap-4 py-16">
-              <Firefly size={6} glow />
+            <div className="flex flex-col items-center py-16">
               <p className="text-[15px] text-ink4">Nothing found for “{r.query}”</p>
             </div>
           ) : (

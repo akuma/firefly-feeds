@@ -208,7 +208,7 @@ components/
   add-source.tsx       the subscribe dialog
   search-palette.tsx   ⌘K overlay
   shortcuts.tsx        the key legend
-  plate.tsx            generative SVG artwork and the firefly
+  plate.tsx            generative SVG artwork
 lib/
   store.tsx            all application state — one context, one hook
   sources.ts           real suggested publications and folders

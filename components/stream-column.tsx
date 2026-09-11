@@ -538,8 +538,7 @@ export function StreamColumn() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center px-8 py-24 text-center">
-            <Firefly size={7} glow />
-            <div className="label mt-6 text-ink3">Nothing here</div>
+            <div className="label text-ink3">Nothing here</div>
             <p className="mt-3 max-w-[26ch] text-[14px] leading-[1.5] text-ink4">
               {r.query
                 ? "No story matches that search."

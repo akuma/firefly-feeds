@@ -46,7 +46,7 @@ components/
   add-source.tsx      the subscribe dialog
   search-palette.tsx  ⌘K overlay
   shortcuts.tsx       the key legend
-  plate.tsx           generative SVG artwork + the firefly mark
+  plate.tsx           generative SVG artwork
 docs/
   DESIGN.md           the visual language, and why it is that way
   preview-*.webp      screenshots, captured reading NASA's feed (public domain)
@@ -167,7 +167,7 @@ describes, and update it in the same change.
 
 |                        |                                                    |
 | ---------------------- | -------------------------------------------------- |
-| `docs/DESIGN.md`       | surfaces, type, rhythm, the firefly                |
+| `docs/DESIGN.md`       | surfaces, type, rhythm                             |
 | `docs/ARCHITECTURE.md` | the feed pipeline, reading state, sample isolation |
 | `docs/STORAGE.md`      | IndexedDB, the repository seam, replication        |
 
@@ -184,7 +184,6 @@ The visual language is not decoration; it is the product. Before changing anythi
 - **There is no separate display face, on purpose.** Instrument Serif was used for the masthead and date and read hairline-thin at 21–33px — which is what a high-contrast display face does when it is set at text sizes. Weight, not a third family, is what a logotype needs. If you are tempted to add one back, measure the ink first.
 - **Measure** — body is held at 600px / ~62 characters. Four reader steps, 17.5px → 23.5px.
 - **Rhythm** — the stream does not render every story the same way, but **a row's shape must be earned by the story, never by its position in the feed**. `standard` means the entry has a picture; `brief` means it has nothing to summarise; `compact` is the default; `feature` and `quote` are authored treatments for the sample edition. A positional rule (`index % 7`) once forced every seventh entry into the bare contents-page row, which rendered the same story two ways depending on when it was published and hid the one thing that tells a reader whether to open it. If you add a layout, it must carry the same row controls as every other layout, and it must never hide a summary that exists.
-- **The firefly appears in exactly three places**: unread marker, logotype, empty state. Not an illustration, and not punctuation. It is drawn in `--c-spark`, the colour that means "unread", so a dot on a static label spends that signal and teaches the reader to ignore it — ten such uses had accumulated and were removed. A working state that needs an indicator uses a mono glyph (`!` for a failed refresh), not the mark.
 
 Third-column rule: three columns need about **1320px**. Below that the navigation steps aside — unless the reader has chosen a nav width themselves, which is never overridden.
 

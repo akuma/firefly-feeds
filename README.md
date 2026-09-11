@@ -117,7 +117,7 @@ _On a phone, the article becomes a full-screen reading sheet._
 
 |                                              |                                                            |
 | -------------------------------------------- | ---------------------------------------------------------- |
-| [docs/DESIGN.md](docs/DESIGN.md)             | Why it looks like this — paper, type, rhythm, the firefly  |
+| [docs/DESIGN.md](docs/DESIGN.md)             | Why it looks like this — paper, type, rhythm               |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How a feed becomes a page, and where the seams are         |
 | [docs/STORAGE.md](docs/STORAGE.md)           | The three stores, the repository contract, what sync needs |
 
