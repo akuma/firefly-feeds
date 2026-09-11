@@ -113,7 +113,7 @@ function StreamHeader({
         <div className="shrink-0 select-none">
           <div
             data-t="day"
-            className="display tnum text-[46px] leading-[0.82] font-medium tracking-[-0.03em] text-ink lg:text-[64px] lg:leading-[0.8]"
+            className="tnum font-figures text-[46px] leading-[0.82] font-medium tracking-[-0.03em] text-ink lg:text-[64px] lg:leading-[0.8]"
           >
             {r.edition.day}
           </div>

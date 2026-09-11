@@ -45,6 +45,15 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           type="font/woff2"
           crossOrigin="anonymous"
         />
+        {/* The edition date numeral is above the fold, and 2.7KB, so it never
+            waits for the stylesheet to be parsed. */}
+        <link
+          rel="preload"
+          href="/fonts/figtree-figures.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
       </head>
       <body>{children}</body>

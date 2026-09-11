@@ -30,28 +30,39 @@ the article end mark. It is never decorative.
 
 ## Type
 
-Two families, each with one job.
+Three faces, and one of them sets a single number.
 
-**Newsreader** carries the entire editorial voice:
+**Newsreader** is the editorial voice:
 
 |                                     |     |
 | ----------------------------------- | --- |
 | the logotype                        | 600 |
-| section titles, the edition date    | 500 |
+| section titles                      | 500 |
 | every headline and all reading text | 400 |
 
 Its optical-size axis (`opsz`) draws a 20px masthead and 19px body text
 differently, which is what lets one serif do both. **Weight is what a logotype
-needs, not a third family** — a high-contrast display face set at 20px goes
-hairline-thin, which is what display faces do at text sizes.
+needs, not a separate display family** — a high-contrast display face set at 20px
+goes hairline-thin, which is what display faces do at text sizes. That is why
+Instrument Serif is gone.
 
-**IBM Plex Mono** is for anything that is metadata: navigation, kickers,
-timestamps, counts, captions. Metadata is uppercase and widely tracked; reading
-text never is.
+**IBM Plex Mono** is the metadata voice: navigation, kickers, timestamps, counts,
+captions. Metadata is uppercase and widely tracked; reading text never is.
 
-Both are self-hosted from `public/fonts` as variable subsets and preloaded, so
-there is no font CDN in the request path and the type renders identically
-offline.
+**Figtree Figures** sets the edition date numeral (`stream-column.tsx`) and
+nothing else. The file is subset to the ten digits — `U+0030-0039`, 2.7KB, with
+`unicode-range` declaring it — so it cannot reach text even by mistake, and it
+keeps its variable weight axis so the numeral still answers `font-medium` rather
+than rendering at a baked weight. Keeping it that narrow is the point: it is a
+figures face, not a third voice.
+
+All three are self-hosted from `public/fonts` and preloaded, so there is no font
+CDN in the request path and the type renders identically offline. All three are
+under the SIL Open Font License, which permits commercial use and web embedding
+but requires the notice to travel with the files — that is
+`public/fonts/OFL.txt`, and swapping a face means tending to it. Newsreader is a
+variable subset; IBM Plex Mono is not (static 400 and 500, roman and italic);
+Figtree is a variable subset cut down to the digits.
 
 ## Measure
 

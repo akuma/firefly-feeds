@@ -130,4 +130,4 @@ Firefly Feeds is open source under the [MIT License](LICENSE).
 
 The Firefly Feeds name, logo, visual identity, and other brand assets are not included in the MIT License. The license does not grant permission to use these assets to represent modified or derivative versions as official Firefly Feeds products.
 
-Third-party fonts, images, and other assets remain subject to their respective licenses.
+Third-party fonts, images, and other assets remain subject to their respective licenses. The typefaces are Newsreader, IBM Plex Mono and Figtree, all under the SIL Open Font License — their notices are in [`public/fonts/OFL.txt`](public/fonts/OFL.txt).
