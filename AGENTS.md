@@ -1,6 +1,6 @@
 # AGENTS.md
 
-FireflyReader — an editorial RSS reader. Next.js App Router running on **vinext** (Vite 8 / Rolldown), React 19, Tailwind CSS v4, lucide-react. Bun is the package manager.
+Firefly Feeds — an editorial RSS reader. Next.js App Router running on **vinext** (Vite 8 / Rolldown), React 19, Tailwind CSS v4, lucide-react. Bun is the package manager.
 
 ---
 
@@ -66,6 +66,11 @@ lib/
 ### Layering rules
 
 - **`lib/store.tsx` is the only state container.** Components read it through `useReader()`. Do not introduce a second context, a reducer, or a store library without a reason you can defend.
+- **The storage keys are frozen and contain the old product name on purpose.**
+  `DB_NAME = "firefly"` and `PREFS_KEY = "firefly.reader.v1"` are addresses, not
+  names. Renaming either orphans every subscription and read flag, and breaks
+  the v0 migration, which reads that exact key. Nothing user-facing depends on
+  them.
 - **Nothing above `lib/storage/` may import `idb` or mention IndexedDB.** The storage contract is `lib/storage/repository.ts`; that seam is what makes a future remote adapter a swap rather than a rewrite.
 - **`app/api/feed/route.ts` is the only place that talks to the network on the server.** Feed fetching lives there so publishers never need CORS headers and the page makes no third-party requests until the reader subscribes.
 - **The sample edition in `lib/sample/` is the only fabricated content in the

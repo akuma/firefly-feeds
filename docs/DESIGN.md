@@ -100,7 +100,7 @@ state. It pulses slowly, and stops entirely under `prefers-reduced-motion`.
 
 ## Mobile
 
-![FireflyReader on a phone](preview-mobile.png)
+![Firefly Feeds on a phone](preview-mobile.png)
 
 Mobile is not the desktop stack squashed. Below 1024px the structure changes:
 a compact masthead, the stream at full width, a four-item tab bar, and **the

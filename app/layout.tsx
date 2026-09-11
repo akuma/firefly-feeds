@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "FireflyReader — a quiet place to read the web",
+  title: "Firefly Feeds — a quiet place to read the web",
   description:
-    "An editorial RSS reader for people who read slowly and often. Feeds, folders, and a reading surface built for long-form attention.",
+    "An editorial RSS reader for thoughtful, unhurried reading. Feeds, folders, and a reading surface built around rhythm and long-form attention.",
 };
 
 export const viewport: Viewport = {

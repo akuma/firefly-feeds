@@ -14,6 +14,22 @@ in-memory mirror      the storage contract            the schema, and the
                       (the only sync surface)          only file that names it
 ```
 
+### The storage keys are frozen
+
+```ts
+const DB_NAME = "firefly"; // lib/storage/db.ts
+export const PREFS_KEY = "firefly.reader.v1"; // lib/storage/prefs.ts
+```
+
+**These still say "firefly.reader" and must keep saying it**, even though the
+product is called Firefly Feeds. They are not names, they are addresses:
+
+- renaming `DB_NAME` orphans every subscription, cached body and read flag;
+- renaming `PREFS_KEY` loses the theme, text size and last view — and breaks the
+  v0 migration, which reads that exact key to recover read/saved/later.
+
+Nothing user-facing depends on them. Leave them alone.
+
 **Nothing above `lib/storage/` imports `idb` or mentions IndexedDB.** A remote
 adapter, or SQLite on a server for real cross-device sync, is a change to one
 directory rather than a rewrite.

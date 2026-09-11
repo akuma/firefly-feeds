@@ -1,15 +1,18 @@
-# FireflyReader
+# Firefly Feeds
 
 **Not a dashboard. A weekly publication that happens to know your subscriptions.**
 
-FireflyReader is an editorial RSS reader. It fetches real feeds, parses them on the
-server, and sets them as a printed edition — a stream with rhythm rather than a
-table of rows, and a reading surface built for long-form attention.
+Firefly Feeds is an editorial RSS reader for thoughtful, unhurried reading. It
+fetches real feeds, parses them on the server, and shapes them into something
+closer to a printed edition than an endless stream of rows.
 
-Everything you read, save or queue stays on your device. There is no account, and
-no server of ours between you and the writing.
+The interface is designed around rhythm, hierarchy, and long-form attention — not
+constant refreshing or infinite scrolling.
 
-![FireflyReader showing the three-column edition view](docs/preview-desktop.png)
+Everything you read, save, or queue stays on your device. There is no account, no
+sync service, and no reading history stored on our servers.
+
+![Firefly Feeds showing the three-column edition view](docs/preview-desktop.png)
 
 ## Features
 

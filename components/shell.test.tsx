@@ -291,11 +291,11 @@ describe("the navigation", () => {
 describe("the wordmark", () => {
   it("sets the name as one word at one size, with a strapline beneath", async () => {
     await mount();
-    const mark = nav().querySelector("button[aria-label^='FireflyReader']")!;
+    const mark = nav().querySelector("button[aria-label^='Firefly Feeds']")!;
     const name = mark.querySelector("span.display")!;
     const strapline = mark.querySelector("span.mono")!;
 
-    expect(name.textContent).toBe("Firefly Reader");
+    expect(name.textContent).toBe("Firefly Feeds");
     // one element, so one face and one size — the name never changes typeface
     // or size part-way through
     expect(name.querySelectorAll("span")).toHaveLength(0);

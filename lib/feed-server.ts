@@ -42,8 +42,9 @@ export class FeedError extends Error {
 
 /* ---------------------------------------------------------------- fetch */
 
-const UA =
-  "Mozilla/5.0 (compatible; FireflyReader/1.0; +https://github.com/fireflyreader) AppleWebKit/537.36";
+// No contact URL: we do not have one to give, and inventing one would be worse
+// than a plain product identifier.
+const UA = "Mozilla/5.0 (compatible; FireflyFeeds/1.0) AppleWebKit/537.36";
 
 const FEED_TYPES = [
   "application/rss+xml",

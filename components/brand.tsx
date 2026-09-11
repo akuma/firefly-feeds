@@ -11,7 +11,7 @@ export function Wordmark({ size = "md", onClick }: { size?: "md" | "sm"; onClick
       type="button"
       onClick={onClick}
       className="group flex items-start gap-2.5 text-left"
-      aria-label="FireflyReader — a quiet place to read the web"
+      aria-label="Firefly Feeds — a quiet place to read the web"
     >
       <Firefly size={small ? 6 : 7} pulse className={small ? "mt-[5px]" : "mt-[6px]"} />
       <span className="flex min-w-0 flex-col">
@@ -22,7 +22,7 @@ export function Wordmark({ size = "md", onClick }: { size?: "md" | "sm"; onClick
             small ? "text-[17px]" : "text-[19px]",
           )}
         >
-          Firefly Reader
+          Firefly Feeds
         </span>
         <span
           className={clsx(
