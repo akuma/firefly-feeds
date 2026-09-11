@@ -382,7 +382,7 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
             {s.title}
           </h2>
           {s.dek && (
-            <p className="mt-3 max-w-[46ch] text-[15px] leading-[1.55] text-ink3">{s.dek}</p>
+            <p className="mt-3 max-w-[46ch] text-[17px] leading-[1.55] text-ink3">{s.dek}</p>
           )}
           <Meta s={s} className="mt-4" />
         </div>
@@ -403,7 +403,7 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
           <blockquote className="mt-3.5 border-l-2 border-spark pl-4 text-[18.5px] leading-[1.36] tracking-[-0.012em] text-ink italic">
             “{s.pull}”
           </blockquote>
-          <h2 className="mt-3.5 text-[15px] leading-[1.35] text-ink2">{s.title}</h2>
+          <h2 className="mt-3.5 text-[16.5px] leading-[1.35] text-ink2">{s.title}</h2>
           <Meta s={s} className="mt-2.5" />
         </div>
       </article>
@@ -419,7 +419,7 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
           {unread && <Firefly size={4.5} glow={false} className="-translate-y-[2px]" />}
           <h2
             className={clsx(
-              "max-w-[58%] min-w-0 truncate text-[15px] leading-[1.35]",
+              "max-w-[58%] min-w-0 truncate text-[16.5px] leading-[1.35]",
               dim ? "text-ink3" : "text-ink",
             )}
           >
@@ -450,14 +450,14 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
           </div>
           <h2
             className={clsx(
-              "mt-2 text-[17.5px] leading-[1.22] tracking-[-0.014em]",
+              "mt-2 text-[19px] leading-[1.22] tracking-[-0.014em]",
               dim ? "text-ink2" : "text-ink",
             )}
           >
             {s.title}
           </h2>
           {s.dek && (
-            <p className="mt-2 line-clamp-2 max-w-[52ch] text-[13.5px] leading-[1.5] text-ink3">
+            <p className="mt-2 line-clamp-2 max-w-[52ch] text-[15.5px] leading-[1.5] text-ink3">
               {s.dek}
             </p>
           )}
@@ -486,14 +486,14 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
           <h2
             data-t="std-title"
             className={clsx(
-              "mt-2 text-[19.5px] leading-[1.2] tracking-[-0.016em]",
+              "mt-2 text-[21px] leading-[1.2] tracking-[-0.016em]",
               dim ? "text-ink2" : "text-ink",
             )}
           >
             {s.title}
           </h2>
           {s.dek && (
-            <p className="mt-2.5 line-clamp-3 max-w-[54ch] text-[13.5px] leading-[1.55] text-ink3">
+            <p className="mt-2.5 line-clamp-3 max-w-[54ch] text-[15.5px] leading-[1.55] text-ink3">
               {s.dek}
             </p>
           )}

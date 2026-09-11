@@ -21,9 +21,19 @@ The differences are small on purpose. Stacked paper, not three panels.
 
 ## Ink
 
-`ink` → `ink2` → `ink3` → `ink4`, calibrated so **every tier clears 4.5:1
-against the darkest paper tone** — including 9.5px mono captions, which is where
-a ramp usually fails. Any new colour has to clear it too.
+`ink` → `ink2` → `ink3` → `ink4`, calibrated so **every tier clears 5.8:1
+against the darkest paper tone** — including the mono captions, which is where a
+ramp usually fails. Any new colour has to clear it too.
+
+The floor used to sit at 4.5:1, and that was the mistake: 4.5:1 is the threshold
+for _legibility_, not for comfort, and on a 9.5px caption it leaves nothing in
+reserve. `ink4` measured 4.70:1 and carries the bulk of the small type in the
+app, so the two weakest choices compounded. The floor is now 5.84:1.
+
+The contrast was the fix — not the size. An attempt to raise every caption below
+12px was reverted: it crowded the toolbars without making anything easier to
+read, because a caption is glanced at, not read. The text that carries size is
+the one a reader reads.
 
 The accent is one colour, used sparingly: unread markers, the active row's edge,
 the article end mark. It is never decorative.
@@ -70,6 +80,11 @@ Body text is held at **600px / about 62 characters**, and the reader offers four
 steps from 17.5px to 23.5px. Long-form text gets a lede: the opening paragraph
 is set slightly larger at full ink strength, which gives the piece a first beat
 without the fragility of a drop cap.
+
+In the stream, a story's description is set at **15.5px**, or **17px** in the
+feature row. It is deliberately the largest text in a row after the headline:
+it is what a reader scans to decide whether to open the piece, so it is where
+size belongs. Everything else in a row is a caption and stays small.
 
 ## Rhythm
 

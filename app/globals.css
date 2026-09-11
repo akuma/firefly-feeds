@@ -215,11 +215,14 @@
   --c-reader: #fcfaf5;
 
   /* The ink ramp is calibrated so every tier clears 4.5:1 against the
-     darkest paper tone, including 9.5px mono captions. */
+     darkest paper tone with room to spare, including the mono captions. The
+     floor is now 5.8:1 rather than the 4.70:1 it used to be: 4.5:1 is the
+     threshold for legibility, not for comfort, and it was doing all the work
+     at 9.5px where the eye needs the most help. */
   --c-ink: #17150f;
   --c-ink-2: #433e35;
-  --c-ink-3: #5b5647;
-  --c-ink-4: #6a6353;
+  --c-ink-3: #4e4a3d;
+  --c-ink-4: #5b5548;
 
   --c-rule: rgba(23, 21, 15, 0.15);
   --c-rule-soft: rgba(23, 21, 15, 0.08);
@@ -246,8 +249,8 @@
 
   --c-ink: #f1ede4;
   --c-ink-2: #c6bfb0;
-  --c-ink-3: #a49c8c;
-  --c-ink-4: #8b8474;
+  --c-ink-3: #aba495;
+  --c-ink-4: #9b9587;
 
   --c-rule: rgba(240, 236, 227, 0.15);
   --c-rule-soft: rgba(240, 236, 227, 0.08);
