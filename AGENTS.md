@@ -53,7 +53,7 @@ docs/
   STORAGE.md          the three stores and the repository contract
 lib/
   store.tsx           all application state, one context, one hook
-  sources.ts          real suggested publications + folders
+  sources.ts          suggested publications, folders, blurbs
   sample/             the invented sample edition (18 stories)
   reading.ts          age and reading-time helpers
   edition.ts          the masthead date
@@ -126,6 +126,16 @@ Rules that are easy to break by accident:
 - Prefs are only written once `ready` is true. Writing them earlier overwrites stored values with defaults while the migration is still reading them — that bug silently discarded every read/saved/later flag once already.
 
 ---
+
+### Suggested sources
+
+Six real publications, offered in the navigation while nothing is subscribed.
+They are spread across news, science, technology, culture and long-form writing
+on purpose — a list of technology feeds is not a general-interest edition.
+**Nothing is promoted or partnered**, blurbs stay plain and factual, and listing
+is an offer: the reader presses the button. A suggestion carries the folder it
+belongs in, so clicking one pre-files it. `lib/shaping.test.ts` guards the
+spread, the count, and the absence of pitch language.
 
 ## Documentation
 

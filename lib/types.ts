@@ -1,4 +1,5 @@
-export type FolderId = "design" | "technology" | "ai" | "independent" | "culture";
+export type FolderId =
+  "news" | "science" | "technology" | "culture" | "design" | "independent" | "ai";
 
 export type SmartViewId = "all" | "today" | "saved" | "later";
 

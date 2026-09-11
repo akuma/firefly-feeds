@@ -4,7 +4,7 @@ import { ArrowRight, Search, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { Firefly } from "./plate";
-import { FOLDERS } from "@/lib/sources";
+import { FOLDERS, SUGGESTED_SOURCES } from "@/lib/sources";
 import { useReader } from "@/lib/store";
 import type { Block, FolderId, StoryLayout } from "@/lib/types";
 
@@ -34,11 +34,9 @@ type ApiFeed = {
 
 type ApiResponse = { ok: true; feed: ApiFeed; items: ApiItem[] } | { ok: false; error: string };
 
-const SUGGESTIONS = [
-  { label: "daringfireball.net", url: "https://daringfireball.net/feeds/main" },
-  { label: "simonwillison.net", url: "https://simonwillison.net/atom/everything/" },
-  { label: "pluralistic.net", url: "https://pluralistic.net/feed/" },
-];
+// The dialog's quick picks are the first of the same suggested sources the
+// navigation offers, so the two lists cannot drift apart.
+const QUICK_PICKS = SUGGESTED_SOURCES.slice(0, 3);
 
 function shortDate(ms?: number): string {
   if (!ms) return "";
@@ -48,19 +46,19 @@ function shortDate(ms?: number): string {
 export function AddSource() {
   const r = useReader();
   /** A suggestion clicked in the navigation arrives pre-queued. */
-  const queued = r.pendingUrl;
-  const [url, setUrl] = useState(queued ?? "");
+  const queued = r.pendingSource;
+  const [url, setUrl] = useState(queued?.feedUrl ?? "");
   const booted = useRef(false);
   const [status, setStatus] = useState<"idle" | "loading" | "error" | "ready">("idle");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<{ feed: ApiFeed; items: ApiItem[] } | null>(null);
-  const [folder, setFolder] = useState<FolderId>("independent");
+  const [folder, setFolder] = useState<FolderId>(queued?.folder ?? "independent");
   const [saving, setSaving] = useState(false);
   const [faviconFailed, setFaviconFailed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const close = () => {
-    r.clearPendingUrl();
+    r.clearPendingSource();
     r.setAddOpen(false);
   };
 
@@ -100,7 +98,7 @@ export function AddSource() {
   useEffect(() => {
     if (booted.current || !queued) return;
     booted.current = true;
-    void look(queued);
+    void look(queued.feedUrl);
   }, [queued, look]);
 
   const commit = async () => {
@@ -200,14 +198,14 @@ export function AddSource() {
           {status === "idle" && (
             <div className="mono mt-3.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
               <span>Try</span>
-              {SUGGESTIONS.map((s) => (
+              {QUICK_PICKS.map((source) => (
                 <button
-                  key={s.url}
+                  key={source.id}
                   type="button"
-                  onClick={() => void look(s.url)}
+                  onClick={() => void look(source.feedUrl)}
                   className="text-ink3 underline decoration-rule decoration-1 underline-offset-4 transition-colors hover:text-spark"
                 >
-                  {s.label}
+                  {source.host}
                 </button>
               ))}
             </div>

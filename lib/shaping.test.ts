@@ -170,6 +170,34 @@ describe("the sample edition", () => {
 });
 
 describe("suggested sources", () => {
+  it("stay few enough to be an offer rather than a catalogue", () => {
+    expect(SUGGESTED_SOURCES.length).toBeGreaterThanOrEqual(5);
+    expect(SUGGESTED_SOURCES.length).toBeLessThanOrEqual(7);
+  });
+
+  it("spread across subjects instead of clustering in technology", () => {
+    const folders = new Set(SUGGESTED_SOURCES.map((source) => source.folder));
+    // news, science, culture and technology at the least — a list of six tech
+    // feeds is not a general-interest edition
+    for (const folder of ["news", "science", "culture", "technology"]) {
+      expect(folders, `nothing suggested for ${folder}`).toContain(folder);
+    }
+    const tech = SUGGESTED_SOURCES.filter((source) => source.folder === "technology");
+    expect(tech.length).toBeLessThanOrEqual(2);
+  });
+
+  it("describes sources without selling them", () => {
+    // no superlatives and no partnership language: these are listings, not
+    // endorsements or placements
+    for (const source of SUGGESTED_SOURCES) {
+      expect(source.blurb, source.id).not.toMatch(
+        /featured|sponsor|partner|best|leading|award|premier|world-class/i,
+      );
+      expect(source.blurb.length).toBeGreaterThan(20);
+      expect(source.blurb.length).toBeLessThan(80);
+    }
+  });
+
   it("are real publications with verifiable https feed URLs", () => {
     for (const source of SUGGESTED_SOURCES) {
       expect(source.feedUrl, source.id).toMatch(/^https:\/\//);

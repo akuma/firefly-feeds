@@ -66,8 +66,9 @@ type Ctx = {
   suggested: SuggestedSource[];
   /** Open the subscribe dialog with a source already queued up. */
   suggest: (id: string) => void;
-  pendingUrl: string | null;
-  clearPendingUrl: () => void;
+  /** Set when a suggestion was clicked, so the dialog can file it correctly. */
+  pendingSource: SuggestedSource | null;
+  clearPendingSource: () => void;
   stories: Story[];
   story: (id: string) => Story | undefined;
   feeds: Feed[];
@@ -168,7 +169,7 @@ export function useReaderState(edition: Edition): Ctx {
   const [mobileReading, setMobileReading] = useState(false);
   const [mobileFeeds, setMobileFeeds] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [pendingUrl, setPendingUrl] = useState<string | null>(null);
+  const [pendingSource, setPendingSource] = useState<SuggestedSource | null>(null);
   const [refreshing, setRefreshing] = useState<string | null>(null);
   // relative timestamps for fetched stories need a clock, not a constant
   const [now, setNow] = useState(() => Date.now());
@@ -289,11 +290,13 @@ export function useReaderState(edition: Edition): Ctx {
   const suggest = useCallback((id: string) => {
     const source = SUGGESTED_BY_ID.get(id);
     if (!source) return;
-    setPendingUrl(source.feedUrl);
+    // the folder travels with the suggestion, so a news feed is not filed
+    // under whatever the dialog happened to default to
+    setPendingSource(source);
     setAddOpen(true);
   }, []);
 
-  const clearPendingUrl = useCallback(() => setPendingUrl(null), []);
+  const clearPendingSource = useCallback(() => setPendingSource(null), []);
 
   /* ------------------------------------------------------------ reading */
 
@@ -602,8 +605,8 @@ export function useReaderState(edition: Edition): Ctx {
     sample,
     suggested: SUGGESTED_SOURCES,
     suggest,
-    pendingUrl,
-    clearPendingUrl,
+    pendingSource,
+    clearPendingSource,
     stories,
     story,
     feeds,

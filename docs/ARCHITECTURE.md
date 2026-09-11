@@ -101,6 +101,26 @@ Two things feeds do that a naive pipeline gets wrong:
   about 400 a minute and space-delimited words at about 225, and handles both in
   one body.
 
+## Suggested sources
+
+Six publications — BBC News, NPR, Smithsonian Magazine, NASA, Ars Technica and
+Aeon — offered in the navigation while the reader has subscribed to nothing.
+They span news, science, technology, culture and long-form writing, because a
+list of six technology feeds is not a general-interest edition.
+
+They are public broadcasters, a museum, an agency and two independent
+publications. **Nothing is promoted, sponsored or partnered**, the descriptions
+are plain, and being listed subscribes you to nothing: every one is a button the
+reader has to press. `lib/shaping.test.ts` asserts the spread, the count, and
+that no blurb contains partnership or superlative language.
+
+Clicking one opens the subscribe dialog with the feed already queued _and the
+folder it belongs in preselected_, so a news feed is not filed under whatever
+the dialog happened to default to.
+
+`lib/sources.ts` is also where the folders live. They lead with News rather than
+Design, which is the same statement the source list makes.
+
 ## Reading state
 
 **Reaching the end of a story marks it read. Nothing else does automatically.**
