@@ -385,12 +385,25 @@ export function Media({
   sizes?: string;
 }) {
   const [failed, setFailed] = useState(false);
-  const broken = !src || failed;
+
+  /*
+   * Two different things wear the same slot, and they must not be confused.
+   *
+   * No `src` means the plate *is* the artwork — only the sample edition does
+   * this, and it is labelled. A `src` means the publisher supplied a picture;
+   * if it fails to load we say so rather than drawing something in its place,
+   * because invented artwork in a photograph's slot reads as the article's own
+   * image and does not exist on the page the story links to.
+   */
+  if (!src) return <Plate seed={seed} big={big} className={className} bordered />;
 
   return (
     <div className={clsx("relative overflow-hidden bg-plate", className)}>
-      <Plate seed={seed} big={big} className="absolute inset-0 h-full w-full" />
-      {!broken && (
+      {failed ? (
+        <span className="mono absolute inset-0 flex items-center justify-center text-[9px] tracking-[0.14em] text-ink4 uppercase">
+          Image unavailable
+        </span>
+      ) : (
         <img
           src={src}
           alt={alt ?? ""}

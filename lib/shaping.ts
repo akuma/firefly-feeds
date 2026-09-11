@@ -39,7 +39,13 @@ export function storyFromArticle(article: ArticleRecord, now: number): Story {
     minutesAgo,
     minutes: article.minutes,
     layout: article.layout,
-    plate: article.image ? undefined : seedFor(article.id),
+    /*
+     * Fetched articles carry artwork only when the publisher supplied it. A
+     * generated plate here would occupy the same slot as a photograph and read
+     * as the article's own image, which it is not — the giveaway being that it
+     * does not exist on the page the story links to. Plates are for the sample
+     * edition, where everything is labelled and nothing links out.
+     */
     image: article.image,
     byline: article.author,
     body: article.body,
@@ -48,15 +54,6 @@ export function storyFromArticle(article: ArticleRecord, now: number): Story {
     live: true,
     truncated: article.truncated,
   };
-}
-
-function seedFor(id: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < id.length; i++) {
-    h ^= id.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return Math.abs(h) % 8;
 }
 
 /** Flat `Record<id, boolean>` view, which is what the components consume. */

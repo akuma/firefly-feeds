@@ -71,6 +71,13 @@ lib/
   exists, so invented and real stories can never mix. **Never attribute sample
   content to a real person or publication**, in a byline, a blurb or a pull
   quote; `lib/shaping.test.ts` asserts this and names the offenders.
+- **Never invent artwork for a real article.** A fetched story carries a
+  picture only if the publisher's feed supplied one; otherwise it renders with
+  no artwork and the stream falls back to its text-only layouts. The generated
+  plates in `components/plate.tsx` belong to the sample edition alone. A plate
+  in a photograph's slot reads as the article's own image and does not exist on
+  the page the story links to — `components/shell.test.tsx` asserts a fetched
+  article gets no plate, and that no "Firefly Studio" credit reappears.
 - **Feed bodies are never injected as HTML.** `lib/feed-html.ts` translates them into `Block[]`. No `dangerouslySetInnerHTML`, no sanitiser dependency, and no publisher stylesheet leaking into the reading surface. Keep it that way.
 
 ### Storage

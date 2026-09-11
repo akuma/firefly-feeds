@@ -143,6 +143,69 @@ describe("open original", () => {
     expect(within(reader()).getByText("Sample story")).toBeInTheDocument();
   });
 
+  it("never invents artwork for a real article", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "spainter",
+      url: "https://images.example/feed.xml",
+      siteUrl: "https://images.example",
+      title: "No Pictures Weekly",
+      host: "images.example",
+      folder: "independent",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    // two entries: one with the publisher's own image, one without
+    await repo.replaceArticles("spainter", [
+      {
+        id: "spainter~with",
+        sourceId: "spainter",
+        title: "Has a picture",
+        link: "https://images.example/with",
+        publishedAt: now,
+        fetchedAt: now,
+        summary: "s",
+        body: [],
+        image: "https://images.example/photo.jpg",
+        minutes: 2,
+        layout: "standard",
+      },
+      {
+        id: "spainter~without",
+        sourceId: "spainter",
+        title: "Has none",
+        link: "https://images.example/without",
+        publishedAt: now - 1000,
+        fetchedAt: now,
+        summary: "s",
+        body: [],
+        minutes: 2,
+        layout: "compact",
+      },
+    ]);
+
+    await mount();
+    const stories = [...document.querySelectorAll("[data-story]")];
+    const withImage = stories.find((r) => /Has a picture/.test(r.textContent ?? ""))!;
+    const without = stories.find((r) => /Has none/.test(r.textContent ?? ""))!;
+
+    // the publisher's own image is shown...
+    expect(withImage.querySelector("img")?.getAttribute("src")).toContain("photo.jpg");
+    // ...and nothing is drawn in its place when there is none, because a
+    // generated picture here would not exist on the page the story links to
+    expect(without.querySelector("img")).toBeNull();
+    expect(without.querySelector(".bg-plate")).toBeNull();
+  });
+
+  it("does not credit a studio that does not exist", async () => {
+    await mount();
+    expect(document.body.textContent).not.toMatch(/Firefly Studio/i);
+    expect(within(reader()).getByText(/Invented · no original/)).toBeInTheDocument();
+    expect(reader().querySelector("a[href^='http']")).toBeNull();
+  });
+
   it("still gives every stream row its controls, whatever its layout", async () => {
     await mount();
     const controls = stream().querySelectorAll("[aria-label='Sample story — no original']");

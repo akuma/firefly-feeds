@@ -116,6 +116,21 @@ invented writer, and sample stories carry **no outbound link at all** — so
 "open original" stays disabled rather than pointing at a real homepage and
 implying the piece exists there.
 
+**Its artwork is generated, and it is the only artwork that is.** The plates in
+`components/plate.tsx` are SVG drawn from the story id — halftone, arcs,
+stripes, bands, grid, hatch, horizon, numeral. They are the sample edition's
+illustrations, so they appear when a story has no `src` and the sample edition
+is what you are reading.
+
+A _fetched_ article never gets one. If the publisher's feed supplied a picture,
+that picture is shown; if it did not, the story renders without artwork and the
+stream falls back to its text-only layouts. An earlier version drew a plate for
+every image-less article and captioned it _"Illustration · Firefly Studio"_ — a
+credit for a studio that does not exist, on a picture that does not exist, under
+a real article. Same failure as the fabricated bylines, so it got the same
+treatment. A publisher image that fails to load says _Image unavailable_ rather
+than quietly becoming a generated one.
+
 It retires itself the moment you subscribe to anything, so invented stories can
 never mix with real ones. The masthead date is the real date, decided per
 request on the server (`app/page.tsx`) so the client cannot disagree with it.

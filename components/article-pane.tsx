@@ -383,6 +383,11 @@ export function ArticlePane() {
             <span>{feed.name}</span>
             <span className="h-px w-4 bg-spark opacity-60" aria-hidden />
             <span className="text-ink4">{folder.name}</span>
+            {isSample && (
+              <span className="bg-ink px-1.5 py-1 text-canvas" data-t="sample-tag">
+                Sample
+              </span>
+            )}
           </div>
 
           <h1
@@ -419,9 +424,11 @@ export function ArticlePane() {
                 big
                 className="aspect-[16/9] w-full"
               />
-              <figcaption className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
-                {s.image ? feed.name : "Illustration · Firefly Studio"}
-              </figcaption>
+              {isSample && (
+                <figcaption className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
+                  Sample edition
+                </figcaption>
+              )}
             </figure>
           )}
 
@@ -448,20 +455,29 @@ export function ArticlePane() {
 
           <div className="mt-14">
             <Rule />
-            <a
-              href={canonical}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex items-center justify-between gap-4 py-4"
-            >
-              <span className="label text-ink4 transition-colors group-hover:text-ink2">
-                {isSample ? "Sample story" : s.live ? "Read the full piece" : "Original source"}
-              </span>
-              <span className="mono flex items-center gap-1.5 text-[10px] tracking-[0.08em] text-ink3 transition-colors group-hover:text-spark">
-                {hostOf(canonical ?? feed.host)}
-                <ArrowUpRight size={11} strokeWidth={1.7} />
-              </span>
-            </a>
+            {isSample ? (
+              <div className="flex items-center justify-between gap-4 py-4">
+                <span className="label text-ink4">Sample story</span>
+                <span className="mono text-[10px] tracking-[0.08em] text-ink4">
+                  Invented · no original
+                </span>
+              </div>
+            ) : (
+              <a
+                href={canonical}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center justify-between gap-4 py-4"
+              >
+                <span className="label text-ink4 transition-colors group-hover:text-ink2">
+                  {s.live ? "Read the full piece" : "Original source"}
+                </span>
+                <span className="mono flex items-center gap-1.5 text-[10px] tracking-[0.08em] text-ink3 transition-colors group-hover:text-spark">
+                  {hostOf(canonical ?? feed.host)}
+                  <ArrowUpRight size={11} strokeWidth={1.7} />
+                </span>
+              </a>
+            )}
 
             {next && (
               <button

@@ -48,6 +48,17 @@ describe("the sample edition", () => {
     }
   });
 
+  it("is the only thing that carries generated artwork", () => {
+    // no sample story claims a photograph...
+    for (const story of SAMPLE_STORIES) {
+      expect(story.image, `${story.id} should not claim a photograph`).toBeUndefined();
+    }
+    // ...and most of them carry a generated plate (the pull-quote layout does not)
+    const withPlates = SAMPLE_STORIES.filter((story) => typeof story.plate === "number");
+    expect(withPlates.length).toBeGreaterThan(5);
+    expect(withPlates.length).toBeLessThan(SAMPLE_STORIES.length);
+  });
+
   it("is entirely invented: reserved hosts and no outbound URL anywhere", () => {
     for (const feed of SAMPLE_FEEDS) {
       // RFC 2606 reserves .example, so none of these can resolve to a real site
@@ -160,17 +171,19 @@ describe("storyFromArticle", () => {
     expect(story.publishedLabel).toBeTruthy();
   });
 
-  it("falls back to a generated plate when the feed supplied no image", () => {
+  it("never invents artwork for a fetched article", () => {
     const story = storyFromArticle({ ...article, image: undefined }, Date.now());
     expect(story.image).toBeUndefined();
-    expect(story.plate).toBeGreaterThanOrEqual(0);
-    expect(story.plate).toBeLessThan(8);
+    // a generated plate would sit in the same slot as a photograph and read as
+    // the article's own image — which it is not, since it does not exist on the
+    // page the story links to
+    expect(story.plate).toBeUndefined();
   });
 
-  it("gives the same article the same plate seed every time", () => {
-    const a = storyFromArticle({ ...article, image: undefined }, 1);
-    const b = storyFromArticle({ ...article, image: undefined }, 999);
-    expect(a.plate).toBe(b.plate);
+  it("passes the publisher's own image through untouched", () => {
+    const story = storyFromArticle(article, Date.now());
+    expect(story.image).toBe("https://example.com/a.jpg");
+    expect(story.plate).toBeUndefined();
   });
 });
 
