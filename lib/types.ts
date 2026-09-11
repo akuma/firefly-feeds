@@ -11,7 +11,8 @@ export type ViewId = SmartViewId | `folder:${FolderId}` | `feed:${FeedId}`;
 export type Feed = {
   id: FeedId;
   name: string;
-  folder: FolderId;
+  /** Absent when the feed was subscribed without a folder. */
+  folder?: FolderId;
   /** Host shown in the reader's provenance line. */
   host: string;
   /** Two-letter monogram used in dense list contexts. */

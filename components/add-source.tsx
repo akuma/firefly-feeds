@@ -3,7 +3,7 @@
 import { ArrowRight, Search, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clsx } from "./clsx";
-import { FOLDERS, SUGGESTED_SOURCES } from "@/lib/sources";
+import { FOLDERS } from "@/lib/sources";
 import { useReader } from "@/lib/store";
 import type { Block, FolderId, StoryLayout } from "@/lib/types";
 
@@ -33,9 +33,16 @@ type ApiFeed = {
 
 type ApiResponse = { ok: true; feed: ApiFeed; items: ApiItem[] } | { ok: false; error: string };
 
-// The dialog's quick picks are the first of the same suggested sources the
-// navigation offers, so the two lists cannot drift apart.
-const QUICK_PICKS = SUGGESTED_SOURCES.slice(0, 3);
+/**
+ * Four publications to try, shown while the dialog is idle. Pressing one runs a
+ * lookup, so each carries the host to show and the feed address to fetch.
+ */
+const QUICK_PICKS: { host: string; feedUrl: string }[] = [
+  { host: "bbc.co.uk", feedUrl: "https://feeds.bbci.co.uk/news/rss.xml" },
+  { host: "smithsonianmag.com", feedUrl: "https://www.smithsonianmag.com/rss/articles/" },
+  { host: "quantamagazine.org", feedUrl: "https://www.quantamagazine.org/feed/" },
+  { host: "aeon.co", feedUrl: "https://aeon.co/feed.rss" },
+];
 
 function shortDate(ms?: number): string {
   if (!ms) return "";
@@ -51,7 +58,9 @@ export function AddSource() {
   const [status, setStatus] = useState<"idle" | "loading" | "error" | "ready">("idle");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<{ feed: ApiFeed; items: ApiItem[] } | null>(null);
-  const [folder, setFolder] = useState<FolderId>(queued?.folder ?? "independent");
+  const [name, setName] = useState("");
+  // no folder is chosen by default; a suggestion arrives with its own preselected
+  const [folder, setFolder] = useState<FolderId | null>(queued?.folder ?? null);
   const [saving, setSaving] = useState(false);
   const [faviconFailed, setFaviconFailed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,6 +89,7 @@ export function AddSource() {
         return;
       }
       setPreview({ feed: data.feed, items: data.items });
+      setName(data.feed.title);
       setStatus("ready");
     } catch {
       setError("Could not reach the reader's feed service.");
@@ -117,11 +127,11 @@ export function AddSource() {
       }
       await r.subscribe({
         id: data.feed.id,
-        title: data.feed.title,
+        title: name.trim() || data.feed.title,
         host: data.feed.host,
         feedUrl: data.feed.feedUrl,
         siteUrl: data.feed.siteUrl,
-        folder,
+        folder: folder ?? undefined,
         items: data.items,
       });
       r.setAddOpen(false);
@@ -144,7 +154,11 @@ export function AddSource() {
         style={{ background: "color-mix(in oklab, var(--c-canvas) 94%, transparent)" }}
       />
 
-      <div className="ff-rise relative flex max-h-[86vh] w-full max-w-[640px] flex-col border border-rule bg-reader shadow-[0_30px_60px_-40px_rgba(0,0,0,0.5)]">
+      <div
+        role="dialog"
+        aria-label="Add source"
+        className="ff-rise relative flex max-h-[86vh] w-full max-w-[640px] flex-col border border-rule bg-reader shadow-[0_30px_60px_-40px_rgba(0,0,0,0.5)]"
+      >
         {/* ------------------------------------------------------ header */}
         <div className="flex shrink-0 items-center justify-between border-b border-rule px-6 py-3">
           <span className="label text-ink4">Add source</span>
@@ -197,14 +211,14 @@ export function AddSource() {
           {status === "idle" && (
             <div className="mono mt-3.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
               <span>Try</span>
-              {QUICK_PICKS.map((source) => (
+              {QUICK_PICKS.map((pick) => (
                 <button
-                  key={source.id}
+                  key={pick.feedUrl}
                   type="button"
-                  onClick={() => void look(source.feedUrl)}
+                  onClick={() => void look(pick.feedUrl)}
                   className="text-ink3 underline decoration-rule decoration-1 underline-offset-4 transition-colors hover:text-spark"
                 >
-                  {source.host}
+                  {pick.host}
                 </button>
               ))}
             </div>
@@ -242,9 +256,14 @@ export function AddSource() {
                   ) : null}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-[21px] leading-[1.15] tracking-[-0.016em] text-ink">
-                    {preview.feed.title}
-                  </h3>
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    aria-label="Feed name"
+                    title="Rename this feed"
+                    spellCheck={false}
+                    className="w-full min-w-0 border-b border-transparent bg-transparent text-[21px] leading-[1.15] tracking-[-0.016em] text-ink transition-colors outline-none hover:border-rule focus:border-rulestrong"
+                  />
                   <p className="mono mt-1.5 flex flex-wrap items-center gap-2 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                     <span className="text-ink3">{preview.feed.host}</span>
                     <span aria-hidden>·</span>
@@ -294,11 +313,23 @@ export function AddSource() {
           <div className="shrink-0 border-t border-rule px-6 py-4">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <span className="label text-ink4">File under</span>
+              <button
+                type="button"
+                onClick={() => setFolder(null)}
+                className={clsx(
+                  "mono px-2 py-1 text-[9.5px] leading-none tracking-[0.14em] uppercase transition-colors",
+                  folder === null
+                    ? "bg-ink text-canvas"
+                    : "text-ink3 ring-1 ring-rule ring-inset hover:bg-hoverc hover:text-ink",
+                )}
+              >
+                Unfiled
+              </button>
               {FOLDERS.map((f) => (
                 <button
                   key={f.id}
                   type="button"
-                  onClick={() => setFolder(f.id)}
+                  onClick={() => setFolder((current) => (current === f.id ? null : f.id))}
                   className={clsx(
                     "mono px-2 py-1 text-[9.5px] leading-none tracking-[0.14em] uppercase transition-colors",
                     folder === f.id

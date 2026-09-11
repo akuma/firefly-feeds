@@ -42,7 +42,8 @@ export type SubscribeInput = {
   host: string;
   feedUrl: string;
   siteUrl: string;
-  folder: FolderId;
+  /** Absent when the reader subscribes without filing it under a folder. */
+  folder?: FolderId;
   items: {
     id: string;
     title: string;
@@ -81,11 +82,16 @@ type Ctx = {
   sources: SourceRecord[];
   subscribe: (input: SubscribeInput) => Promise<void>;
   unsubscribe: (id: string) => Promise<void>;
+  /** Rename a source and/or re-file it. `folder: null` leaves it unfiled. */
+  editSource: (id: string, patch: { name: string; folder: FolderId | null }) => Promise<void>;
   refreshing: string | null;
   refresh: (id: string) => Promise<void>;
 
   addOpen: boolean;
   setAddOpen: (v: boolean) => void;
+  /** The source whose name and folder are being edited, if any. */
+  editingId: FeedId | null;
+  setEditingId: (id: FeedId | null) => void;
 
   state: State;
   toggle: (kind: keyof State, id: string) => void;
@@ -172,6 +178,7 @@ export function useReaderState(edition: Edition): Ctx {
   const [mobileReading, setMobileReading] = useState(false);
   const [mobileFeeds, setMobileFeeds] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [editingId, setEditingId] = useState<FeedId | null>(null);
   const [pendingSource, setPendingSource] = useState<SuggestedSource | null>(null);
   const [refreshing, setRefreshing] = useState<string | null>(null);
   // relative timestamps for fetched stories need a clock, not a constant
@@ -371,12 +378,12 @@ export function useReaderState(edition: Edition): Ctx {
         siteUrl: input.siteUrl,
         title: input.title,
         host: input.host,
-        folder: input.folder,
         addedAt: at,
         fetchedAt: at,
         error: null,
         updatedAt: at,
       };
+      if (input.folder) source.folder = input.folder;
       const items: ArticleRecord[] = input.items.slice(0, MAX_ARTICLES).map((item) => ({
         id: `${input.id}~${item.id}`,
         sourceId: input.id,
@@ -412,6 +419,24 @@ export function useReaderState(edition: Edition): Ctx {
     setViewRaw((current) => (current === `feed:${id}` ? "today" : current));
   }, []);
 
+  const editSource = useCallback(
+    async (id: string, patch: { name: string; folder: FolderId | null }) => {
+      const source = sources.find((s) => s.id === id);
+      if (!source) return;
+      const next: SourceRecord = {
+        ...source,
+        // an empty field is not a name; keeping the old one is the lesser surprise
+        title: patch.name.trim() || source.title,
+        updatedAt: Date.now(),
+      };
+      if (patch.folder) next.folder = patch.folder;
+      else delete next.folder;
+      await repo.putSource(next);
+      await reloadSource(id);
+    },
+    [sources, reloadSource],
+  );
+
   const refresh = useCallback(
     async (id: string) => {
       const source = sources.find((s) => s.id === id);
@@ -443,7 +468,12 @@ export function useReaderState(edition: Edition): Ctx {
 
         // anything the reader kept is exempt from cache eviction
         const keep = new Set(reading.filter((r) => r.saved || r.later).map((r) => r.id));
-        await repo.putSource({ ...source, fetchedAt: at, error: null, updatedAt: at });
+        await repo.putSource({
+          ...source,
+          fetchedAt: at,
+          error: null,
+          updatedAt: at,
+        });
         await repo.replaceArticles(id, items, keep);
         await reloadSource(id);
         setNow(Date.now());
@@ -638,10 +668,13 @@ export function useReaderState(edition: Edition): Ctx {
     sources,
     subscribe,
     unsubscribe,
+    editSource,
     refreshing,
     refresh,
     addOpen,
     setAddOpen,
+    editingId,
+    setEditingId,
     state,
     toggle,
     markRead,
@@ -707,14 +740,15 @@ export function useKeyboardShortcuts(ctx: Ctx) {
       }
       if (e.key === "Escape") {
         if (c.addOpen) c.setAddOpen(false);
+        else if (c.editingId) c.setEditingId(null);
         else if (c.shortcutsOpen) c.setShortcutsOpen(false);
         else if (c.searchOpen) c.setSearchOpen(false);
         else if (c.immersive) c.setImmersive(false);
         else if (c.mobileReading) c.setMobileReading(false);
         return;
       }
-      // the subscribe dialog owns the keyboard while it is open
-      if (c.addOpen) return;
+      // a dialog owns the keyboard while it is open
+      if (c.addOpen || c.editingId) return;
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
 
       switch (e.key) {

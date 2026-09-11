@@ -1,6 +1,6 @@
 "use client";
 
-import { Command, Keyboard, Moon, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
+import { Command, Keyboard, Moon, Pencil, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
 import { clsx } from "./clsx";
 import { IconButton, Wordmark } from "./brand";
 import { Firefly } from "./plate";
@@ -133,6 +133,7 @@ function SourceRow({
   onSelect,
   onRefresh,
   onRemove,
+  onEdit,
 }: {
   feed: Feed;
   active: boolean;
@@ -142,6 +143,7 @@ function SourceRow({
   onSelect: () => void;
   onRefresh: () => void;
   onRemove: () => void;
+  onEdit: () => void;
 }) {
   return (
     <div
@@ -181,7 +183,6 @@ function SourceRow({
       >
         {feed.name}
       </span>
-
       <span aria-hidden="true" className="relative flex shrink-0 items-center gap-1.5">
         {refreshing ? (
           /* The one working state that had no words of its own, so it borrows the
@@ -211,6 +212,13 @@ function SourceRow({
         )}
         {feed.subscribed && (
           <span className="pointer-events-none flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 max-lg:pointer-events-auto max-lg:opacity-100">
+            <IconButton
+              icon={Pencil}
+              label={`Rename ${feed.name}`}
+              size={20}
+              iconSize={11}
+              onClick={onEdit}
+            />
             <IconButton
               icon={RefreshCw}
               label={`Refresh ${feed.name}`}
@@ -303,10 +311,10 @@ export function NavRail({
   const { feeds, stories, feedById } = r;
   const foldersInUse = useMemo(() => {
     const used = new Set<FolderId>();
-    for (const feed of feeds) used.add(feed.folder);
+    for (const feed of feeds) if (feed.folder) used.add(feed.folder);
     for (const story of stories) {
       const feed = feedById(story.feedId);
-      if (feed) used.add(feed.folder);
+      if (feed?.folder) used.add(feed.folder);
     }
     return used;
   }, [feeds, stories, feedById]);
@@ -417,6 +425,7 @@ export function NavRail({
                   onSelect={() => go(`feed:${feed.id}`)}
                   onRefresh={() => void r.refresh(feed.id)}
                   onRemove={() => void r.unsubscribe(feed.id)}
+                  onEdit={() => r.setEditingId(feed.id)}
                 />
               );
             })}

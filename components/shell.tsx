@@ -14,6 +14,7 @@ import { clsx } from "./clsx";
 import type { Edition } from "@/lib/edition";
 import { AddSource } from "./add-source";
 import { ArticlePane } from "./article-pane";
+import { EditSource } from "./edit-source";
 import { IconButton, Wordmark } from "./brand";
 import { NavRail } from "./nav-rail";
 import { SearchPalette } from "./search-palette";
@@ -161,6 +162,7 @@ export function Shell({ edition }: { edition?: Edition }) {
 
       {r.searchOpen && <SearchPalette />}
       {r.addOpen && <AddSource />}
+      {r.editingId && <EditSource />}
       {r.shortcutsOpen && <Shortcuts />}
     </ReaderContext.Provider>
   );

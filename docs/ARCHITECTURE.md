@@ -145,7 +145,7 @@ folder it belongs in preselected_, so a news feed is not filed under whatever
 the dialog happened to default to.
 
 `lib/sources.ts` is also where the folders live: News, Science, Technology, AI,
-Culture, Design, Independent Web. The general categories lead and the
+Culture, Design, Ideas. The general categories lead and the
 technology-adjacent ones sit together — the same statement the source list makes.
 
 **The navigation lists only folders with something in them.** A folder with

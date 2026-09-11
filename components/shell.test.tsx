@@ -366,6 +366,122 @@ describe("the navigation", () => {
   });
 });
 
+describe("subscribing", () => {
+  it("takes a custom name and files the feed unfiled unless a topic is picked", async () => {
+    const original = globalThis.fetch;
+    const payload = {
+      ok: true,
+      feed: {
+        id: "xnew",
+        title: "Fetched Title",
+        host: "new.example",
+        siteUrl: "https://new.example",
+        feedUrl: "https://new.example/feed.xml",
+        description: "",
+        kind: "rss",
+        count: 1,
+      },
+      items: [
+        { id: "a", title: "An entry", summary: "s", body: [], minutes: 1, layout: "compact" },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+
+    try {
+      const repo = await import("@/lib/storage/repository");
+      const { user } = await mount();
+      await user.click(within(nav()).getByTitle("Add a feed or site"));
+
+      const panel = await screen.findByRole("dialog", { name: "Add source" });
+      await user.type(
+        within(panel).getByPlaceholderText("https://example.com/feed.xml"),
+        "new.example/feed.xml",
+      );
+      await user.click(within(panel).getByRole("button", { name: "Find" }));
+
+      // the name is editable before the feed is kept
+      const field = await within(panel).findByLabelText("Feed name");
+      await user.clear(field);
+      await user.type(field, "My Name");
+      // no topic is pre-selected, so subscribing keeps it unfiled
+      await user.click(within(panel).getByRole("button", { name: /Subscribe/ }));
+
+      await waitFor(async () => {
+        const saved = await repo.getSource("xnew");
+        expect(saved?.title).toBe("My Name");
+        expect(saved?.folder).toBeUndefined();
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
+
+describe("editing a source", () => {
+  it("renames and re-files it in one dialog", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "sedit",
+      url: "https://edit.example/feed.xml",
+      siteUrl: "https://edit.example",
+      title: "Old Name",
+      host: "edit.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+
+    const { user } = await mount();
+    await user.click(within(nav()).getByLabelText("Rename Old Name"));
+
+    const panel = await screen.findByRole("dialog", { name: "Edit source" });
+    const field = within(panel).getByLabelText("Feed name");
+    await user.clear(field);
+    await user.type(field, "New Name");
+    await user.click(within(panel).getByRole("button", { name: "Culture" }));
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(within(nav()).getByText("New Name")).toBeInTheDocument());
+    expect(within(nav()).queryByText("Old Name")).not.toBeInTheDocument();
+
+    const saved = await repo.getSource("sedit");
+    expect(saved?.title).toBe("New Name");
+    expect(saved?.folder).toBe("culture");
+  });
+
+  it("leaves a source unfiled when Unfiled is chosen", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "sedit",
+      url: "https://edit.example/feed.xml",
+      siteUrl: "https://edit.example",
+      title: "Old Name",
+      host: "edit.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+
+    const { user } = await mount();
+    await user.click(within(nav()).getByLabelText("Rename Old Name"));
+    const panel = await screen.findByRole("dialog", { name: "Edit source" });
+    await user.click(within(panel).getByRole("button", { name: "Unfiled" }));
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+
+    await waitFor(async () => {
+      const saved = await repo.getSource("sedit");
+      expect(saved?.folder).toBeUndefined();
+    });
+  });
+});
+
 describe("the wordmark", () => {
   it("sets the name as one word at one size, with a strapline beneath", async () => {
     await mount();
@@ -531,10 +647,10 @@ describe("the sample edition", () => {
 describe("columns", () => {
   it("switches source and carries the reader with it", async () => {
     const { user } = await mount();
-    await user.click(within(nav()).getByRole("button", { name: /^Independent Web/ }));
+    await user.click(within(nav()).getByRole("button", { name: /^Ideas/ }));
 
     await waitFor(() =>
-      expect(stream().querySelector("[data-t='viewtitle']")).toHaveTextContent("Independent Web"),
+      expect(stream().querySelector("[data-t='viewtitle']")).toHaveTextContent("Ideas"),
     );
     expect(rows().length).toBeGreaterThan(0);
     // the open story must belong to the column that is showing

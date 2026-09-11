@@ -25,7 +25,8 @@ export type SourceRecord = {
   siteUrl: string;
   title: string;
   host: string;
-  folder: FolderId;
+  /** Absent when the reader chose not to file the source under a folder. */
+  folder?: FolderId;
   addedAt: number;
   fetchedAt: number;
   /** Non-null when the last refresh failed. Surfaced in the navigation. */

@@ -13,7 +13,7 @@ export const FOLDERS: Folder[] = [
   { id: "ai", name: "AI" },
   { id: "culture", name: "Culture" },
   { id: "design", name: "Design" },
-  { id: "independent", name: "Independent Web" },
+  { id: "independent", name: "Ideas" },
 ];
 
 export type SuggestedSource = {
