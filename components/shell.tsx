@@ -11,12 +11,14 @@ import {
   Sun,
 } from "lucide-react";
 import { clsx } from "./clsx";
+import type { Edition } from "@/lib/edition";
 import { AddSource } from "./add-source";
 import { ArticlePane } from "./article-pane";
 import { IconButton, Wordmark } from "./brand";
 import { NavRail } from "./nav-rail";
 import { SearchPalette } from "./search-palette";
 import { StreamColumn } from "./stream-column";
+import { editionFor } from "@/lib/edition";
 import { ReaderContext, useKeyboardShortcuts, useReader, useReaderState } from "@/lib/store";
 
 /* ------------------------------------------------------------ mobile */
@@ -97,8 +99,8 @@ function MobileTabBar() {
 
 /* ------------------------------------------------------------- shell */
 
-export function Shell() {
-  const r = useReaderState();
+export function Shell({ edition }: { edition?: Edition }) {
+  const r = useReaderState(edition ?? editionFor(new Date()));
   useKeyboardShortcuts(r);
 
   const readerClasses = clsx(

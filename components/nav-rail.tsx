@@ -5,7 +5,7 @@ import { clsx } from "./clsx";
 import { IconButton, Wordmark } from "./brand";
 import { Firefly } from "./plate";
 import { useEffect, useState } from "react";
-import { EDITION, FOLDERS } from "@/lib/feeds";
+import { FOLDERS } from "@/lib/sources";
 import { estimate } from "@/lib/storage/repository";
 import { useReader } from "@/lib/store";
 import type { Feed, FeedId, FolderId, ViewId } from "@/lib/types";
@@ -220,7 +220,8 @@ function Colophon() {
       <div className="label text-ink4">Colophon</div>
       <div className="mono mt-2.5 flex flex-col gap-1.5 text-[9.5px] leading-none tracking-[0.12em] text-ink4 uppercase">
         <span>
-          Ed. {EDITION.slug} · Vol. {EDITION.volume}
+          Ed. {r.edition.slug}
+          {r.sample ? " · sample" : ""}
         </span>
         <span className="text-ink3">
           {r.counts.all} unread · {r.feeds.length} sources
@@ -302,6 +303,50 @@ export function NavRail({
 
         <div className="mt-5 mb-5 ml-5 h-px w-[calc(100%-40px)] bg-rule" />
 
+        {r.sample && (
+          <>
+            <div className="mb-5 ml-5 h-px w-[calc(100%-40px)] bg-rule" />
+            <SectionLabel>Sample</SectionLabel>
+            <div className="flex flex-col">
+              {r.feeds
+                .filter((feed) => feed.sample)
+                .map((feed) => (
+                  <Row key={feed.id} onClick={() => go(`feed:${feed.id}`)} dot={false}>
+                    {feed.name}
+                  </Row>
+                ))}
+            </div>
+          </>
+        )}
+
+        <div className="mb-5 ml-5 h-px w-[calc(100%-40px)] bg-rule" />
+
+        <div className="pb-2">
+          <SectionLabel>Suggested</SectionLabel>
+          <div className="flex flex-col">
+            {r.suggested.map((source) => (
+              <button
+                key={source.id}
+                type="button"
+                title={source.blurb}
+                onClick={() => r.suggest(source.id)}
+                className="group relative flex h-[30px] w-full items-center gap-2.5 pr-4 pl-5 text-left text-ink2 transition-colors duration-150 hover:bg-hoverc hover:text-ink"
+              >
+                <span
+                  aria-hidden
+                  className="absolute top-0 left-0 h-full w-[2px] bg-transparent transition-colors duration-150 group-hover:bg-rule"
+                />
+                <span className="flex w-[7px] shrink-0 justify-start">
+                  <Plus size={9} strokeWidth={2.5} className="text-ink4 group-hover:text-spark" />
+                </span>
+                <span className="mono min-w-0 flex-1 truncate text-[11.5px] leading-none">
+                  {source.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="pb-2">
           <SectionLabel
             right={
@@ -322,19 +367,21 @@ export function NavRail({
             Sources
           </SectionLabel>
           <div className="flex flex-col">
-            {r.feeds.map((feed) => (
-              <SourceRow
-                key={feed.id}
-                feed={feed}
-                active={r.view === `feed:${feed.id}`}
-                count={r.counts.feeds[feed.id as FeedId] ?? 0}
-                refreshing={r.refreshing === feed.id}
-                error={r.sources.find((x) => x.id === feed.id)?.error}
-                onSelect={() => go(`feed:${feed.id}`)}
-                onRefresh={() => void r.refresh(feed.id)}
-                onRemove={() => r.unsubscribe(feed.id)}
-              />
-            ))}
+            {r.feeds
+              .filter((feed) => !feed.sample)
+              .map((feed) => (
+                <SourceRow
+                  key={feed.id}
+                  feed={feed}
+                  active={r.view === `feed:${feed.id}`}
+                  count={r.counts.feeds[feed.id as FeedId] ?? 0}
+                  refreshing={r.refreshing === feed.id}
+                  error={r.sources.find((x) => x.id === feed.id)?.error}
+                  onSelect={() => go(`feed:${feed.id}`)}
+                  onRefresh={() => void r.refresh(feed.id)}
+                  onRemove={() => r.unsubscribe(feed.id)}
+                />
+              ))}
           </div>
         </div>
       </div>

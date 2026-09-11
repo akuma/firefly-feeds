@@ -4,7 +4,7 @@ import { CornerDownLeft, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { Firefly } from "./plate";
-import { agoLabel } from "@/lib/articles";
+import { agoLabel } from "@/lib/reading";
 import { useReader } from "@/lib/store";
 
 /**

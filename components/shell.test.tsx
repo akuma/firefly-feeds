@@ -38,7 +38,10 @@ async function mount() {
   return { user, ...result };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  // each test starts with an empty registry, so the sample edition is what shows
+  const repo = await import("@/lib/storage/repository");
+  await repo.clearAll();
   localStorage.clear();
   document.documentElement.classList.remove("dark");
   document.documentElement.style.removeProperty("--reader-size");
@@ -131,33 +134,58 @@ describe("reading state", () => {
 });
 
 describe("open original", () => {
-  it("gives the reader a new-tab link to the story's source", async () => {
+  it("offers no outbound link for invented stories", async () => {
     await mount();
-    const links = reader().querySelectorAll<HTMLAnchorElement>("a[aria-label='Open original (O)']");
-    expect(links.length).toBeGreaterThan(0);
-    for (const link of links) {
-      expect(link.getAttribute("href")).toMatch(/^https:\/\//);
-      expect(link.getAttribute("target")).toBe("_blank");
-      expect(link.getAttribute("rel")).toBe("noopener noreferrer");
-    }
+    // sample stories have no original, so nothing here may point anywhere — a
+    // plausible-looking link to a real homepage would imply the piece exists
+    expect(stream().querySelectorAll("a[href^='http']")).toHaveLength(0);
+    expect(reader().querySelectorAll("a[href^='http']")).toHaveLength(0);
+    expect(within(reader()).getByText("Sample story")).toBeInTheDocument();
   });
 
-  it("gives every stream row its own link, whatever its layout", async () => {
+  it("still gives every stream row its controls, whatever its layout", async () => {
     await mount();
-    const links = stream().querySelectorAll<HTMLAnchorElement>("a[aria-label='Open original (O)']");
-    // every layout — including the dense contents-page rows — carries controls
-    expect(links.length).toBe(rows().length);
-    for (const link of links) expect(link.getAttribute("href")).toMatch(/^https:\/\//);
+    const controls = stream().querySelectorAll("[aria-label='Sample story — no original']");
+    expect(controls.length).toBe(rows().length);
+  });
+});
+
+describe("the sample edition", () => {
+  it("is labelled and explainable", async () => {
+    await mount();
+    expect(within(stream()).getByText("Sample edition")).toBeInTheDocument();
+    expect(within(stream()).getByText(/invented stories, invented writers/i)).toBeInTheDocument();
+  });
+
+  it("retires itself as soon as a real source exists", async () => {
+    const repo = await import("@/lib/storage/repository");
+    await repo.putSource({
+      id: "sreal",
+      url: "https://example.com/feed.xml",
+      siteUrl: "https://example.com",
+      title: "A Real Source",
+      host: "example.com",
+      folder: "independent",
+      addedAt: Date.now(),
+      fetchedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    await mount();
+    expect(screen.queryByText("Sample edition")).not.toBeInTheDocument();
+    expect(within(nav()).getByText("A Real Source")).toBeInTheDocument();
+    // the invented stories go with it
+    expect(screen.queryByText(/The Quiet Return of the Personal Website/)).not.toBeInTheDocument();
   });
 });
 
 describe("columns", () => {
   it("switches source and carries the reader with it", async () => {
     const { user } = await mount();
-    await user.click(within(nav()).getByRole("button", { name: /^Aeon/ }));
+    await user.click(within(nav()).getByRole("button", { name: /^The Slow Web/ }));
 
     await waitFor(() =>
-      expect(stream().querySelector("[data-t='viewtitle']")).toHaveTextContent("Aeon"),
+      expect(stream().querySelector("[data-t='viewtitle']")).toHaveTextContent("The Slow Web"),
     );
     expect(rows().length).toBeGreaterThan(0);
     // the open story must belong to the column that is showing

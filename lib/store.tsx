@@ -10,8 +10,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { SEED_STORIES, readingTime } from "./articles";
-import { SEED_FEEDS, FOLDERS } from "./feeds";
+import type { Edition } from "./edition";
+import { readingTime } from "./reading";
+import { SAMPLE_FEEDS, SAMPLE_STORIES } from "./sample";
+import { FOLDERS, SUGGESTED_BY_ID, SUGGESTED_SOURCES, type SuggestedSource } from "./sources";
 import { feedFromSource, readingFlags, storyFromArticle } from "./shaping";
 import * as repo from "./storage/repository";
 import { loadPrefs, savePrefs } from "./storage/prefs";
@@ -58,6 +60,14 @@ export type SubscribeInput = {
 
 type Ctx = {
   ready: boolean;
+  edition: Edition;
+  /** True while the invented sample edition is standing in for real sources. */
+  sample: boolean;
+  suggested: SuggestedSource[];
+  /** Open the subscribe dialog with a source already queued up. */
+  suggest: (id: string) => void;
+  pendingUrl: string | null;
+  clearPendingUrl: () => void;
   stories: Story[];
   story: (id: string) => Story | undefined;
   feeds: Feed[];
@@ -136,7 +146,7 @@ const FONT_SIZES = ["17.5px", "19.5px", "21.5px", "23.5px"];
 const FONT_LEADING = ["1.8", "1.76", "1.72", "1.66"];
 const MAX_ARTICLES = 20;
 
-export function useReaderState(): Ctx {
+export function useReaderState(edition: Edition): Ctx {
   const [ready, setReady] = useState(false);
   const [sources, setSources] = useState<SourceRecord[]>([]);
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
@@ -154,6 +164,7 @@ export function useReaderState(): Ctx {
   const [mobileReading, setMobileReading] = useState(false);
   const [mobileFeeds, setMobileFeeds] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [pendingUrl, setPendingUrl] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState<string | null>(null);
   // relative timestamps for fetched stories need a clock, not a constant
   const [now, setNow] = useState(() => Date.now());
@@ -197,7 +208,7 @@ export function useReaderState(): Ctx {
           remembered === "later" ||
           remembered.startsWith("folder:") ||
           (!!feedId &&
-            (SEED_FEEDS.some((f) => f.id === feedId) ||
+            (SAMPLE_FEEDS.some((f) => f.id === feedId) ||
               snapshot.sources.some((s) => s.id === feedId)));
         if (known) setViewRaw(remembered);
       }
@@ -226,7 +237,17 @@ export function useReaderState(): Ctx {
 
   /* ------------------------------------------------------ derive views */
 
-  const feeds = useMemo<Feed[]>(() => [...SEED_FEEDS, ...sources.map(feedFromSource)], [sources]);
+  /*
+   * The sample edition stands in only while the reader has subscribed to
+   * nothing. The moment a real source exists it disappears, so invented
+   * stories can never mix with real ones.
+   */
+  const sample = ready && sources.length === 0;
+
+  const feeds = useMemo<Feed[]>(
+    () => [...(sample ? SAMPLE_FEEDS : []), ...sources.map(feedFromSource)],
+    [sample, sources],
+  );
 
   const feedIndex = useMemo(() => {
     const map = new Map<FeedId, Feed>();
@@ -240,22 +261,35 @@ export function useReaderState(): Ctx {
 
   const stories = useMemo<Story[]>(
     () =>
-      [...articles.map((a) => storyFromArticle(a, now)), ...SEED_STORIES].toSorted(
-        (a, b) => a.minutesAgo - b.minutesAgo,
-      ),
-    [articles, now],
+      [
+        ...articles.map((a) => storyFromArticle(a, now)),
+        ...(sample ? SAMPLE_STORIES : []),
+      ].toSorted((a, b) => a.minutesAgo - b.minutesAgo),
+    [articles, now, sample],
   );
 
   const originalUrl = useCallback(
     (target: Story) => {
       if (target.link) return target.link;
       const feed = feedIndex.get(target.feedId);
+      // Sample stories are invented, so there is no original to open. Falling
+      // back to a homepage would imply the piece exists there.
+      if (feed?.sample) return undefined;
       if (feed?.siteUrl) return feed.siteUrl;
       if (feed?.host) return `https://${feed.host}`;
       return undefined;
     },
     [feedIndex],
   );
+
+  const suggest = useCallback((id: string) => {
+    const source = SUGGESTED_BY_ID.get(id);
+    if (!source) return;
+    setPendingUrl(source.feedUrl);
+    setAddOpen(true);
+  }, []);
+
+  const clearPendingUrl = useCallback(() => setPendingUrl(null), []);
 
   /* ------------------------------------------------------------ reading */
 
@@ -558,6 +592,12 @@ export function useReaderState(): Ctx {
 
   return {
     ready,
+    edition,
+    sample,
+    suggested: SUGGESTED_SOURCES,
+    suggest,
+    pendingUrl,
+    clearPendingUrl,
     stories,
     story,
     feeds,

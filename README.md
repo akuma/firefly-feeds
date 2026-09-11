@@ -85,13 +85,41 @@ sanitised and injected. So there is no `dangerouslySetInnerHTML` and no
 sanitiser dependency, fetched stories inherit exactly the same typography as the
 rest of the product instead of smuggling in a publisher's stylesheet, and
 `<blockquote>`, `<h2>`, `<ul>`, `<pre>` and `<img>` all land as the same blocks
-the seeded edition uses. Bodies are capped at 60 blocks / 8,000 characters and
+the sample edition uses. Bodies are capped at 60 blocks / 8,000 characters and
 20 entries per source, and a cut-off body says so — _Excerpt · Continues at …_
 rather than pretending to be the whole piece.
 
 Each source row in the navigation carries **refresh** and **unsubscribe** on
 hover (always visible on touch), and a refresh that fails marks the row with a
 `!` and a tooltip rather than silently doing nothing.
+
+## Real and invented content
+
+The project contains exactly one kind of fabricated content, and it is fenced
+off in `lib/sample/`.
+
+**Suggested sources are real.** `lib/sources.ts` lists seven publications with
+their actual feed URLs — Kottke, Simon Willison, Dense Discovery, Aeon, The
+Verge, Creative Boom, Stratechery — each verified to resolve. They are _not_
+subscriptions: nothing is fetched until you ask, and the navigation presents
+them as offers, never as facts.
+
+**The sample edition is invented, all the way down.** It exists so the reader
+has something to show on first open: the five story layouts, the type scale,
+the rhythm of a real edition. Every publication in it is invented and sits on a
+reserved `.example` host that by RFC 2606 can never resolve, every byline is an
+invented writer, and sample stories carry **no outbound link at all** — so
+"open original" stays disabled rather than pointing at a real homepage and
+implying the piece exists there.
+
+It retires itself the moment you subscribe to anything, so invented stories can
+never mix with real ones. The masthead date is the real date, decided per
+request on the server (`app/page.tsx`) so the client cannot disagree with it.
+
+> An earlier draft attributed these essays to real, named writers at real
+> publications. That is misattribution whatever the intent, and it is the reason
+> the sample is fenced off rather than left masquerading as subscriptions.
+> `lib/shaping.test.ts` now fails the build if a real name reappears in it.
 
 ## Opening the original
 
@@ -104,8 +132,8 @@ it is reachable three ways:
 | Reader toolbar | the ⧉ button, a real `<a target="_blank">`              |
 | Stream row     | the ⧉ button on hover, which does _not_ open the reader |
 
-For a fetched story the canonical URL is the entry's own `<link>`; for the
-seeded edition it falls back to the source's site. All three paths carry
+For a fetched story the canonical URL is the entry's own `<link>`; for a seeded
+source it falls back to the site. All three paths carry
 `rel="noopener noreferrer"`, and the stream row's controls stop propagation so
 a click on ⧉ never falls through to "open this story here".
 
@@ -226,7 +254,10 @@ Mobile is not the desktop stack squashed. It is a different structure:
 app/globals.css          design tokens, type kit, motion
 app/layout.tsx           font preloads + theme boot script
 app/api/feed/route.ts    feed intake: discovery, fetch, parse
-lib/feeds.ts             seeded feeds, folders, edition metadata
+lib/sources.ts           real suggested publications + folders
+lib/sample/              the invented sample edition (delete it and the app runs)
+lib/reading.ts           age + reading-time helpers
+lib/edition.ts           the masthead date, decided per request on the server
 lib/feed-server.ts       RSS / Atom / RDF normalisation, HTML→blocks entry point
 lib/feed-html.ts         HTML→block translation, entity decoding, budgeting
 lib/hash.ts              shared deterministic hash + monogram

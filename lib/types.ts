@@ -19,6 +19,8 @@ export type Feed = {
   feedUrl?: string;
   siteUrl?: string;
   subscribed?: boolean;
+  /** True for the built-in sample edition — invented, never fetched, no links. */
+  sample?: boolean;
 };
 
 export type Folder = {

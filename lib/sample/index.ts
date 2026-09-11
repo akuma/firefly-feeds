@@ -1,64 +1,102 @@
-import type { Article, Block, Story } from "./types";
+import type { Article, Feed, Story } from "../types";
+import { readingTime } from "../reading";
 
-/* ------------------------------------------------------------------ time */
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ *  SAMPLE EDITION — invented publications and invented writers.
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * This exists so the reader has something to show the first time it is opened:
+ * the stream's five layouts, the type scale, the rhythm of a real edition. It
+ * is the only fabricated content in the project, and it is fabricated all the
+ * way down —
+ *
+ *   • every publication is invented and sits on a reserved `.example` host,
+ *     which by RFC 2606 can never resolve to a real site;
+ *   • every byline is an invented writer;
+ *   • sample stories carry no outbound link at all, so "open original" stays
+ *     disabled rather than pointing somewhere plausible and wrong.
+ *
+ * An earlier draft attributed these essays to real, named writers at real
+ * publications. That is misattribution whatever the intent, and it is why the
+ * sample is fenced off here instead of masquerading as subscriptions.
+ *
+ * Nothing in this directory is fetched, synced, or stored. Delete
+ * `lib/sample/` and the application still runs.
+ */
 
-const DAY = 60 * 24;
+export const SAMPLE_FEEDS: Feed[] = [
+  {
+    id: "slowweb",
+    name: "The Slow Web",
+    folder: "independent",
+    host: "slowweb.example",
+    mark: "SW",
+    sample: true,
+  },
+  {
+    id: "longcontext",
+    name: "Long Context",
+    folder: "ai",
+    host: "longcontext.example",
+    mark: "LC",
+    sample: true,
+  },
+  {
+    id: "roughdraft",
+    name: "Rough Draft",
+    folder: "design",
+    host: "roughdraft.example",
+    mark: "RD",
+    sample: true,
+  },
+  {
+    id: "commonplace",
+    name: "Commonplace",
+    folder: "culture",
+    host: "commonplace.example",
+    mark: "CM",
+    sample: true,
+  },
+  {
+    id: "boringlayer",
+    name: "The Boring Layer",
+    folder: "technology",
+    host: "boringlayer.example",
+    mark: "BL",
+    sample: true,
+  },
+  {
+    id: "presscheck",
+    name: "Press Check",
+    folder: "design",
+    host: "presscheck.example",
+    mark: "PC",
+    sample: true,
+  },
+  {
+    id: "uniteconomics",
+    name: "Unit Economics",
+    folder: "technology",
+    host: "uniteconomics.example",
+    mark: "UE",
+    sample: true,
+  },
+];
 
-export function agoLabel(minutesAgo: number): string {
-  if (minutesAgo < 60) {
-    const m = Math.max(1, Math.round(minutesAgo));
-    return `${m} min ago`;
-  }
-  if (minutesAgo < DAY) {
-    const h = Math.round(minutesAgo / 60);
-    return `${h} ${h === 1 ? "hr" : "hrs"} ago`;
-  }
-  const d = Math.round(minutesAgo / DAY);
-  if (d === 1) return "yesterday";
-  if (d < 7) return `${d} days ago`;
-  if (d < 365) {
-    const w = Math.round(d / 7);
-    return `${w} ${w === 1 ? "week" : "weeks"} ago`;
-  }
-  const y = Math.floor(d / 365);
-  return `${y} ${y === 1 ? "year" : "years"} ago`;
-}
-
-/** Reading time derived from the actual body, so the two never disagree. */
-export function readingTime(body: Block[]): number {
-  const words = body
-    .map((b) => {
-      switch (b.kind) {
-        case "p":
-        case "h2":
-        case "quote":
-        case "note":
-          return b.text.split(/\s+/).length;
-        case "list":
-          return b.items.join(" ").split(/\s+/).length;
-        case "code":
-          return Math.round(b.text.split(/\s+/).length * 0.4);
-        default:
-          return 0;
-      }
-    })
-    .reduce((a, b) => a + b, 0);
-  return Math.max(1, Math.round(words / 225));
-}
-
-/* -------------------------------------------------------------- articles */
+export const SAMPLE_FEED_BY_ID = new Map(SAMPLE_FEEDS.map((feed) => [feed.id, feed]));
 
 export const ARTICLES: Article[] = [
   /* ----------------------------------------------------------- 12 min --- */
   {
     id: "quiet-return",
     title: "The Quiet Return of the Personal Website",
-    feedId: "kottke",
+    feedId: "slowweb",
     dek: "After a decade of renting space on other people’s platforms, a small number of writers are buying domain names again — and finding out what that actually buys them.",
     minutesAgo: 12,
     layout: "feature",
     plate: 0,
-    byline: "Jason Kottke",
+    byline: "Nadia Ferrer",
     body: [
       {
         kind: "p",
@@ -89,7 +127,7 @@ export const ARTICLES: Article[] = [
       {
         kind: "quote",
         text: "The homepage is the only page on the internet that has no opinion about how many people are reading it.",
-        cite: "Robin Sloan, in conversation",
+        cite: "Nadia Ferrer, in conversation",
       },
       {
         kind: "p",
@@ -155,12 +193,12 @@ export const ARTICLES: Article[] = [
   {
     id: "small-models",
     title: "Why Small Models Are Getting Interesting Again",
-    feedId: "simonw",
+    feedId: "longcontext",
     dek: "The frontier keeps moving, but the floor has risen much faster. A four-billion-parameter model on a laptop now does work that needed a cluster two years ago.",
     minutesAgo: 38,
     layout: "standard",
     plate: 3,
-    byline: "Simon Willison",
+    byline: "Dmitri Vance",
     body: [
       {
         kind: "p",
@@ -226,12 +264,12 @@ export const ARTICLES: Article[] = [
   {
     id: "calm-software",
     title: "Designing Software That Feels Calm",
-    feedId: "dense",
+    feedId: "roughdraft",
     dek: "Calm is not the absence of features. It is a set of specific, unglamorous decisions about timing, motion, colour and restraint.",
     minutesAgo: 64,
     layout: "standard",
     plate: 6,
-    byline: "Kai Brach",
+    byline: "Iris Lindqvist",
     body: [
       {
         kind: "p",
@@ -293,7 +331,7 @@ export const ARTICLES: Article[] = [
   {
     id: "web-we-lost",
     title: "The Web We Lost, and the Web We Could Still Build",
-    feedId: "aeon",
+    feedId: "commonplace",
     dek: "The enclosure of the open web was not a hostile takeover. It was a series of small, reasonable conveniences — which is exactly why it is so hard to reverse.",
     minutesAgo: 128,
     layout: "quote",
@@ -366,7 +404,7 @@ export const ARTICLES: Article[] = [
   {
     id: "local-ai-tools",
     title: "Inside the New Generation of Local AI Tools",
-    feedId: "verge",
+    feedId: "boringlayer",
     dek: "A tour of the apps that assume the model is already on your machine — and the surprising design constraints that follow from that assumption.",
     minutesAgo: 186,
     layout: "standard",
@@ -432,7 +470,7 @@ export const ARTICLES: Article[] = [
   {
     id: "infinite-scroll",
     title: "The Case Against the Infinite Feed",
-    feedId: "creativeboom",
+    feedId: "presscheck",
     dek: "Scrolling is not reading. The formats that respect attention have endings, and endings are a design decision.",
     minutesAgo: 240,
     layout: "compact",
@@ -461,7 +499,7 @@ export const ARTICLES: Article[] = [
   {
     id: "reading-technology",
     title: "Reading as a Technology, Not a Skill",
-    feedId: "aeon",
+    feedId: "commonplace",
     dek: "Deep reading is a recent invention, maintained by a fragile set of environmental conditions that we are currently dismantling.",
     minutesAgo: 300,
     layout: "standard",
@@ -519,12 +557,12 @@ export const ARTICLES: Article[] = [
   {
     id: "when-models-get-cheap",
     title: "What Happens When Intelligence Gets Cheap",
-    feedId: "stratechery",
+    feedId: "uniteconomics",
     dek: "The cost curve is not the interesting part. The interesting part is what becomes rational to attempt once a capability stops being scarce.",
     minutesAgo: 372,
     layout: "standard",
     plate: 2,
-    byline: "Ben Thompson",
+    byline: "Arun Desai",
     body: [
       {
         kind: "p",
@@ -563,11 +601,11 @@ export const ARTICLES: Article[] = [
   {
     id: "quiet-redesign",
     title: "A Redesign That Removed Four Hundred Elements",
-    feedId: "dense",
+    feedId: "roughdraft",
     dek: "What was left after the subtraction — and why the team says the product finally feels like theirs.",
     minutesAgo: 430,
     layout: "compact",
-    byline: "Kai Brach",
+    byline: "Iris Lindqvist",
     body: [
       {
         kind: "p",
@@ -592,11 +630,11 @@ export const ARTICLES: Article[] = [
   {
     id: "hallucination-product",
     title: "Hallucination Is a Product Problem",
-    feedId: "simonw",
+    feedId: "longcontext",
     dek: "Confident wrongness is not a bug you wait out. It is a property you design around, the same way you design around latency.",
     minutesAgo: 520,
     layout: "brief",
-    byline: "Simon Willison",
+    byline: "Dmitri Vance",
     body: [
       {
         kind: "p",
@@ -621,11 +659,11 @@ export const ARTICLES: Article[] = [
   {
     id: "screen-typography",
     title: "Notes on Typography for Screens",
-    feedId: "kottke",
+    feedId: "slowweb",
     dek: "Twelve small decisions that separate a page you can read for an hour from one you close after a paragraph.",
     minutesAgo: 640,
     layout: "compact",
-    byline: "Jason Kottke",
+    byline: "Nadia Ferrer",
     body: [
       {
         kind: "p",
@@ -650,7 +688,7 @@ export const ARTICLES: Article[] = [
   {
     id: "european-ai-stack",
     title: "The European AI Stack Is Quietly Assembling Itself",
-    feedId: "verge",
+    feedId: "boringlayer",
     dek: "Sovereignty talk is cheap. Compute, data and talent are not — and a real, if uneven, stack is taking shape across the continent.",
     minutesAgo: 800,
     layout: "standard",
@@ -699,11 +737,11 @@ export const ARTICLES: Article[] = [
   {
     id: "agents-one-thing",
     title: "Agents That Do One Thing",
-    feedId: "simonw",
+    feedId: "longcontext",
     dek: "The autonomous-agent pitch keeps stalling. The narrow, boring, single-purpose tools keep working.",
     minutesAgo: 1000,
     layout: "brief",
-    byline: "Simon Willison",
+    byline: "Dmitri Vance",
     body: [
       {
         kind: "p",
@@ -728,12 +766,12 @@ export const ARTICLES: Article[] = [
   {
     id: "archive-product",
     title: "The Archive Is the Product",
-    feedId: "stratechery",
+    feedId: "uniteconomics",
     dek: "Subscription businesses are usually analysed as content plus distribution. The durable ones are analysed better as an accumulating asset.",
     minutesAgo: 1200,
     layout: "standard",
     plate: 5,
-    byline: "Ben Thompson",
+    byline: "Arun Desai",
     body: [
       {
         kind: "p",
@@ -772,7 +810,7 @@ export const ARTICLES: Article[] = [
   {
     id: "museums-servers",
     title: "Why Museums Are Buying Servers",
-    feedId: "aeon",
+    feedId: "commonplace",
     dek: "The cultural sector’s quiet turn toward digital preservation is less about technology than about who gets to decide what survives.",
     minutesAgo: 1500,
     layout: "compact",
@@ -801,12 +839,12 @@ export const ARTICLES: Article[] = [
   {
     id: "small-web-manifesto",
     title: "A Manifesto for the Small Web",
-    feedId: "kottke",
+    feedId: "slowweb",
     dek: "Not a movement, not a protocol, not a startup. Just a few thousand people deciding to publish things that are theirs.",
     minutesAgo: 1800,
     layout: "quote",
     pull: "The small web does not need a standard. It needs a few thousand people who cannot be bothered to wait for one.",
-    byline: "Jason Kottke",
+    byline: "Nadia Ferrer",
     body: [
       {
         kind: "p",
@@ -831,7 +869,7 @@ export const ARTICLES: Article[] = [
   {
     id: "presence",
     title: "The Uncanny Valley of Presence",
-    feedId: "verge",
+    feedId: "boringlayer",
     dek: "Video avatars got good enough to be unsettling, which is a different problem than the one the industry was solving.",
     minutesAgo: 2100,
     layout: "compact",
@@ -860,7 +898,7 @@ export const ARTICLES: Article[] = [
   {
     id: "color-of-print",
     title: "The Colour of Print, Translated",
-    feedId: "creativeboom",
+    feedId: "presscheck",
     dek: "Risograph inks, newsprint yellows and press misregistration are being recreated on screens — and the results say something about how we read images.",
     minutesAgo: 2600,
     layout: "standard",
@@ -902,11 +940,10 @@ export const ARTICLES: Article[] = [
   },
 ];
 
-/* ------------------------------------------------------------- derive --- */
+/* ------------------------------------------------------------------ derive */
 
-export const SEED_STORIES: Story[] = ARTICLES.map((a) => ({
+/** The sample edition's stories, with reading times derived from the bodies. */
+export const SAMPLE_STORIES: Story[] = ARTICLES.map((a) => ({
   ...a,
   minutes: readingTime(a.body),
 }));
-
-export { SEED_STORIES as STORIES };

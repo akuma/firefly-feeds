@@ -18,7 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { IconButton, Rule } from "./brand";
 import { Firefly, Media, hasArt } from "./plate";
-import { EDITION, FOLDER_BY_ID } from "@/lib/feeds";
+import { FOLDERS } from "@/lib/sources";
 import { FONT_SIZES, useReader, type ReaderFont } from "@/lib/store";
 import type { Block } from "@/lib/types";
 
@@ -243,7 +243,9 @@ export function ArticlePane() {
 
   const feed = r.feedById(s.feedId);
   if (!feed) return null;
-  const folder = FOLDER_BY_ID[feed.folder];
+  const folder = FOLDERS.find((f) => f.id === feed.folder) ?? FOLDERS[0];
+  // invented content: there is no original to open, and saying so is the point
+  const isSample = Boolean(feed.sample);
   const saved = r.state.saved[s.id];
   const later = r.state.later[s.id];
   const read = r.state.read[s.id];
@@ -260,7 +262,7 @@ export function ArticlePane() {
       <IconButton
         icon={ExternalLink}
         href={canonical}
-        label="Open original (O)"
+        label={isSample ? "Sample story — no original" : "Open original (O)"}
         disabled={!canonical}
       />
       <IconButton
@@ -404,7 +406,7 @@ export function ArticlePane() {
           <div className="mono mt-3.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 text-[9.5px] tracking-[0.15em] text-ink4 uppercase">
             <span>By {s.byline ?? feed.name}</span>
             <span className="tnum">
-              {s.publishedLabel ?? EDITION.long} · {s.minutes} min read
+              {s.publishedLabel ?? r.edition.long} · {s.minutes} min read
             </span>
           </div>
 
@@ -453,7 +455,7 @@ export function ArticlePane() {
               className="group flex items-center justify-between gap-4 py-4"
             >
               <span className="label text-ink4 transition-colors group-hover:text-ink2">
-                {s.live ? "Read the full piece" : "Original source"}
+                {isSample ? "Sample story" : s.live ? "Read the full piece" : "Original source"}
               </span>
               <span className="mono flex items-center gap-1.5 text-[10px] tracking-[0.08em] text-ink3 transition-colors group-hover:text-spark">
                 {hostOf(canonical ?? feed.host)}

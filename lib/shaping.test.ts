@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { SEED_STORIES, agoLabel, readingTime } from "./articles";
-import { FEED_BY_ID, SEED_FEEDS } from "./feeds";
+import { agoLabel, readingTime } from "./reading";
+import { FOLDERS, SUGGESTED_SOURCES } from "./sources";
+import { SAMPLE_FEED_BY_ID, SAMPLE_FEEDS, SAMPLE_STORIES } from "./sample";
 import { feedFromSource, formatPublished, readingFlags, storyFromArticle } from "./shaping";
 import type { ArticleRecord, SourceRecord } from "./storage/types";
 
@@ -39,29 +40,75 @@ describe("readingTime", () => {
   });
 });
 
-describe("seeded edition", () => {
+describe("the sample edition", () => {
   it("has a reading time and a resolvable feed for every story", () => {
-    for (const story of SEED_STORIES) {
+    for (const story of SAMPLE_STORIES) {
       expect(story.minutes).toBeGreaterThan(0);
-      expect(FEED_BY_ID[story.feedId], `missing feed for ${story.id}`).toBeDefined();
+      expect(SAMPLE_FEED_BY_ID.get(story.feedId), `missing feed for ${story.id}`).toBeDefined();
     }
   });
 
-  it("ships a real site URL on every feed, so 'open original' always has a target", () => {
-    for (const feed of SEED_FEEDS) {
-      expect(feed.siteUrl, `missing siteUrl on ${feed.id}`).toMatch(/^https:\/\//);
+  it("is entirely invented: reserved hosts and no outbound URL anywhere", () => {
+    for (const feed of SAMPLE_FEEDS) {
+      // RFC 2606 reserves .example, so none of these can resolve to a real site
+      expect(feed.host, `${feed.id} is not on a reserved host`).toMatch(/\.example$/);
+      expect(feed.sample).toBe(true);
+      // no siteUrl means `originalUrl` has nothing to fall back to
+      expect(feed.siteUrl, `${feed.id} should not point anywhere`).toBeUndefined();
+    }
+  });
+
+  it("names no real publication or writer", () => {
+    const realNames = [
+      "Kottke",
+      "Willison",
+      "Brach",
+      "Thompson",
+      "Sloan",
+      "Stratechery",
+      "Dense Discovery",
+      "Aeon",
+      "The Verge",
+      "Creative Boom",
+    ];
+    const corpus = JSON.stringify(SAMPLE_STORIES) + JSON.stringify(SAMPLE_FEEDS);
+    for (const name of realNames) {
+      expect(corpus, `sample content mentions ${name}`).not.toContain(name);
     }
   });
 
   it("keeps story ids unique — they are the identity used by reading state", () => {
-    const ids = SEED_STORIES.map((s) => s.id);
+    const ids = SAMPLE_STORIES.map((story) => story.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("dates every story at or after the edition", () => {
-    for (const story of SEED_STORIES) {
+    for (const story of SAMPLE_STORIES) {
       expect(story.minutesAgo).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("suggested sources", () => {
+  it("are real publications with verifiable https feed URLs", () => {
+    for (const source of SUGGESTED_SOURCES) {
+      expect(source.feedUrl, source.id).toMatch(/^https:\/\//);
+      expect(source.siteUrl, source.id).toMatch(/^https:\/\//);
+      expect(source.host.length).toBeGreaterThan(3);
+      expect(source.blurb.length).toBeGreaterThan(10);
+      expect(FOLDERS.map((f) => f.id)).toContain(source.folder);
+    }
+  });
+
+  it("have unique ids, so two suggestions cannot collide in the registry", () => {
+    const ids = SUGGESTED_SOURCES.map((source) => source.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("are not presented as already subscribed", () => {
+    // a suggestion is an offer, never a fact — nothing in the sample or the
+    // suggested list may claim to be a subscription
+    for (const feed of SAMPLE_FEEDS) expect(feed.subscribed).toBeUndefined();
   });
 });
 

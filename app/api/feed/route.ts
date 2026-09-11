@@ -1,6 +1,6 @@
 import { FeedError, layoutFor, readFeed } from "@/lib/feed-server";
 import { hashString } from "@/lib/feed-html";
-import { readingTime } from "@/lib/articles";
+import { readingTime } from "@/lib/reading";
 
 export const dynamic = "force-dynamic";
 

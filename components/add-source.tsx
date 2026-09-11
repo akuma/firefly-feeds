@@ -1,10 +1,10 @@
 "use client";
 
 import { ArrowRight, Search, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { Firefly } from "./plate";
-import { FOLDERS } from "@/lib/feeds";
+import { FOLDERS } from "@/lib/sources";
 import { useReader } from "@/lib/store";
 import type { Block, FolderId, StoryLayout } from "@/lib/types";
 
@@ -47,7 +47,10 @@ function shortDate(ms?: number): string {
 
 export function AddSource() {
   const r = useReader();
-  const [url, setUrl] = useState("");
+  /** A suggestion clicked in the navigation arrives pre-queued. */
+  const queued = r.pendingUrl;
+  const [url, setUrl] = useState(queued ?? "");
+  const booted = useRef(false);
   const [status, setStatus] = useState<"idle" | "loading" | "error" | "ready">("idle");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<{ feed: ApiFeed; items: ApiItem[] } | null>(null);
@@ -56,21 +59,17 @@ export function AddSource() {
   const [faviconFailed, setFaviconFailed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // mounted only while open, so every field starts clean by construction
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
-  }, []);
+  const close = () => {
+    r.clearPendingUrl();
+    r.setAddOpen(false);
+  };
 
-  const close = () => r.setAddOpen(false);
-
-  const look = async (target?: string) => {
-    const value = (target ?? url).trim();
+  const look = useCallback(async (raw: string) => {
+    const value = raw.trim();
     if (!value) {
       inputRef.current?.focus();
       return;
     }
-    if (target) setUrl(target);
     setStatus("loading");
     setError("");
     setPreview(null);
@@ -89,7 +88,20 @@ export function AddSource() {
       setError("Could not reach the reader's feed service.");
       setStatus("error");
     }
-  };
+  }, []);
+
+  // mounted only while open, so every field starts clean by construction
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  // a suggestion from the navigation goes straight to lookup, no second tap
+  useEffect(() => {
+    if (booted.current || !queued) return;
+    booted.current = true;
+    void look(queued);
+  }, [queued, look]);
 
   const commit = async () => {
     if (!preview) return;
@@ -167,7 +179,7 @@ export function AddSource() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  void look();
+                  void look(url);
                 }
               }}
               spellCheck={false}
@@ -177,7 +189,7 @@ export function AddSource() {
             />
             <button
               type="button"
-              onClick={() => void look()}
+              onClick={() => void look(url)}
               disabled={status === "loading" || !url.trim()}
               className="mono shrink-0 bg-ink px-3 py-1.5 text-[9px] tracking-[0.16em] text-canvas uppercase transition-opacity disabled:opacity-25"
             >

@@ -17,8 +17,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { clsx } from "./clsx";
 import { IconButton } from "./brand";
 import { Firefly, Media, hasArt } from "./plate";
-import { agoLabel } from "@/lib/articles";
-import { EDITION, FOLDERS } from "@/lib/feeds";
+import { agoLabel } from "@/lib/reading";
+import { FOLDERS } from "@/lib/sources";
 import { useReader } from "@/lib/store";
 import type { FeedId, FolderId, Story } from "@/lib/types";
 
@@ -75,7 +75,7 @@ function StreamHeader({
             onClick={() => r.setNavOpen(!r.navOpen)}
           />
           <span className="mono truncate text-[9.5px] tracking-[0.18em] text-ink4 uppercase">
-            {EDITION.weekday} · Ed. {EDITION.slug}
+            {r.edition.weekday} · Ed. {r.edition.slug}
           </span>
         </div>
         <div className="flex items-center gap-0.5">
@@ -113,12 +113,17 @@ function StreamHeader({
             data-t="day"
             className="display tnum text-[44px] leading-[0.76] tracking-[-0.035em] text-ink lg:text-[62px] lg:leading-[0.74]"
           >
-            {EDITION.day}
+            {r.edition.day}
           </div>
-          <div className="label mt-1.5 text-ink4 lg:mt-2.5">{EDITION.month}</div>
+          <div className="label mt-1.5 text-ink4 lg:mt-2.5">{r.edition.month}</div>
         </div>
         <div className="min-w-0 flex-1 pb-[3px]">
-          <div className="label text-spark">{head.kicker}</div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="label text-spark">{head.kicker}</span>
+            {r.sample && (
+              <span className="label bg-ink px-1.5 py-1 text-canvas">Sample edition</span>
+            )}
+          </div>
           <h1
             data-t="viewtitle"
             className="display mt-2 text-[27px] leading-[1] tracking-[-0.018em] text-ink lg:text-[33px] lg:leading-[0.98]"
@@ -135,6 +140,22 @@ function StreamHeader({
           </div>
         </div>
       </div>
+
+      {/* ------------------------------------------- sample edition notice */}
+      {r.sample && (
+        <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 border-y border-rule px-5 py-2">
+          <span className="mono text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
+            Invented stories, invented writers — no real sources yet
+          </span>
+          <button
+            type="button"
+            onClick={() => r.setAddOpen(true)}
+            className="mono text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
+          >
+            Add one
+          </button>
+        </div>
+      )}
 
       {/* ------------------------------------------------- filter rail */}
       <div className="flex h-9 items-stretch justify-between border-y border-rule pr-4 pl-5">
@@ -238,6 +259,7 @@ function RowActions({ s }: { s: Story }) {
   const r = useReader();
   const pinned = r.state.saved[s.id] || r.state.later[s.id];
   const canonical = r.originalUrl(s);
+  const isSample = Boolean(r.feedById(s.feedId)?.sample);
   return (
     <div
       // the whole row is a click target; the controls must not fall through to it
@@ -250,7 +272,7 @@ function RowActions({ s }: { s: Story }) {
       <IconButton
         icon={ExternalLink}
         href={canonical}
-        label="Open original (O)"
+        label={isSample ? "Sample story — no original" : "Open original (O)"}
         size={22}
         iconSize={13}
         disabled={!canonical}

@@ -48,8 +48,10 @@ components/
   plate.tsx           generative SVG artwork + the firefly mark
 lib/
   store.tsx           all application state, one context, one hook
-  articles.ts         the seeded edition (18 stories with real bodies)
-  feeds.ts            seeded feeds, folders, edition metadata
+  sources.ts          real suggested publications + folders
+  sample/             the invented sample edition (18 stories)
+  reading.ts          age and reading-time helpers
+  edition.ts          the masthead date
   feed-server.ts      RSS / Atom / RDF → one normalised shape
   feed-html.ts        feed HTML → the reader's own block model
   shaping.ts          stored records → Feed / Story view model
@@ -61,6 +63,14 @@ lib/
 - **`lib/store.tsx` is the only state container.** Components read it through `useReader()`. Do not introduce a second context, a reducer, or a store library without a reason you can defend.
 - **Nothing above `lib/storage/` may import `idb` or mention IndexedDB.** The storage contract is `lib/storage/repository.ts`; that seam is what makes a future remote adapter a swap rather than a rewrite.
 - **`app/api/feed/route.ts` is the only place that talks to the network on the server.** Feed fetching lives there so publishers never need CORS headers and the page makes no third-party requests until the reader subscribes.
+- **The sample edition in `lib/sample/` is the only fabricated content in the
+  project, and it stays fenced off.** Every publication in it is invented on a
+  reserved `.example` host, every byline is an invented writer, and its stories
+  carry no outbound link — "open original" stays disabled rather than pointing
+  somewhere plausible and wrong. It retires itself once any real subscription
+  exists, so invented and real stories can never mix. **Never attribute sample
+  content to a real person or publication**, in a byline, a blurb or a pull
+  quote; `lib/shaping.test.ts` asserts this and names the offenders.
 - **Feed bodies are never injected as HTML.** `lib/feed-html.ts` translates them into `Block[]`. No `dangerouslySetInnerHTML`, no sanitiser dependency, and no publisher stylesheet leaking into the reading surface. Keep it that way.
 
 ### Storage
@@ -121,6 +131,10 @@ Vitest with jsdom and `fake-indexeddb`. Tests live beside the code as `*.test.ts
 | `components/shell.test.tsx`      | the whole shell: state, storage and layout together                 |
 
 **Scope every DOM query to a column.** The three-column layout renders desktop _and_ mobile chrome into the same tree, one hidden by CSS, so an unscoped `getByText` finds the same control twice and proves nothing. Use the `nav()` / `stream()` / `reader()` helpers in `shell.test.tsx`.
+
+`lib/shaping.test.ts` guards the sample edition: reserved hosts, no outbound
+URLs, and no real names anywhere in it. If you add sample content, those tests
+are the contract.
 
 `lib/storage/repository.test.ts` opens a real database. Its `freshRepository()` helper closes the previous connection, resets the module registry and deletes the store — you need all three, because the module memoises its connection and the database outlives the module graph. Reuse that helper rather than writing your own setup.
 
