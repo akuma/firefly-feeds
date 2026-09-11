@@ -125,6 +125,9 @@ type Ctx = {
 
   searchOpen: boolean;
   setSearchOpen: (v: boolean) => void;
+  shortcutsOpen: boolean;
+  setShortcutsOpen: (v: boolean) => void;
+  toggleShortcuts: () => void;
 
   mobileReading: boolean;
   setMobileReading: (v: boolean) => void;
@@ -161,6 +164,7 @@ export function useReaderState(edition: Edition): Ctx {
   const [navOpen, setNavOpen] = useState(true);
   const [font, setFont] = useState<ReaderFont>(1);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [mobileReading, setMobileReading] = useState(false);
   const [mobileFeeds, setMobileFeeds] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -520,6 +524,8 @@ export function useReaderState(edition: Edition): Ctx {
 
   /* ----------------------------------------------------------- routing */
 
+  const toggleShortcuts = useCallback(() => setShortcutsOpen((open) => !open), []);
+
   const setView = useCallback((v: ViewId) => {
     setViewRaw(v);
     setQuery("");
@@ -638,6 +644,9 @@ export function useReaderState(edition: Edition): Ctx {
     setFont,
     searchOpen,
     setSearchOpen,
+    shortcutsOpen,
+    setShortcutsOpen,
+    toggleShortcuts,
     mobileReading,
     setMobileReading,
     mobileFeeds,
@@ -671,6 +680,7 @@ export function useKeyboardShortcuts(ctx: Ctx) {
       }
       if (e.key === "Escape") {
         if (c.addOpen) c.setAddOpen(false);
+        else if (c.shortcutsOpen) c.setShortcutsOpen(false);
         else if (c.searchOpen) c.setSearchOpen(false);
         else if (c.immersive) c.setImmersive(false);
         else if (c.mobileReading) c.setMobileReading(false);
@@ -715,6 +725,11 @@ export function useKeyboardShortcuts(ctx: Ctx) {
         case "/":
           e.preventDefault();
           c.setSearchOpen(true);
+          break;
+        // Shift+/ on most layouts, but the legend is what makes it findable
+        case "?":
+          e.preventDefault();
+          c.toggleShortcuts();
           break;
         case "[":
           c.setFont(Math.max(0, c.font - 1) as ReaderFont);

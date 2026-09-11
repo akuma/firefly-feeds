@@ -45,6 +45,7 @@ components/
   article-pane.tsx    reader: toolbar, progress, block renderer
   add-source.tsx      the subscribe dialog
   search-palette.tsx  ⌘K overlay
+  shortcuts.tsx       the key legend
   plate.tsx           generative SVG artwork + the firefly mark
 lib/
   store.tsx           all application state, one context, one hook
@@ -154,5 +155,9 @@ Tests are the reason four real bugs were found in the feed pipeline (relative UR
 
 1. Network and parsing changes go in `lib/feed-server.ts` (or `lib/feed-html.ts` for body handling). Add a fixture-based test.
 2. Persistence changes go in `lib/storage/repository.ts`; keep the record shapes replication-friendly and add a test using `freshRepository()`.
-3. Give a user-visible reason to the operation. A silent failure in a reader is indistinguishable from a broken feed — surface it in the navigation, the way a failed refresh does.
-4. Run `bun run good`, then `bun run check`.
+3. Add the binding to `components/shortcuts.tsx` in the same change. The legend
+   is hand-written, so a key that is not listed there does not exist as far as
+   anyone can tell; the test that presses every documented key is what keeps it
+   honest.
+4. Give a user-visible reason to the operation. A silent failure in a reader is indistinguishable from a broken feed — surface it in the navigation, the way a failed refresh does.
+5. Run `bun run good`, then `bun run check`.

@@ -22,9 +22,19 @@ const rows = () =>
     "[data-story] [role='button'], [data-story][role='button']",
   );
 
+/** The key legend panel, if it is open. */
+const legend = () =>
+  [...document.querySelectorAll("div")].find(
+    (el) =>
+      (el.textContent ?? "").includes("Everything the reader does") &&
+      el.className.includes("border"),
+  );
+
 /** Reads "N unread · M sources" out of the navigation colophon. */
 function colophon(): { unread: number } {
-  const line = [...nav().querySelectorAll("span")]
+  const column = nav();
+  if (!column) return { unread: -1 }; // immersive mode hides the navigation
+  const line = [...column.querySelectorAll("span")]
     .map((node) => node.textContent ?? "")
     .find((text) => /^\d+ unread( · \d+ sources)?$/.test(text));
   return { unread: Number(/^(\d+)/.exec(line ?? "")?.[1] ?? -1) };
@@ -274,6 +284,92 @@ describe("the wordmark", () => {
     expect(nav().textContent).not.toMatch(/Ed\./);
     // the uppercase is a CSS transform, so the text itself is mixed case
     expect(stream().textContent).toMatch(/Friday, 11 September 2026/i);
+  });
+});
+
+describe("the key legend", () => {
+  /** Everything a shortcut can observably change. */
+  const snapshot = () => {
+    const column = nav();
+    return [
+      document.documentElement.classList.contains("dark") ? "dark" : "light",
+      document.documentElement.style.getPropertyValue("--reader-size"),
+      colophon().unread,
+      column ? [...column.querySelectorAll(".mono")].map((el) => el.textContent).join("|") : "—",
+      !!document.querySelector("[data-col='stream']"),
+      !!document.querySelector("input"),
+      document.querySelector("[aria-current='true']")?.textContent,
+    ].join(" / ");
+  };
+
+  it("opens on ?, closes on Escape, and reopens from the navigation", async () => {
+    const { user } = await mount();
+    expect(legend()).toBeUndefined();
+
+    await user.keyboard("?");
+    await waitFor(() => expect(legend()).toBeTruthy());
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(legend()).toBeUndefined());
+
+    await user.click(screen.getAllByLabelText("Keyboard shortcuts (?)")[0]);
+    await waitFor(() => expect(legend()).toBeTruthy());
+  });
+
+  it("is grouped, and every entry has a cap and a label", async () => {
+    const { user } = await mount();
+    await user.keyboard("?");
+    await waitFor(() => expect(legend()).toBeTruthy());
+
+    const panel = legend()!;
+    expect([...panel.querySelectorAll("h3")].map((h) => h.textContent)).toEqual([
+      "Reading",
+      "The edition",
+      "Pointer",
+    ]);
+    for (const row of panel.querySelectorAll("dl > div")) {
+      expect(row.querySelector("kbd")).toBeTruthy();
+      expect(row.querySelector("dd")?.textContent?.length).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it("documents only keys the reader actually implements", async () => {
+    const { user } = await mount();
+    /*
+     * The legend is hand-written, so it can drift from the bindings. Pressing
+     * every key it documents and requiring an observable change is what keeps
+     * the two honest — a documented key that does nothing fails here.
+     */
+    // user-event reads `[` as the start of a key descriptor, so it is doubled
+    const presses: [string, string][] = [
+      ["j", "j"],
+      ["k", "k"],
+      ["m", "m"],
+      ["s", "s"],
+      ["l", "l"],
+      ["t", "t"],
+      ["[", "[["],
+      ["]", "]]"],
+      ["f", "f"],
+    ];
+    // each key has to land before the next one is measured, so this is sequential
+    /* oxlint-disable no-await-in-loop */
+    for (const [key, press] of presses) {
+      const before = snapshot();
+      await user.keyboard(press);
+      await waitFor(() => expect(snapshot(), `pressing "${key}" changed nothing`).not.toBe(before));
+      if (key === "f") {
+        // immersive removes the navigation and the stream; put them back
+        await user.keyboard("f");
+        await waitFor(() => expect(nav()).toBeTruthy());
+      }
+    }
+
+    const before = snapshot();
+    await user.keyboard("/");
+    await waitFor(() => expect(snapshot()).not.toBe(before));
+    await user.keyboard("{Escape}");
+    /* oxlint-enable no-await-in-loop */
   });
 });
 

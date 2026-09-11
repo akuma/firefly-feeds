@@ -255,6 +255,13 @@ reads — it simply does not remember anything, and says so in the console.
 | Open original         | ⧉ in the reader or a stream row | `O`                  |
 | Close overlay         | —                               | `Esc`                |
 
+Press **`?`** — or the keyboard button in the navigation footer — for the whole
+key set. It is set as a printer's key: two columns, key caps on the left,
+plain-language labels beside them, and a third group for the pointer
+affordances that have no shortcut. `components/shell.test.tsx` presses every key
+the legend documents and requires an observable change, so the reference cannot
+drift from the bindings.
+
 State (read / saved / later / theme / text size / nav) persists in `localStorage`. The colour scheme is written by an inline boot script before hydration, so there is no light-mode flash.
 
 ## Mobile
@@ -294,4 +301,5 @@ components/stream-column.tsx  edition header, filter rail, story layouts
 components/article-pane.tsx   reader: toolbar, progress, block renderer
 components/plate.tsx     generative SVG artwork + the firefly
 components/search-palette.tsx
+components/shortcuts.tsx   the key legend
 ```

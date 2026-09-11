@@ -1,6 +1,6 @@
 "use client";
 
-import { Command, Moon, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
+import { Command, Keyboard, Moon, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
 import { clsx } from "./clsx";
 import { IconButton, Wordmark } from "./brand";
 import { Firefly } from "./plate";
@@ -423,6 +423,13 @@ export function NavRail({
             label="Search"
             size={24}
             onClick={() => r.setSearchOpen(true)}
+          />
+          <IconButton
+            icon={Keyboard}
+            label="Keyboard shortcuts (?)"
+            size={24}
+            active={r.shortcutsOpen}
+            onClick={() => r.setShortcutsOpen(true)}
           />
         </div>
         <button

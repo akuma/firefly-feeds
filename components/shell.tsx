@@ -17,6 +17,7 @@ import { ArticlePane } from "./article-pane";
 import { IconButton, Wordmark } from "./brand";
 import { NavRail } from "./nav-rail";
 import { SearchPalette } from "./search-palette";
+import { Shortcuts } from "./shortcuts";
 import { StreamColumn } from "./stream-column";
 import { editionFor } from "@/lib/edition";
 import { ReaderContext, useKeyboardShortcuts, useReader, useReaderState } from "@/lib/store";
@@ -160,6 +161,7 @@ export function Shell({ edition }: { edition?: Edition }) {
 
       {r.searchOpen && <SearchPalette />}
       {r.addOpen && <AddSource />}
+      {r.shortcutsOpen && <Shortcuts />}
     </ReaderContext.Provider>
   );
 }
