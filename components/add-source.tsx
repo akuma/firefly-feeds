@@ -3,7 +3,6 @@
 import { ArrowRight, Search, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clsx } from "./clsx";
-import { Firefly } from "./plate";
 import { FOLDERS, SUGGESTED_SOURCES } from "@/lib/sources";
 import { useReader } from "@/lib/store";
 import type { Block, FolderId, StoryLayout } from "@/lib/types";
@@ -214,7 +213,6 @@ export function AddSource() {
           {/* ------------------------------------------------------ states */}
           {status === "loading" && (
             <div className="flex items-center gap-3 py-7">
-              <Firefly size={6} pulse />
               <span className="mono text-[9.5px] tracking-[0.16em] text-ink3 uppercase">
                 Looking for a feed…
               </span>
@@ -241,9 +239,7 @@ export function AddSource() {
                       onError={() => setFaviconFailed(true)}
                       className="h-[18px] w-[18px] object-contain"
                     />
-                  ) : (
-                    <Firefly size={6} glow={false} />
-                  )}
+                  ) : null}
                 </span>
                 <div className="min-w-0 flex-1">
                   <h3 className="text-[21px] leading-[1.15] tracking-[-0.016em] text-ink">

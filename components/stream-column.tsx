@@ -534,7 +534,6 @@ export function StreamColumn() {
       <div ref={listRef} className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {!r.ready ? (
           <div className="flex flex-col items-center gap-4 px-8 py-24">
-            <Firefly size={6} pulse />
             <span className="label text-ink4">Opening the edition</span>
           </div>
         ) : filtered.length === 0 ? (
@@ -561,7 +560,6 @@ export function StreamColumn() {
               </div>
             ))}
             <div className="flex flex-col items-center gap-2.5 border-t border-rule px-5 py-10">
-              <Firefly size={5} glow={false} />
               <div className="label text-ink4">End of stream</div>
               <div className="mono text-[10px] tracking-[0.1em] text-ink4 uppercase">
                 {plural(filtered.length, "story", "stories")} · you are up to date

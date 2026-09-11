@@ -184,7 +184,11 @@ function SourceRow({
 
       <span aria-hidden="true" className="relative flex shrink-0 items-center gap-1.5">
         {refreshing ? (
-          <Firefly size={5} pulse />
+          /* The one working state that had no words of its own, so it borrows the
+             mono glyph the failed state already uses rather than the mark. */
+          <span title="Refreshing…" className="mono text-[10px] leading-none text-spark">
+            …
+          </span>
         ) : error ? (
           <span
             title={error}

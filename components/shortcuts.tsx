@@ -3,7 +3,6 @@
 import { ExternalLink, MousePointerClick, Plus } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { clsx } from "./clsx";
-import { Firefly } from "./plate";
 import { useReader } from "@/lib/store";
 
 /**
@@ -145,10 +144,7 @@ export function Shortcuts() {
 
       <div className="ff-rise relative flex max-h-[86vh] w-full max-w-[720px] flex-col border border-rule bg-reader shadow-[0_30px_60px_-40px_rgba(0,0,0,0.5)]">
         <div className="flex shrink-0 items-center justify-between border-b border-rule px-6 py-3">
-          <span className="label flex items-center gap-2 text-ink4">
-            <Firefly size={5} glow={false} />
-            Key
-          </span>
+          <span className="label flex items-center gap-2 text-ink4">Key</span>
           <button
             ref={closeRef}
             type="button"

@@ -17,7 +17,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { IconButton, Rule } from "./brand";
-import { Firefly, Media, hasArt } from "./plate";
+import { Media, hasArt } from "./plate";
 import { FOLDERS } from "@/lib/sources";
 import { DWELL_MS, progressFor, readSignal } from "@/lib/reading";
 import { FONT_SIZES, useReader, type ReaderFont } from "@/lib/store";
@@ -162,10 +162,7 @@ function Blocks({ blocks }: { blocks: Block[] }) {
           case "note":
             return (
               <aside key={i} className="my-[2.3em] border-y border-rule py-5">
-                <div className="label mb-3 flex items-center gap-2 text-spark">
-                  <Firefly size={4.5} glow={false} />
-                  Note
-                </div>
+                <div className="label mb-3 flex items-center gap-2 text-spark">Note</div>
                 <div className="mono text-[12.5px] leading-[1.75] text-ink3">{b.text}</div>
               </aside>
             );
@@ -272,7 +269,6 @@ export function ArticlePane() {
   if (!r.ready) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 bg-reader">
-        <Firefly size={6} pulse />
         <span className="label text-ink4">Opening the edition</span>
       </div>
     );
@@ -359,7 +355,6 @@ export function ArticlePane() {
       {!r.immersive && (
         <div className="hidden h-12 shrink-0 items-center gap-3 border-b border-rule pr-2.5 pl-6 lg:flex">
           <div className="mono flex min-w-0 items-center gap-2 text-[9.5px] tracking-[0.16em] uppercase">
-            <Firefly size={4.5} glow={false} />
             <span className="truncate text-ink3">{feed.name}</span>
             <span className="text-ink4" aria-hidden>
               ·
@@ -485,7 +480,6 @@ export function ArticlePane() {
 
           {/* ------------------------------------------------------ closer */}
           <div className="mt-16 flex flex-col items-center gap-3">
-            <Firefly size={6} glow />
             <span className="label text-ink4">{s.truncated ? "Excerpt" : "End of story"}</span>
             {s.truncated && (
               <a

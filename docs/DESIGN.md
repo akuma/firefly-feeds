@@ -121,8 +121,16 @@ story links to.
 ## The firefly
 
 One point of light. Not an illustration — a small accent dot with a soft halo,
-reused as the unread marker, the logotype, the article end mark and the empty
+used in exactly three places: the unread marker, the logotype and the empty
 state. It pulses slowly, and stops entirely under `prefers-reduced-motion`.
+
+Those three are the whole list. It is drawn in `--c-spark`, the colour that
+means _you have not read this yet_, so every dot spent on decoration is a dot
+taken from that signal — a static label wearing the unread colour teaches the
+reader to ignore it. Ten further uses had accumulated: a column header in the key
+legend, the reader's toolbar, a note label, the end of a story, an empty stream,
+and several loading states. They are gone. A working state that needs an
+indicator uses a mono glyph, like the `!` the failed refresh already showed.
 
 ## Mobile
 
