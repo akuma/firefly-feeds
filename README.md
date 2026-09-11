@@ -29,16 +29,20 @@ The ink ramp is calibrated so **every** tier clears 4.5:1 contrast against the d
 
 ### Type
 
-Three families, each with one job.
+Two families, each with one job.
 
-- **Instrument Serif** — the masthead, the edition date, nothing else. Used at display sizes only.
-- **Newsreader** — every headline and all reading text. Variable optical sizing, so small text and 46px text are drawn differently.
+- **Newsreader** — the entire editorial voice: the logotype at 600, section titles and the edition date at 500, every headline and all reading text at 400. Its optical-size axis draws 20px and 64px differently, which is what lets one family cover both a masthead and 19px body text.
 - **IBM Plex Mono** — navigation, kickers, timestamps, counts, captions. Everything that is _metadata_ is monospace, uppercase, and widely tracked.
 
-All three are self-hosted from `public/fonts` as variable subsets and preloaded,
+Both are self-hosted from `public/fonts` as variable subsets and preloaded,
 so there is no font CDN in the request path and the type renders identically
 offline. Newsreader's `opsz` and `wght` axes are both retained — verified by
 measuring the same string at `opsz 6` (770.7px) and `opsz 72` (674.8px).
+
+> There is no separate display face. Instrument Serif held the masthead and date
+> and looked thin at the sizes a masthead actually runs at; Newsreader at weight
+> lays down about 40% more ink for the same word at the same size, which is the
+> measurement that settled it.
 
 Body measure is held at **600px / ~62 characters** at the default step, with four
 reader steps from 17.5px to 23.5px.

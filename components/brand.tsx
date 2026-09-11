@@ -16,8 +16,8 @@ export function Wordmark({ size = "md", onClick }: { size?: "md" | "sm"; onClick
       <span className="flex flex-col justify-center">
         <span
           className={clsx(
-            "display leading-[0.86] text-ink",
-            size === "sm" ? "text-[18px]" : "text-[21px]",
+            "display leading-[0.92] font-semibold tracking-[-0.022em] text-ink",
+            size === "sm" ? "text-[18px]" : "text-[20px]",
           )}
         >
           Firefly

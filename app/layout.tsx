@@ -33,13 +33,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             identically offline and on networks where Google Fonts is unreachable. */}
         <link
           rel="preload"
-          href="/fonts/instrument-serif-normal-400-latin.woff2"
-          as="font"
-          type="font/woff2"
-          crossOrigin="anonymous"
-        />
-        <link
-          rel="preload"
           href="/fonts/newsreader-normal-300_700-latin.woff2"
           as="font"
           type="font/woff2"

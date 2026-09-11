@@ -111,7 +111,7 @@ function StreamHeader({
         <div className="shrink-0 select-none">
           <div
             data-t="day"
-            className="display tnum text-[44px] leading-[0.76] tracking-[-0.035em] text-ink lg:text-[62px] lg:leading-[0.74]"
+            className="display tnum text-[46px] leading-[0.82] font-medium tracking-[-0.03em] text-ink lg:text-[64px] lg:leading-[0.8]"
           >
             {r.edition.day}
           </div>
@@ -126,7 +126,7 @@ function StreamHeader({
           </div>
           <h1
             data-t="viewtitle"
-            className="display mt-2 text-[27px] leading-[1] tracking-[-0.018em] text-ink lg:text-[33px] lg:leading-[0.98]"
+            className="display mt-2 text-[25px] leading-[1.1] font-medium tracking-[-0.016em] text-ink lg:text-[30px] lg:leading-[1.06]"
           >
             {head.title}
           </h1>

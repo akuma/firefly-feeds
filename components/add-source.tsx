@@ -162,7 +162,7 @@ export function AddSource() {
         </div>
 
         <div className="px-6 pt-7 pb-6">
-          <h2 className="display text-[27px] leading-[1.05] tracking-[-0.02em] text-ink">
+          <h2 className="display text-[25px] leading-[1.12] font-medium tracking-[-0.016em] text-ink">
             Subscribe to a feed
           </h2>
           <p className="mt-2.5 max-w-[52ch] text-[14.5px] leading-[1.5] text-ink3">
