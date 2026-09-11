@@ -36,7 +36,7 @@ read, because a caption is glanced at, not read. The text that carries size is
 the one a reader reads.
 
 The accent is one colour, used sparingly: unread markers, the active row's edge,
-the article end mark. It is never decorative.
+and the small state labels. It is never decorative.
 
 ## Type
 

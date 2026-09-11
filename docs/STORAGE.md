@@ -29,9 +29,9 @@ and looks like it forgot everything.
 If a rename is ever genuinely necessary it is a migration, not a
 find-and-replace: copy the old database into the new one in a single
 transaction, carry the prefs across before removing the old key, and keep reading
-the old names as a fallback. There is no such code today — nothing has shipped,
-so there is nothing to migrate from, and no compatibility surface worth
-carrying.
+the old names as a fallback. The app is live, so this is a real obligation rather
+than a hypothetical — existing installs hold subscriptions and read state, and a
+rename or shape change has to carry them across.
 
 The two use different conventions deliberately. An IndexedDB name is a top-level
 resource, listed in DevTools beside every other site's, so it takes the
@@ -123,5 +123,6 @@ store — all three are needed, because the module memoises its connection and t
 database outlives the module graph. Reuse it rather than writing new setup.
 
 The suite covers seeding, cache eviction with the `keep` exemption, tombstones,
-and the last-write-wins and tie-break rules. It does not cover migration, because
-there is none.
+and the last-write-wins and tie-break rules. It does not cover migration yet,
+because there is none; any future migration belongs here, tested against a store
+that already holds data.
