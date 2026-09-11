@@ -112,13 +112,37 @@ describe("text size", () => {
 });
 
 describe("reading state", () => {
-  it("marks a story read and decrements the edition's unread count", async () => {
+  it("does not treat selecting a story as reading it", async () => {
     const { user } = await mount();
     const before = colophon().unread;
     expect(before).toBeGreaterThan(0);
 
     await user.click(rows()[1]);
+    await user.click(rows()[3]);
+
+    // opening is not reading. A reader that conflates them silently consumes
+    // anything you only meant to glance at.
+    expect(document.querySelector("[aria-current='true']")).toBeTruthy();
+    expect(colophon().unread).toBe(before);
+  });
+
+  it("credits a story that has been on screen long enough", async () => {
+    await mount();
+    const before = colophon().unread;
+    // jsdom gives every pane zero height, so every story takes the "dwell"
+    // branch: its end is already on screen and staying with it is the evidence
+    await waitFor(() => expect(colophon().unread).toBe(before - 1), { timeout: 4000 });
+  });
+
+  it("still marks read when asked, and unread again", async () => {
+    const { user } = await mount();
+    const before = colophon().unread;
+
+    await user.keyboard("m");
     await waitFor(() => expect(colophon().unread).toBe(before - 1));
+
+    await user.keyboard("m");
+    await waitFor(() => expect(colophon().unread).toBe(before));
   });
 
   it("keeps a saved story in the Saved column", async () => {
@@ -134,7 +158,10 @@ describe("reading state", () => {
 
   it("survives a remount, because it is written to storage", async () => {
     const first = await mount();
-    await first.user.click(rows()[1]);
+    const before = colophon().unread;
+    void first.user.keyboard("m");
+    await waitFor(() => expect(colophon().unread).toBe(before - 1));
+
     const after = colophon().unread;
     first.unmount();
 

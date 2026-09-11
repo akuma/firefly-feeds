@@ -546,13 +546,13 @@ export function useReaderState(edition: Edition): Ctx {
 
   const currentStory = useMemo(() => stories.find((s) => s.id === activeId), [stories, activeId]);
 
-  const select = useCallback(
-    (id: string) => {
-      setSelectedId(id);
-      markRead(id);
-    },
-    [markRead],
-  );
+  /*
+   * Selecting is not reading. Marking on selection quietly consumes anything
+   * you only meant to glance at, and it makes the unread count a record of what
+   * you clicked rather than what you read — see `readSignal` in `lib/reading.ts`
+   * for the trigger that does set it.
+   */
+  const select = useCallback((id: string) => setSelectedId(id), []);
 
   const step = useCallback(
     (dir: 1 | -1) => {

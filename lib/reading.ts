@@ -57,8 +57,8 @@ export function readingTime(body: Block[]): number {
  * How far through the story the reader is, 0 to 1.
  *
  * Returns 0 when the story fits the pane: a progress bar on something with no
- * distance to travel is noise, and it would also make the scroll-to-end rule
- * fire on sight.
+ * distance to travel is noise, and it would also make the end look reached the
+ * moment the story appeared.
  */
 export function progressFor(view: {
   scrollTop: number;
@@ -71,9 +71,9 @@ export function progressFor(view: {
 }
 
 /**
- * A story shorter than this never counts as "read" just for being on screen.
- * At the default step a line is ~34px, so this is roughly seven lines below the
- * fold — the point at which reaching the end means something happened.
+ * A story has to be at least this much taller than the pane before "I scrolled
+ * to the end of it" means anything. At the default step a line is ~34px, so
+ * this is roughly seven lines below the fold.
  */
 const MEANINGFUL_SCROLL = 240;
 
@@ -81,28 +81,46 @@ const MEANINGFUL_SCROLL = 240;
 const END_TOLERANCE = 24;
 
 /**
- * Read state has two triggers, and this is the second one.
+ * How long the end of a short story must be on screen before it counts.
  *
- * Selecting a story marks it read immediately — that is what makes the queue
- * clear as you go. But a story can also be *shown* rather than chosen: on first
- * load, after a view switch, after a search. Those are displayed in the reading
- * pane without ever being selected, so before this they could be read in full,
- * top to bottom, and still sit in the unread count. That is the one outcome a
- * reader will not forgive.
- *
- * So: reaching the end also counts. Not as the primary trigger — a reader whose
- * "read" means "finished" cannot clear a queue of things it has decided against
- * — but as a floor for stories nobody clicked.
- *
- * A story that fits the pane is exempt. There is no end to reach, and being
- * displayed is not the same as being read.
+ * This is the whole difficulty with read-on-reach-the-end: plenty of feeds
+ * publish entries that fit on one screen — measured on Kottke, ten of the
+ * twelve most recent. Their end is on screen the instant they are displayed,
+ * so "the end is visible" cannot be the evidence, or flipping through a column
+ * would consume everything in it. Dwelling is the evidence.
  */
-export function reachedEnd(view: {
+export const DWELL_MS = 2000;
+
+export type ReadSignal =
+  /** The reader scrolled to the end: credit it now. */
+  | "now"
+  /** Short enough to fit, so wait for the reader to actually stay on it. */
+  | "dwell"
+  /** Not read. */
+  | "none";
+
+/**
+ * The single automatic trigger for read state.
+ *
+ * Two cases, because there are two kinds of evidence:
+ *
+ *   - **A story you had to scroll.** Arriving at the end is the evidence, so it
+ *     counts immediately. Waiting would lose the credit when someone reaches
+ *     the bottom and moves on.
+ *   - **A story that fits the pane.** Its end is on screen from the moment it
+ *     is shown, which is not evidence of anything, so it counts once the reader
+ *     has stayed with it.
+ *
+ * Selection deliberately plays no part. Clicking a story is not reading it, and
+ * a reader that treats the two as the same quietly loses things you only meant
+ * to glance at.
+ */
+export function readSignal(view: {
   scrollTop: number;
   scrollHeight: number;
   clientHeight: number;
-}): boolean {
+}): ReadSignal {
   const scrollable = view.scrollHeight - view.clientHeight;
-  if (scrollable < MEANINGFUL_SCROLL) return false;
-  return view.scrollTop >= scrollable - END_TOLERANCE;
+  if (scrollable < MEANINGFUL_SCROLL) return "dwell";
+  return view.scrollTop >= scrollable - END_TOLERANCE ? "now" : "none";
 }

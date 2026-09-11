@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agoLabel, progressFor, reachedEnd, readingTime } from "./reading";
+import { agoLabel, progressFor, readSignal, readingTime } from "./reading";
 import { FOLDERS, SUGGESTED_SOURCES } from "./sources";
 import { SAMPLE_FEED_BY_ID, SAMPLE_FEEDS, SAMPLE_STORIES } from "./sample";
 import { feedFromSource, formatPublished, readingFlags, storyFromArticle } from "./shaping";
@@ -48,28 +48,30 @@ describe("progressFor", () => {
   });
 });
 
-describe("reachedEnd", () => {
+describe("readSignal", () => {
   const pane = 900;
 
-  it("is true only at the end of a story long enough to have one", () => {
-    expect(reachedEnd({ scrollTop: 4100, scrollHeight: 5000, clientHeight: pane })).toBe(true);
-    expect(reachedEnd({ scrollTop: 2000, scrollHeight: 5000, clientHeight: pane })).toBe(false);
+  it("credits immediately once the reader has scrolled to the end", () => {
+    expect(readSignal({ scrollTop: 4095, scrollHeight: 5000, clientHeight: pane })).toBe("now");
+    expect(readSignal({ scrollTop: 4100, scrollHeight: 5000, clientHeight: pane })).toBe("now");
   });
 
-  it("tolerates the sub-pixel shortfall at the very bottom", () => {
-    expect(reachedEnd({ scrollTop: 4095, scrollHeight: 5000, clientHeight: pane })).toBe(true);
-    // ...but not a story that is merely near the end
-    expect(reachedEnd({ scrollTop: 3900, scrollHeight: 5000, clientHeight: pane })).toBe(false);
+  it("says nothing about the middle of a story", () => {
+    expect(readSignal({ scrollTop: 0, scrollHeight: 5000, clientHeight: pane })).toBe("none");
+    expect(readSignal({ scrollTop: 2000, scrollHeight: 5000, clientHeight: pane })).toBe("none");
+    // near the end is not the end
+    expect(readSignal({ scrollTop: 3900, scrollHeight: 5000, clientHeight: pane })).toBe("none");
   });
 
-  it("exempts a story that fits the pane", () => {
-    // this is the whole point: a story shown on screen but never chosen must
-    // not be credited as read just for being displayed
-    expect(reachedEnd({ scrollTop: 0, scrollHeight: 700, clientHeight: pane })).toBe(false);
-    expect(reachedEnd({ scrollTop: 0, scrollHeight: pane, clientHeight: pane })).toBe(false);
-    // barely overflowing is still not a story you scroll through
-    expect(reachedEnd({ scrollTop: 100, scrollHeight: pane + 200, clientHeight: pane })).toBe(
-      false,
+  it("asks for a dwell when the story fits the pane", () => {
+    // Its end is on screen the instant it appears, so being on screen cannot be
+    // the evidence — otherwise flipping through a column would consume it. Ten
+    // of Kottke's twelve most recent entries fit, so this is the common case,
+    // not an edge one.
+    expect(readSignal({ scrollTop: 0, scrollHeight: 700, clientHeight: pane })).toBe("dwell");
+    expect(readSignal({ scrollTop: 0, scrollHeight: pane, clientHeight: pane })).toBe("dwell");
+    expect(readSignal({ scrollTop: 100, scrollHeight: pane + 200, clientHeight: pane })).toBe(
+      "dwell",
     );
   });
 });

@@ -142,27 +142,32 @@ request on the server (`app/page.tsx`) so the client cannot disagree with it.
 
 ## When a story counts as read
 
-Two triggers, because there are two ways a story reaches your eyes.
+**Reaching the end of a story marks it read.** Nothing else does automatically.
+Selecting a story — a click, `J`, `K` — only selects it.
 
-**Selecting a story marks it read immediately** — a click, `J`, `K`. This is
-what makes the unread count a queue that clears as you go, and it is why the
-default is not "read only when you finish".
+That distinction was worth making. Marking on selection quietly consumes
+anything you meant to glance at, and it turns the unread count into a record of
+what you clicked rather than what you read. The count now changes when you
+finish something, when you press `M`, or when you use **Mark all read**.
 
-**Reaching the end of a story also marks it read.** This exists for the case
-selection never fires: a story that was _shown_ rather than chosen — on first
-load, after a view switch, after a search. Those are displayed in the reading
-pane without ever being selected, so without this rule they could be read in
-full, top to bottom, and still sit in the unread count.
+There are two kinds of evidence, because there are two kinds of entry:
 
-Two deliberate limits. A story short enough to fit the pane is exempt, because
-there is no end to reach and being displayed is not the same as being read. And
-it fires once per story, so it never argues with `M`.
+- **A story long enough to scroll.** Arriving at the end is the evidence, so it
+  counts immediately. Waiting would lose the credit when someone reaches the
+  bottom and moves on.
+- **A story that fits the pane.** Its end is on screen the instant it appears, so
+  being on screen proves nothing — otherwise flipping through a column would
+  consume the whole column. It counts once you have stayed with it for a couple
+  of seconds.
 
-Scroll depth is _not_ the primary trigger. A reader whose "read" means
-"finished" cannot clear a queue of things it has decided against — and for a
-link blog like Kottke the feed body is a two-paragraph excerpt with the real
-piece behind the link, so the bottom of our copy is not the end of anything.
-`lib/shaping.test.ts` pins both predicates.
+That second case is not an edge case. Measured on Kottke, **ten of the twelve
+most recent entries fit the reading pane**, so a rule that only credited
+scrolling would leave most of a link blog permanently unread.
+
+`readSignal` in `lib/reading.ts` is the whole rule, and it is a pure function of
+the three numbers a scroll container reports, so it is unit-tested at every
+branch. The timing is verified in a browser, which is the only place it can be —
+jsdom has no layout.
 
 ## Opening the original
 

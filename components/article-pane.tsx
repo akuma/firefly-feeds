@@ -19,7 +19,7 @@ import { clsx } from "./clsx";
 import { IconButton, Rule } from "./brand";
 import { Firefly, Media, hasArt } from "./plate";
 import { FOLDERS } from "@/lib/sources";
-import { progressFor, reachedEnd } from "@/lib/reading";
+import { DWELL_MS, progressFor, readSignal } from "@/lib/reading";
 import { FONT_SIZES, useReader, type ReaderFont } from "@/lib/store";
 import type { Block } from "@/lib/types";
 
@@ -232,21 +232,31 @@ export function ArticlePane() {
   /* oxlint-enable react/set-state-in-effect, react/exhaustive-effect-dependencies */
 
   /*
-   * The second read trigger, for stories that were shown rather than chosen —
-   * see `reachedEnd` for why the rule exists and why it is not the first one.
-   * Lives in an effect rather than the scroll handler so it can consult the
-   * committed geometry, and reads the callback through a ref so this does not
-   * re-subscribe on every state change.
+   * The read trigger. `readSignal` decides between the two kinds of evidence —
+   * arriving at the end of something long, or staying with something short —
+   * and this only has to apply the answer. It runs on `progress` so it consults
+   * committed geometry rather than measuring mid-scroll.
    */
   const creditRead = r.markRead;
   useEffect(() => {
-    // cheap gate first: no reason to measure geometry on every scroll tick
-    if (progress < 0.98) return;
+    // mid-story is the common case while scrolling, and never evidence of much
+    if (progress > 0 && progress < 1) return;
     if (!s || credited.current.has(s.id)) return;
     const el = scrollRef.current;
-    if (!el || !reachedEnd(el)) return;
-    credited.current.add(s.id);
-    creditRead(s.id);
+    if (!el) return;
+
+    const signal = readSignal(el);
+    if (signal === "none") return;
+    if (signal === "now") {
+      credited.current.add(s.id);
+      creditRead(s.id);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      credited.current.add(s.id);
+      creditRead(s.id);
+    }, DWELL_MS);
+    return () => window.clearTimeout(timer);
   }, [progress, s, creditRead]);
 
   if (!r.ready) {
