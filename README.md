@@ -70,18 +70,17 @@ The quality gate:
 
 ## Deploying
 
-**Pushing to `main` deploys.** `.github/workflows/deploy.yml` runs the same
-`bun run check` gate first, so a commit that fails it never reaches the Worker.
+Deploy by hand:
 
-It needs one repository secret. Create an API token from the **Edit Cloudflare
-Workers** template in the Cloudflare dashboard and add it under
-_Settings → Secrets and variables → Actions_ as `CLOUDFLARE_API_TOKEN`. Nothing
-else is configured: the account ID is an identifier rather than a credential and
-lives in the workflow, and Bun's version comes from `packageManager` in
-`package.json`.
+```bash
+bun run check    # the gate
+bun run deploy   # vinext build && vinext-cloudflare deploy
+```
 
-By hand it is `bun run deploy` — the same command the workflow runs, without the
-gate in front of it.
+Deploying needs Cloudflare credentials: run `bunx wrangler login` once, or set
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment from your
+own account. Only the token is a secret; neither belongs in the repository. Bun's
+version comes from `packageManager` in `package.json`.
 
 ## How it works
 
