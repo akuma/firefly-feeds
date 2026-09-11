@@ -67,6 +67,16 @@ describe("the edition", () => {
     expect(within(stream()).getByText("Reading Stream")).toBeInTheDocument();
   });
 
+  it("declares the numeral's leading digit, which is what aligns it with the month", async () => {
+    // Figtree's tabular digits each carry a different left side bearing, and
+    // globals.css cancels it through this attribute. Drop the attribute and the
+    // numeral silently goes back to drifting left of the month.
+    await mount();
+    const day = stream().querySelector("[data-t='day']");
+    expect(day?.textContent).toBe("11");
+    expect(day?.getAttribute("data-lead")).toBe("1");
+  });
+
   it("renders a story column with real bodies behind it", async () => {
     await mount();
     expect(rows().length).toBeGreaterThan(5);

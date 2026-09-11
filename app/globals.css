@@ -132,6 +132,56 @@
   unicode-range: U+0030-0039;
 }
 
+/*
+ * Figtree's tabular figures carry a different left side bearing per digit —
+ * 0.041em for "0" up to 0.150em for "1" — so a left-aligned numeral shifts
+ * horizontally as the date changes, and the month below it, whose own bearing is
+ * nearly zero, ends up 9px to the left of a day like the 11th.
+ *
+ * Cancelling the bearing in the numeral's own em puts its ink on the column's
+ * edge and lines the two up, at either breakpoint: the margin scales with the
+ * font size exactly as the bearing does, and `data-lead` is the day's first
+ * digit. That is why the numeral's own ink can wobble without being noticed —
+ * this is the one thing that would otherwise make it.
+ *
+ * These are glyph metrics of public/fonts/figtree-figures.woff2, read off the
+ * tabular variants (`tnum`), which is what actually renders. Re-measure both if
+ * that file is ever re-cut.
+ */
+[data-t="day"] {
+  margin-left: calc(-1 * var(--fig-lsb, 0em));
+}
+[data-t="day"][data-lead="0"] {
+  --fig-lsb: 0.041em;
+}
+[data-t="day"][data-lead="1"] {
+  --fig-lsb: 0.15em;
+}
+[data-t="day"][data-lead="2"] {
+  --fig-lsb: 0.072em;
+}
+[data-t="day"][data-lead="3"] {
+  --fig-lsb: 0.103em;
+}
+[data-t="day"][data-lead="4"] {
+  --fig-lsb: 0.052em;
+}
+[data-t="day"][data-lead="5"] {
+  --fig-lsb: 0.089em;
+}
+[data-t="day"][data-lead="6"] {
+  --fig-lsb: 0.078em;
+}
+[data-t="day"][data-lead="7"] {
+  --fig-lsb: 0.09em;
+}
+[data-t="day"][data-lead="8"] {
+  --fig-lsb: 0.062em;
+}
+[data-t="day"][data-lead="9"] {
+  --fig-lsb: 0.06em;
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
