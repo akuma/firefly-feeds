@@ -409,7 +409,15 @@ export function Media({
           alt={alt ?? ""}
           loading="lazy"
           decoding="async"
-          referrerPolicy="no-referrer"
+          /*
+           * The browser's own default, and deliberately not `no-referrer`.
+           * Some publisher CDNs — 少数派's among them — refuse a request whose
+           * Referer is empty while serving the same image to any referer, so
+           * sending the origin is the difference between the picture and
+           * "Image unavailable". Cross-origin it is the origin only, never the
+           * reading URL.
+           */
+          referrerPolicy="strict-origin-when-cross-origin"
           sizes={sizes}
           onError={() => setFailed(true)}
           className="absolute inset-0 h-full w-full object-cover"

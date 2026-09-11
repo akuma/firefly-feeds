@@ -305,6 +305,10 @@ describe("open original", () => {
 
     // the publisher's own image is shown...
     expect(withImage.querySelector("img")?.getAttribute("src")).toContain("photo.jpg");
+    // ...with a referer, because some publisher CDNs refuse an empty one
+    expect(withImage.querySelector("img")?.getAttribute("referrerpolicy")).toBe(
+      "strict-origin-when-cross-origin",
+    );
     // ...and nothing is drawn in its place when there is none, because a
     // generated picture here would not exist on the page the story links to
     expect(without.querySelector("img")).toBeNull();
