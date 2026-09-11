@@ -13,17 +13,27 @@ const LEGACY_PREFS = "firefly.reader.v1";
  */
 let previous: typeof import("./db") | undefined;
 
-async function freshRepository() {
+/** Close, forget the module graph, and remove both database names. */
+async function cleanDatabases() {
   if (previous) {
     await previous.close();
     previous = undefined;
   }
   vi.resetModules();
+  await deleteDB("firefly.feeds").catch(() => {});
   await deleteDB("firefly").catch(() => {});
-  const db = await import("./db");
-  previous = db;
-  const repo = await import("./repository");
-  return repo;
+}
+
+/** Import the storage layer. Separate from cleaning so a test can plant a
+ *  pre-rename database in between and watch it being adopted. */
+async function openRepository() {
+  previous = await import("./db");
+  return import("./repository");
+}
+
+async function freshRepository() {
+  await cleanDatabases();
+  return openRepository();
 }
 
 function seedLegacy() {
@@ -117,19 +127,6 @@ describe("v0 migration", () => {
     expect(reading).toHaveLength(3);
   });
 
-  it("keeps the pre-paint prefs and drops the migrated buckets", async () => {
-    seedLegacy();
-    const repo = await freshRepository();
-    await repo.loadAll();
-
-    expect(localStorage.getItem(LEGACY_SOURCES)).toBeNull();
-    const prefs = JSON.parse(localStorage.getItem(LEGACY_PREFS) ?? "{}");
-    expect(prefs).toMatchObject({ theme: "dark", font: 2, navOpen: true });
-    expect(prefs).not.toHaveProperty("read");
-    expect(prefs).not.toHaveProperty("saved");
-    expect(prefs).not.toHaveProperty("later");
-  });
-
   it("discards the legacy blobs only after the new records are committed", async () => {
     seedLegacy();
     const repo = await freshRepository();
@@ -184,6 +181,84 @@ const article = (id: string, sourceId: string): ArticleRecord => ({
   body: [],
   minutes: 1,
   layout: "compact",
+});
+
+/* ---------------------------------------------------------- adoption */
+
+describe("the pre-rename database", () => {
+  it("is carried across rather than orphaned", async () => {
+    await cleanDatabases();
+    // build a database under the old name, exactly as the previous version left it
+    const { openDB } = await import("idb");
+    const old = await openDB("firefly", 1, {
+      upgrade(db) {
+        const sources = db.createObjectStore("sources", { keyPath: "id" });
+        sources.createIndex("by-folder", "folder");
+        const articles = db.createObjectStore("articles", { keyPath: "id" });
+        articles.createIndex("by-source", "sourceId");
+        const reading = db.createObjectStore("reading", { keyPath: "id" });
+        reading.createIndex("by-updated", "updatedAt");
+        db.createObjectStore("meta", { keyPath: "key" });
+      },
+    });
+    await old.put("sources", {
+      ...source("sold"),
+      title: "Subscribed Before The Rename",
+      updatedAt: 1,
+    });
+    await old.put("articles", article("sold~a", "sold"));
+    await old.put("reading", { id: "sold~a", read: true, updatedAt: 1 });
+    await old.put("meta", { key: "seed:initialised", value: { at: 1, version: 1 } });
+    old.close();
+    // ...and prefs under the old key, which is the case that slips through:
+    // the adopted database brings its seeded flag with it, so `initialise`
+    // short-circuits and any cleanup living inside it never runs
+    localStorage.setItem(
+      "firefly.reader.v1",
+      JSON.stringify({ theme: "dark", font: 2, navOpen: true }),
+    );
+
+    const repo = await openRepository();
+    const snapshot = await repo.loadAll();
+
+    expect(snapshot.sources.map((s) => s.title)).toEqual(["Subscribed Before The Rename"]);
+    expect(snapshot.articles.map((a) => a.id)).toEqual(["sold~a"]);
+    expect(snapshot.reading.map((r) => r.id)).toEqual(["sold~a"]);
+    // the curated seeds must not land on top of adopted data
+    expect(snapshot.reading).toHaveLength(1);
+
+    const names = (await indexedDB.databases()).map((d) => d.name);
+    expect(names).not.toContain("firefly");
+
+    expect(localStorage.getItem("firefly.reader.v1")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("firefly.feeds.v1") ?? "{}")).toMatchObject({
+      theme: "dark",
+      font: 2,
+    });
+  });
+
+  it("leaves a fresh install untouched", async () => {
+    const repo = await freshRepository();
+    const snapshot = await repo.loadAll();
+    // nothing to adopt, nothing to clean up, and the curated seeds still apply
+    expect(snapshot.sources).toEqual([]);
+    expect(snapshot.reading.length).toBeGreaterThan(0);
+    expect(localStorage.getItem("firefly.reader.v1")).toBeNull();
+  });
+
+  it("carries the prefs to their new key before the old one goes", async () => {
+    seedLegacy();
+    const repo = await freshRepository();
+    await repo.loadAll();
+
+    expect(localStorage.getItem("firefly.reader.v1")).toBeNull();
+    expect(localStorage.getItem("firefly.sources.v1")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("firefly.feeds.v1") ?? "{}")).toMatchObject({
+      theme: "dark",
+      font: 2,
+      navOpen: true,
+    });
+  });
 });
 
 describe("article cache", () => {

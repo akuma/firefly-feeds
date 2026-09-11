@@ -118,4 +118,3 @@ FireflyFeeds is open source under the [MIT License](LICENSE).
 The FireflyFeeds name, logo, visual identity, and other brand assets are not included in the MIT License. The license does not grant permission to use these assets to represent modified or derivative versions as official FireflyFeeds products.
 
 Third-party fonts, images, and other assets remain subject to their respective licenses.
-

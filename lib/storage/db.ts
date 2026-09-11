@@ -1,5 +1,6 @@
-import { openDB, type DBSchema, type IDBPDatabase } from "idb";
+import { deleteDB, openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { hashString } from "../hash";
+import { PREFS_KEY } from "./prefs";
 import type { ArticleRecord, MetaRecord, ReadingRecord, SourceRecord } from "./types";
 
 /**
@@ -8,7 +9,9 @@ import type { ArticleRecord, MetaRecord, ReadingRecord, SourceRecord } from "./t
  * remote-backed adapter later is a change to one directory.
  */
 
-const DB_NAME = "firefly";
+const DB_NAME = "firefly.feeds";
+/** The pre-rename database. Adopted once, then removed. */
+const LEGACY_DB = "firefly";
 const DB_VERSION = 1;
 const SEEDED = "seed:initialised";
 const LEGACY_SOURCES = "firefly.sources.v1";
@@ -80,8 +83,68 @@ async function connect(): Promise<IDBPDatabase<FireflyDB>> {
     },
   });
 
+  await adoptLegacyDatabase(database);
   await initialise(database);
+  /*
+   * After both, and only after: `initialise` short-circuits when the store is
+   * already seeded, which is exactly what happens when a pre-rename database
+   * was adopted — its seeded flag comes with it. Cleaning up inside either one
+   * leaves the old localStorage keys behind in that case, which is how they
+   * survived the first attempt at this.
+   */
+  discardLegacy();
   return database;
+}
+
+/* ------------------------------------------------------------ adoption */
+
+/**
+ * Carry a pre-rename database across.
+ *
+ * The product was called FireflyReader, and the store was called `firefly`.
+ * Renaming it without this would orphan every subscription, every cached body
+ * and every read flag — the client would simply open an empty database and
+ * look like it had forgotten everything. So the old store is copied in on the
+ * first open of the new one, and only then removed.
+ */
+async function adoptLegacyDatabase(database: IDBPDatabase<FireflyDB>): Promise<void> {
+  if (await database.get("meta", SEEDED)) return;
+  if (!(await databaseExists(LEGACY_DB))) return;
+
+  const previous = await openDB(LEGACY_DB);
+  try {
+    const [sources, articles, reading, meta] = await Promise.all([
+      previous.getAll("sources"),
+      previous.getAll("articles"),
+      previous.getAll("reading"),
+      previous.getAll("meta"),
+    ]);
+    if (!sources.length && !articles.length && !reading.length) return;
+
+    const tx = database.transaction(["sources", "articles", "reading", "meta"], "readwrite");
+    for (const record of sources) tx.objectStore("sources").put(record);
+    for (const record of articles) tx.objectStore("articles").put(record);
+    for (const record of reading) tx.objectStore("reading").put(record);
+    // the seeded flag comes with it, so `initialise` does not seed on top
+    for (const record of meta) tx.objectStore("meta").put(record);
+    await tx.done;
+  } finally {
+    previous.close();
+  }
+
+  // Another tab may still hold it open; the copy is done either way.
+  await deleteDB(LEGACY_DB).catch(() => {});
+}
+
+async function databaseExists(name: string): Promise<boolean> {
+  if (typeof indexedDB.databases !== "function") return false;
+  try {
+    // Probing by opening would create the database, which is the opposite of
+    // what is being asked here.
+    return (await indexedDB.databases()).some((entry) => entry.name === name);
+  } catch {
+    return false;
+  }
 }
 
 /* ------------------------------------------------------------------ seed */
@@ -187,16 +250,27 @@ function readLegacy(): LegacyDump | null {
   return dump.reading.length || dump.sources.length ? dump : null;
 }
 
-/** Only call this once the migrated records are durably written. */
+/**
+ * Only call this once the migrated records are durably written.
+ *
+ * The prefs move to the new key here rather than waiting for the next write,
+ * so the theme is not lost in the window between this running and the app
+ * saving again.
+ */
 function discardLegacy(): void {
   try {
-    localStorage.removeItem(LEGACY_SOURCES);
     const raw = localStorage.getItem(LEGACY_PREFS);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    for (const bucket of ["read", "saved", "later"] as const) delete parsed[bucket];
-    // theme / font / navOpen / view stay put — the boot script reads this key
-    localStorage.setItem(LEGACY_PREFS, JSON.stringify(parsed));
+    if (raw && !localStorage.getItem(PREFS_KEY)) {
+      // nothing here yet — carry the four scalars over before the key goes
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const prefs: Record<string, unknown> = {};
+      for (const key of ["theme", "font", "navOpen", "view"]) {
+        if (key in parsed) prefs[key] = parsed[key];
+      }
+      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    }
+    localStorage.removeItem(LEGACY_SOURCES);
+    localStorage.removeItem(LEGACY_PREFS);
   } catch {
     /* ignore */
   }
@@ -250,8 +324,6 @@ async function initialise(database: IDBPDatabase<FireflyDB>): Promise<void> {
 
   tx.objectStore("meta").put({ key: SEEDED, value: { at: Date.now(), version: DB_VERSION } });
   await tx.done;
-
-  if (legacy) discardLegacy();
 }
 
 /* --------------------------------------------------------------- helpers */
