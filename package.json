@@ -35,7 +35,8 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "firefly-ports dev -- vinext dev",
+    "dev": "vinext dev",
+    "dev:ports": "firefly-ports dev -- vinext dev",
     "build": "vinext build",
     "start": "vinext start",
     "lint": "oxlint --deny-warnings",

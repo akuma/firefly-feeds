@@ -47,6 +47,10 @@ components/
   search-palette.tsx  ⌘K overlay
   shortcuts.tsx       the key legend
   plate.tsx           generative SVG artwork + the firefly mark
+docs/
+  DESIGN.md           the visual language, and why it is that way
+  ARCHITECTURE.md     how a feed becomes a page
+  STORAGE.md          the three stores and the repository contract
 lib/
   store.tsx           all application state, one context, one hook
   sources.ts          real suggested publications + folders
@@ -118,6 +122,18 @@ Rules that are easy to break by accident:
 
 ---
 
+## Documentation
+
+`README.md` is the front door: what this is, what it does, how to run it.
+`docs/` is the depth — read the relevant file before changing anything it
+describes, and update it in the same change.
+
+|                        |                                                    |
+| ---------------------- | -------------------------------------------------- |
+| `docs/DESIGN.md`       | surfaces, type, rhythm, the firefly                |
+| `docs/ARCHITECTURE.md` | the feed pipeline, reading state, sample isolation |
+| `docs/STORAGE.md`      | IndexedDB, the repository seam, replication        |
+
 ## Design system
 
 The visual language is not decoration; it is the product. Before changing anything that renders, read `app/globals.css` — it is the source of truth.
@@ -141,7 +157,7 @@ Third-column rule: three columns need about **1320px**. Below that the navigatio
 - Comments explain **why**, not what. A comment that restates the code is noise; a comment that records a constraint, a non-obvious ordering, or a bug that was fixed is the point.
 - **TypeScript strict.** No `any`. `FeedId` is a `string` on purpose — subscribed feeds get generated ids.
 - Server-only code lives in `app/api/**`. Everything under `components/` and `lib/` runs in the browser unless it is imported only by a route handler (`lib/feed-server.ts`).
-- `lib/clsx.ts` is a local two-line helper deliberately not the `clsx` package. Leave it.
+- `components/clsx.ts` is a local two-line helper deliberately not the `clsx` package. Leave it.
 
 ---
 

@@ -326,6 +326,7 @@ describe("the key legend", () => {
       !!document.querySelector("[data-col='stream']"),
       !!document.querySelector("input"),
       document.querySelector("[aria-current='true']")?.textContent,
+      !!legend(),
     ].join(" / ");
   };
 
@@ -378,6 +379,7 @@ describe("the key legend", () => {
       ["[", "[["],
       ["]", "]]"],
       ["f", "f"],
+      ["?", "?"],
     ];
     // each key has to land before the next one is measured, so this is sequential
     /* oxlint-disable no-await-in-loop */
@@ -390,6 +392,7 @@ describe("the key legend", () => {
         await user.keyboard("f");
         await waitFor(() => expect(nav()).toBeTruthy());
       }
+      if (key === "?") await user.keyboard("?"); // leave the legend closed
     }
 
     const before = snapshot();

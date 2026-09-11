@@ -41,6 +41,7 @@ const GROUPS: { title: string; entries: Entry[] }[] = [
       { caps: ["T"], label: "Light or dark" },
       { caps: ["[", "]"], label: "Smaller, or larger, reading text" },
       { caps: ["F"], label: "Immersive reading" },
+      { caps: ["?"], label: "This legend" },
       { caps: ["Esc"], label: "Close search, this legend, or immersive mode" },
     ],
   },
