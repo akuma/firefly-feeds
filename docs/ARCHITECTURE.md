@@ -50,8 +50,34 @@ route looks for `<link rel="alternate" type="application/rss+xml">` (or an Atom
 or RDF equivalent), resolves it against the document, and follows it. Candidates
 are tried in document order and stop at the first that parses.
 
-Requests are bounded: a 12-second timeout, a 4MB ceiling, and only `http`/`https`
-addresses are accepted.
+### It is a public endpoint that fetches a URL somebody else chose
+
+That is the feature, so it cannot be an allowlist. It does mean the route has to
+be a poor proxy to abuse and must not become somebody else's backend. Three
+things, in order of how much they actually do:
+
+**A 2MB ceiling, enforced while reading.** `readCapped` checks `content-length`
+first and refuses before the body is touched, then reads the stream and aborts
+the transfer the moment the ceiling is crossed. Buffering with `arrayBuffer()`
+first — as it did — means a declared cap only fires after the megabytes have
+already arrived. The heaviest real feed measured here is Pluralistic at 137KB.
+
+**A rate limit**, `FEED_FETCH` in `wrangler.jsonc`: 40 requests a minute per
+address. Know what it is. Cloudflare describes the binding as _permissive,
+eventually consistent, and intentionally not an accurate accounting system_ —
+each request consults a locally cached counter. Measured against the deployment:
+a trickle of two requests a second never trips it; a 300-request burst in eight
+seconds drew 20 rejections and left the window saturated afterwards. It damps
+abuse; the hard ceiling is a zone-level rate limiting rule in front of the
+Worker.
+
+**A same-origin check.** A request from another site's page is refused, so the
+Worker cannot be quietly embedded as somebody else's feed API. Requests with no
+`Origin` at all — curl, a native client, a same-origin GET — are allowed, and the
+rate limit is what covers those.
+
+Requests are bounded by a 12-second timeout and only `http`/`https` addresses are
+accepted.
 
 ## Parsing
 

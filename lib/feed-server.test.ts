@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FeedError, layoutFor, normalizeInputUrl, parseFeedXml } from "./feed-server";
+import { FeedError, layoutFor, normalizeInputUrl, parseFeedXml, readCapped } from "./feed-server";
 
 const RSS = `<?xml version="1.0"?>
 <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/" xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -125,6 +125,67 @@ describe("parseFeedXml", () => {
     const a = parseFeedXml(RSS, "https://example.com/feed");
     const b = parseFeedXml(RSS, "https://example.com/feed");
     expect(a.items.map((i) => i.id)).toEqual(b.items.map((i) => i.id));
+  });
+});
+
+describe("readCapped", () => {
+  it("reads a document that fits", async () => {
+    const body = "<rss><channel><title>Fine</title></channel></rss>";
+    expect(await readCapped(new Response(body), 1000)).toBe(body);
+  });
+
+  it("refuses from the declared length, without touching the body", async () => {
+    // a ReadableStream starts pulling as soon as it is constructed, so counting
+    // pulls proves nothing. Booby-trapping the reader does.
+    const booby = new Error("the body should not have been read");
+    const response = {
+      headers: new Headers({ "content-length": "99999999" }),
+      body: {
+        getReader: () => {
+          throw booby;
+        },
+      },
+      text: () => {
+        throw booby;
+      },
+    } as unknown as Response;
+
+    await expect(readCapped(response, 1000)).rejects.toThrow(/too large/i);
+  });
+
+  it("stops mid-stream when the body is larger than it claimed", async () => {
+    // no content-length, so the ceiling has to be enforced while reading
+    let chunksSent = 0;
+    const response = new Response(
+      new ReadableStream({
+        pull(controller) {
+          chunksSent += 1;
+          controller.enqueue(new Uint8Array(1000));
+        },
+      }),
+      { headers: { "content-type": "application/xml" } },
+    );
+
+    await expect(readCapped(response, 2500)).rejects.toThrow(FeedError);
+    // three chunks of a thousand against a 2500 ceiling — not a hundred
+    expect(chunksSent).toBeLessThanOrEqual(4);
+  });
+
+  it("counts bytes, not characters", async () => {
+    // a multi-byte character split across chunks must not be miscounted
+    const text = "科技爱好者周刊".repeat(200);
+    const bytes = new TextEncoder().encode(text);
+    const response = new Response(
+      new ReadableStream({
+        start(controller) {
+          for (let i = 0; i < bytes.length; i += 7) {
+            controller.enqueue(bytes.slice(i, i + 7));
+          }
+          controller.close();
+        },
+      }),
+    );
+    expect(await readCapped(response, 1_000_000)).toBe(text);
   });
 });
 

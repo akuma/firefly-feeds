@@ -7,6 +7,16 @@
   "assets": {
     "not_found_handling": "none",
   },
+  "ratelimits": [
+    {
+      "name": "FEED_FETCH",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 40,
+        "period": 60,
+      },
+    },
+  ],
   "routes": [
     {
       "pattern": "feeds.fireflylabs.studio",

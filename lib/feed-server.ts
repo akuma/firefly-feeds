@@ -100,14 +100,68 @@ async function request(
     );
   }
 
-  const buffer = await res.arrayBuffer();
-  if (buffer.byteLength > 4_000_000) throw new FeedError("That feed is too large to read.", 413);
-
   return {
-    body: new TextDecoder("utf-8").decode(buffer),
+    body: await readCapped(res),
     contentType: (res.headers.get("content-type") ?? "").toLowerCase(),
     finalUrl: res.url || url,
   };
+}
+
+/**
+ * The largest document worth reading.
+ *
+ * The heaviest real feed measured here is Pluralistic at 137KB; 2MB is a
+ * generous ceiling that still bounds what one request can make the Worker pull.
+ */
+const MAX_BYTES = 2_000_000;
+
+/**
+ * Reads a response with a ceiling, aborting the moment it is crossed.
+ *
+ * `res.arrayBuffer()` buffers the whole document before anything can be checked,
+ * so a declared 4MB cap only ever fired after the megabytes had already arrived.
+ * Reading the stream lets the transfer stop mid-flight instead, which matters
+ * because this endpoint is public and anyone can point it at a large URL.
+ */
+export async function readCapped(response: Response, limit = MAX_BYTES): Promise<string> {
+  const declared = Number(response.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > limit) {
+    throw new FeedError("That feed is too large to read.", 413);
+  }
+  if (!response.body) {
+    const text = await response.text();
+    if (text.length > limit) throw new FeedError("That feed is too large to read.", 413);
+    return text;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    // a stream is read one chunk at a time by definition
+    /* oxlint-disable no-await-in-loop */
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) {
+        throw new FeedError("That feed is too large to read.", 413);
+      }
+      chunks.push(value);
+    }
+    /* oxlint-enable no-await-in-loop */
+  } finally {
+    // stops the transfer rather than draining a document we will not read
+    await reader.cancel().catch(() => {});
+  }
+
+  const buffer = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8").decode(buffer);
 }
 
 /* ------------------------------------------------------------ discovery */
