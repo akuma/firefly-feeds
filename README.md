@@ -46,9 +46,9 @@ shape that hides a summary you could have used.
 Reaching the end is — and so is staying with a short one. Nothing you meant to
 glance at disappears from the queue.
 
-**It never makes anything up.** The only invented content is the sample edition,
-which is fenced off, labelled, carries no outbound links, and retires itself the
-moment you subscribe to something real.
+**It keeps invented content separate.** The sample edition is clearly labelled,
+carries no outbound links, and retires itself the moment you subscribe to
+something real.
 
 ## Running locally
 
@@ -83,11 +83,6 @@ leaking into the reading surface.
 in IndexedDB behind a repository interface, with `updatedAt` on every record and
 deletions kept as tombstones — so a sync client has something to work with later,
 and a new device re-fetches prose rather than downloading a corpus.
-
-**Fabricated content is fenced off.** The sample edition is invented all the way
-down: invented publications on reserved `.example` hosts, invented bylines, no
-outbound links. It is active only while you have subscribed to nothing, so
-invented and real stories can never mix.
 
 ## Screenshots
 
@@ -124,7 +119,8 @@ path.
 
 ## Built with vibe coding
 
-Firefly Feeds is a product built with **vibe coding**, using **Pi Coding Agent** and **DeepSeek-V4.1-Flash**.
+Firefly Feeds **was built with vibe coding**, using **Pi Coding Agent** and
+**DeepSeek-V4.1-Flash**.
 
 The first usable version consumed about **$1.40 in LLM API usage**.
 
