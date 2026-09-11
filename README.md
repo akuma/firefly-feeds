@@ -68,6 +68,21 @@ The quality gate:
 | `bun run good`  | format, lint, typecheck, test                     |
 | `bun run check` | the same plus a production build, writing nothing |
 
+## Deploying
+
+**Pushing to `main` deploys.** `.github/workflows/deploy.yml` runs the same
+`bun run check` gate first, so a commit that fails it never reaches the Worker.
+
+It needs one repository secret. Create an API token from the **Edit Cloudflare
+Workers** template in the Cloudflare dashboard and add it under
+_Settings → Secrets and variables → Actions_ as `CLOUDFLARE_API_TOKEN`. Nothing
+else is configured: the account ID is an identifier rather than a credential and
+lives in the workflow, and Bun's version comes from `packageManager` in
+`package.json`.
+
+By hand it is `bun run deploy` — the same command the workflow runs, without the
+gate in front of it.
+
 ## How it works
 
 **Feeds are read on the server.** `app/api/feed/route.ts` is the only thing that
