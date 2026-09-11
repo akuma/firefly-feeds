@@ -48,6 +48,34 @@ async function mount() {
   return { user, ...result };
 }
 
+/** Two sources whose key order and added order disagree. */
+async function seedOutOfOrder() {
+  const repo = await import("@/lib/storage/repository");
+  const now = Date.now();
+  await repo.putSource({
+    id: "sa",
+    url: "https://older.example/feed.xml",
+    siteUrl: "https://older.example",
+    title: "Older",
+    host: "older.example",
+    folder: "news",
+    addedAt: now - 5000,
+    fetchedAt: now - 5000,
+    updatedAt: now - 5000,
+  });
+  await repo.putSource({
+    id: "sz",
+    url: "https://newer.example/feed.xml",
+    siteUrl: "https://newer.example",
+    title: "Newer",
+    host: "newer.example",
+    folder: "news",
+    addedAt: now - 1000,
+    fetchedAt: now - 1000,
+    updatedAt: now - 1000,
+  });
+}
+
 beforeEach(async () => {
   // each test starts with an empty registry, so the sample edition is what shows
   const repo = await import("@/lib/storage/repository");
@@ -479,6 +507,32 @@ describe("editing a source", () => {
       const saved = await repo.getSource("sedit");
       expect(saved?.folder).toBeUndefined();
     });
+  });
+});
+
+describe("the source list", () => {
+  const sourcesSection = () =>
+    [...nav().querySelectorAll("section")].find(
+      (sec) => sec.querySelector(".label")?.textContent === "Sources",
+    )!;
+
+  it("reads newest-first, and a rename does not move a source", async () => {
+    await seedOutOfOrder();
+    const { user } = await mount();
+
+    let text = sourcesSection().textContent ?? "";
+    expect(text.indexOf("Newer")).toBeLessThan(text.indexOf("Older"));
+
+    await user.click(within(nav()).getByLabelText("Rename Newer"));
+    const panel = await screen.findByRole("dialog", { name: "Edit source" });
+    const field = within(panel).getByLabelText("Feed name");
+    await user.clear(field);
+    await user.type(field, "Renamed");
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(within(nav()).getByText("Renamed")).toBeInTheDocument());
+    text = sourcesSection().textContent ?? "";
+    expect(text.indexOf("Renamed")).toBeLessThan(text.indexOf("Older"));
   });
 });
 

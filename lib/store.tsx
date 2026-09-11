@@ -209,7 +209,7 @@ export function useReaderState(edition: Edition): Ctx {
         console.error("[firefly] storage unavailable — running without persistence", error);
       }
       if (cancelled) return;
-      setSources(snapshot.sources);
+      setSources(snapshot.sources.toSorted(byAddedDesc));
       setArticles(snapshot.articles);
       setReading(snapshot.reading);
 
@@ -364,7 +364,7 @@ export function useReaderState(edition: Edition): Ctx {
     const [source, items] = await Promise.all([repo.getSource(id), repo.getArticles(id)]);
     setSources((current) => {
       const next = current.filter((s) => s.id !== id);
-      return source && !source.deletedAt ? [...next, source] : next;
+      return source && !source.deletedAt ? [...next, source].toSorted(byAddedDesc) : next;
     });
     setArticles((current) => [...current.filter((a) => a.sourceId !== id), ...items]);
   }, []);
@@ -715,6 +715,17 @@ export function useReaderState(edition: Edition): Ctx {
 }
 
 export { ReaderContext, FONT_SIZES };
+
+/**
+ * The source list reads newest first, and "newest" is when it was added.
+ *
+ * Without this the order is whatever the last write left behind: a rename or a
+ * refresh re-appends its source, while a reload hands back IndexedDB key order,
+ * so a source would jump to the bottom and then jump back.
+ */
+function byAddedDesc(a: SourceRecord, b: SourceRecord): number {
+  return b.addedAt - a.addedAt;
+}
 
 /* -------------------------------------------------------------- helpers */
 
