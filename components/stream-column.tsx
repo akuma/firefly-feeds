@@ -100,7 +100,7 @@ function StreamHeader({
             />
             <IconButton
               icon={r.theme === "dark" ? Sun : Moon}
-              label="Theme (T)"
+              label={r.theme === "dark" ? "Switch to light (T)" : "Switch to dark (T)"}
               size={26}
               onClick={() => r.setTheme(r.theme === "dark" ? "light" : "dark")}
             />

@@ -19,14 +19,12 @@ function Section({
   title,
   action,
   first = false,
-  last = false,
   children,
 }: {
   title: string;
   action?: React.ReactNode;
   /** The first section is already separated by the rule under the masthead. */
   first?: boolean;
-  last?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -39,7 +37,6 @@ function Section({
         </div>
       </div>
       <div className="flex flex-col">{children}</div>
-      {last && <div className="h-4" />}
     </section>
   );
 }
@@ -333,7 +330,14 @@ export function NavRail({
       </div>
       <div className="h-px w-full shrink-0 bg-rule" />
 
-      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      {/*
+       * The bottom padding is what tells the reader the list has ended. Without
+       * it the last row sits flush against the colophon's rule the moment the
+       * navigation scrolls at all — measured at 0px clearance from 820px down —
+       * and a row touching a divider reads as "there is more below, but you
+       * cannot get to it".
+       */}
+      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain pb-8">
         <Section title="Reading" first>
           {views.map((v) => (
             <Row key={v.id} active={r.view === v.id} onClick={() => go(v.id)} count={v.count}>
@@ -394,7 +398,7 @@ export function NavRail({
         )}
 
         {!onboarding && (
-          <Section title="Sources" action={<AddButton onDone={onNavigate} />} last>
+          <Section title="Sources" action={<AddButton onDone={onNavigate} />}>
             {r.sources.map((source) => {
               const feed = r.feedById(source.id);
               if (!feed) return null;
@@ -421,19 +425,13 @@ export function NavRail({
       <div className="h-px w-full shrink-0 bg-rule" />
       <div className="flex shrink-0 items-center justify-between px-4 py-3">
         <div className="flex items-center gap-1">
+          {/* One control, alternating: the icon is what pressing it will give
+              you, so the glyph and the label always agree. */}
           <IconButton
-            icon={Sun}
-            label="Light"
+            icon={r.theme === "dark" ? Sun : Moon}
+            label={r.theme === "dark" ? "Switch to light (T)" : "Switch to dark (T)"}
             size={24}
-            active={r.theme === "light"}
-            onClick={() => r.setTheme("light")}
-          />
-          <IconButton
-            icon={Moon}
-            label="Dark"
-            size={24}
-            active={r.theme === "dark"}
-            onClick={() => r.setTheme("dark")}
+            onClick={() => r.setTheme(r.theme === "dark" ? "light" : "dark")}
           />
           <IconButton
             icon={Search}

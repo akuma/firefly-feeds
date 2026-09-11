@@ -34,7 +34,7 @@ function MobileTopBar() {
         <IconButton icon={Search} label="Search" onClick={() => r.setSearchOpen(true)} />
         <IconButton
           icon={r.theme === "dark" ? Sun : Moon}
-          label="Theme"
+          label={r.theme === "dark" ? "Switch to light" : "Switch to dark"}
           onClick={() => r.setTheme(r.theme === "dark" ? "light" : "dark")}
         />
         <IconButton icon={Layers} label="Feeds" onClick={() => r.setMobileFeeds(true)} />

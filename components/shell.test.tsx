@@ -307,16 +307,16 @@ describe("the navigation", () => {
     // header repeating them would just be two entry points for one action
     expect(inHeader("Add a feed or site")).toBe(0);
     expect(inHeader("Search (⌘K)")).toBe(0);
-    expect(inHeader("Theme (T)")).toBe(0);
+    expect(inHeader("Switch to dark (T)")).toBe(0);
     // ...and the navigation's are present
     expect(within(nav()).getAllByLabelText("Search").length).toBeGreaterThan(0);
-    expect(within(nav()).getByLabelText("Light")).toBeInTheDocument();
-    expect(within(nav()).getByLabelText("Dark")).toBeInTheDocument();
+    expect(within(nav()).getByLabelText("Switch to dark (T)")).toBeInTheDocument();
+    expect(within(nav()).queryByLabelText("Switch to light (T)")).not.toBeInTheDocument();
 
     await user.click(within(stream()).getByLabelText("Hide navigation"));
     await waitFor(() => expect(inHeader("Add a feed or site")).toBe(1));
     expect(inHeader("Search (⌘K)")).toBe(1);
-    expect(inHeader("Theme (T)")).toBe(1);
+    expect(inHeader("Switch to dark (T)")).toBe(1);
   });
 
   it("gives search one control and one shortcut hint, not two controls", async () => {
@@ -325,7 +325,7 @@ describe("the navigation", () => {
     // the ⌘K chip teaches the shortcut; it is not a second button
     expect(footer.textContent).toContain("K");
     expect([...footer.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(
-      ["Light", "Dark", "Search", "Keyboard shortcuts (?)"],
+      ["Switch to dark (T)", "Search", "Keyboard shortcuts (?)"],
     );
   });
 
@@ -559,5 +559,22 @@ describe("appearance", () => {
     await waitFor(() => expect(document.documentElement).toHaveClass("dark"));
     await user.keyboard("t");
     await waitFor(() => expect(document.documentElement).not.toHaveClass("dark"));
+  });
+
+  it("offers one theme control per column, each alternating", async () => {
+    const { user } = await mount();
+    const navThemeButtons = () =>
+      [...nav().querySelectorAll("button")].filter((b) =>
+        (b.getAttribute("aria-label") ?? "").startsWith("Switch to "),
+      );
+
+    // never a sun and a moon side by side: one button that says what it will do
+    expect(navThemeButtons()).toHaveLength(1);
+    expect(navThemeButtons()[0].getAttribute("aria-label")).toBe("Switch to dark (T)");
+
+    await user.click(navThemeButtons()[0]);
+    await waitFor(() => expect(document.documentElement).toHaveClass("dark"));
+    expect(navThemeButtons()).toHaveLength(1);
+    expect(navThemeButtons()[0].getAttribute("aria-label")).toBe("Switch to light (T)");
   });
 });
