@@ -118,8 +118,16 @@ Clicking one opens the subscribe dialog with the feed already queued _and the
 folder it belongs in preselected_, so a news feed is not filed under whatever
 the dialog happened to default to.
 
-`lib/sources.ts` is also where the folders live. They lead with News rather than
-Design, which is the same statement the source list makes.
+`lib/sources.ts` is also where the folders live: News, Science, Technology, AI,
+Culture, Design, Independent Web. The general categories lead and the
+technology-adjacent ones sit together — the same statement the source list makes.
+
+**The navigation lists only folders with something in them.** A folder with
+nothing filed in it is a dead end, so it is not offered; it appears the moment
+you file a feed into it. The taxonomy itself is fixed, and the subscribe dialog
+always offers every folder, so nothing becomes unreachable — the sample edition
+simply says nothing about news or science, and the navigation does not pretend
+otherwise.
 
 ## Reading state
 

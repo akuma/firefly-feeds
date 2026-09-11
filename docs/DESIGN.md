@@ -110,6 +110,15 @@ the bottom. Navigation moves into a drawer.
 Safe-area insets are honoured top and bottom, because a full-screen reading
 surface is the one place a notch actually matters.
 
+## Dialogs
+
+A dialog is capped at `86vh` with a scrolling body and a **pinned commit bar**.
+A feed with a long title, a long description and five entries is taller than a
+laptop window, and a primary action that scrolls out of view is an action the
+reader cannot find. Both decisions live in the pinned bar — which folder it files
+into, and the button that does it — so neither depends on where the body happens
+to be scrolled.
+
 ## Layout rule
 
 Three columns need about **1320px** to hold a 600px measure. Below that the

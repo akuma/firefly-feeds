@@ -127,6 +127,13 @@ Rules that are easy to break by accident:
 
 ---
 
+### Folders
+
+Seven, in `lib/sources.ts`: News, Science, Technology, AI, Culture, Design,
+Independent Web. The navigation shows only the ones with something filed in them
+— an empty folder is a dead end — but the taxonomy is fixed and the subscribe
+dialog always offers all seven, so nothing is unreachable.
+
 ### Suggested sources
 
 Six real publications, offered in the navigation while nothing is subscribed.

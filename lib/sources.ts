@@ -10,10 +10,10 @@ export const FOLDERS: Folder[] = [
   { id: "news", name: "News" },
   { id: "science", name: "Science" },
   { id: "technology", name: "Technology" },
+  { id: "ai", name: "AI" },
   { id: "culture", name: "Culture" },
   { id: "design", name: "Design" },
   { id: "independent", name: "Independent Web" },
-  { id: "ai", name: "AI" },
 ];
 
 export type SuggestedSource = {

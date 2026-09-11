@@ -4,7 +4,7 @@ import { Command, Keyboard, Moon, Plus, RefreshCw, Search, Sun, X } from "lucide
 import { clsx } from "./clsx";
 import { IconButton, Wordmark } from "./brand";
 import { Firefly } from "./plate";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FOLDERS } from "@/lib/sources";
 import { estimate } from "@/lib/storage/repository";
 import { useReader } from "@/lib/store";
@@ -293,6 +293,23 @@ export function NavRail({
   /** True until the reader has subscribed to anything, sample edition aside. */
   const onboarding = r.sources.length === 0;
 
+  /*
+   * A folder with nothing filed in it is a dead end, so it is not offered. The
+   * taxonomy is fixed — the Add dialog always lets you file into any folder —
+   * but the navigation only shows the ones that lead somewhere, and a folder
+   * appears the moment you file a feed into it.
+   */
+  const { feeds, stories, feedById } = r;
+  const foldersInUse = useMemo(() => {
+    const used = new Set<FolderId>();
+    for (const feed of feeds) used.add(feed.folder);
+    for (const story of stories) {
+      const feed = feedById(story.feedId);
+      if (feed) used.add(feed.folder);
+    }
+    return used;
+  }, [feeds, stories, feedById]);
+
   const views: { id: ViewId; name: string; count: number }[] = [
     { id: "today", name: "Today", count: r.counts.today },
     { id: "all", name: "All Stories", count: r.counts.all },
@@ -326,7 +343,7 @@ export function NavRail({
         </Section>
 
         <Section title="Folders">
-          {FOLDERS.map((f) => (
+          {FOLDERS.filter((f) => foldersInUse.has(f.id)).map((f) => (
             <Row
               key={f.id}
               serif

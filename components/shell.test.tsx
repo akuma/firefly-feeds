@@ -261,6 +261,43 @@ describe("the navigation", () => {
     expect(rules.length).toBe(sections.length - 1);
   });
 
+  it("only lists folders that lead somewhere", async () => {
+    await mount();
+    const shown = [...nav().querySelectorAll("section")].find(
+      (sec) => sec.querySelector(".label")?.textContent === "Folders",
+    )!.textContent!;
+
+    // the sample edition files into five folders and says nothing about news or
+    // science, so those two would be dead ends
+    expect(shown).toContain("Technology");
+    expect(shown).toContain("Culture");
+    expect(shown).not.toContain("News");
+    expect(shown).not.toContain("Science");
+  });
+
+  it("shows a folder as soon as something is filed in it", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "snews",
+      url: "https://news.example/feed.xml",
+      siteUrl: "https://news.example",
+      title: "A News Source",
+      host: "news.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+
+    await mount();
+    const folders = [...nav().querySelectorAll("section")].find(
+      (sec) => sec.querySelector(".label")?.textContent === "Folders",
+    )!;
+    expect(folders.textContent).toContain("News");
+    expect(folders.textContent).not.toContain("Science");
+  });
+
   it("offers suggested sources while onboarding", async () => {
     await mount();
     expect(within(nav()).getByText("Suggested")).toBeInTheDocument();

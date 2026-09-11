@@ -145,9 +145,9 @@ export function AddSource() {
         style={{ background: "color-mix(in oklab, var(--c-canvas) 94%, transparent)" }}
       />
 
-      <div className="ff-rise relative flex w-full max-w-[640px] flex-col border border-rule bg-reader shadow-[0_30px_60px_-40px_rgba(0,0,0,0.5)]">
+      <div className="ff-rise relative flex max-h-[86vh] w-full max-w-[640px] flex-col border border-rule bg-reader shadow-[0_30px_60px_-40px_rgba(0,0,0,0.5)]">
         {/* ------------------------------------------------------ header */}
-        <div className="flex items-center justify-between border-b border-rule px-6 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-rule px-6 py-3">
           <span className="label text-ink4">Add source</span>
           <button
             type="button"
@@ -159,7 +159,7 @@ export function AddSource() {
           </button>
         </div>
 
-        <div className="px-6 pt-7 pb-6">
+        <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-6 pt-7 pb-7">
           <h2 className="display text-[25px] leading-[1.12] font-medium tracking-[-0.016em] text-ink">
             Subscribe to a feed
           </h2>
@@ -284,45 +284,55 @@ export function AddSource() {
                   ))}
                 </ul>
               </div>
-
-              <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-rule pt-4">
-                <span className="label text-ink4">File under</span>
-                {FOLDERS.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => setFolder(f.id)}
-                    className={clsx(
-                      "mono px-2 py-1 text-[9.5px] leading-none tracking-[0.14em] uppercase transition-colors",
-                      folder === f.id
-                        ? "bg-ink text-canvas"
-                        : "text-ink3 ring-1 ring-rule ring-inset hover:bg-hoverc hover:text-ink",
-                    )}
-                  >
-                    {f.name}
-                  </button>
-                ))}
-              </div>
-
-              {error && <p className="mt-4 text-[13.5px] leading-[1.5] text-spark">{error}</p>}
-
-              <div className="mt-6 flex items-center justify-between gap-4">
-                <span className="mono text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
-                  Kept on this device · IndexedDB
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void commit()}
-                  disabled={saving}
-                  className="mono group flex items-center gap-2 bg-ink px-4 py-2.5 text-[10px] tracking-[0.16em] text-canvas uppercase transition-opacity disabled:opacity-40"
-                >
-                  {saving ? "Subscribing…" : "Subscribe"}
-                  <ArrowRight size={12} strokeWidth={1.8} />
-                </button>
-              </div>
             </div>
           )}
         </div>
+
+        {/*
+         * The commit bar is pinned, not scrolled. A feed with a long title, a
+         * long description and five entries can be taller than the window, and
+         * an action that scrolls out of view is an action the reader cannot
+         * find. Both decisions live here — which folder, and go.
+         */}
+        {status === "ready" && preview && (
+          <div className="shrink-0 border-t border-rule px-6 py-4">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className="label text-ink4">File under</span>
+              {FOLDERS.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFolder(f.id)}
+                  className={clsx(
+                    "mono px-2 py-1 text-[9.5px] leading-none tracking-[0.14em] uppercase transition-colors",
+                    folder === f.id
+                      ? "bg-ink text-canvas"
+                      : "text-ink3 ring-1 ring-rule ring-inset hover:bg-hoverc hover:text-ink",
+                  )}
+                >
+                  {f.name}
+                </button>
+              ))}
+            </div>
+
+            {error && <p className="mt-3 text-[13.5px] leading-[1.5] text-spark">{error}</p>}
+
+            <div className="mt-4 flex items-center justify-between gap-4">
+              <span className="mono text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
+                Kept on this device · IndexedDB
+              </span>
+              <button
+                type="button"
+                onClick={() => void commit()}
+                disabled={saving}
+                className="mono group flex items-center gap-2 bg-ink px-4 py-2.5 text-[10px] tracking-[0.16em] text-canvas uppercase transition-opacity disabled:opacity-40"
+              >
+                {saving ? "Subscribing…" : "Subscribe"}
+                <ArrowRight size={12} strokeWidth={1.8} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
