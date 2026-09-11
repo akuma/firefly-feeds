@@ -120,7 +120,7 @@ function StreamHeader({
           </div>
           <div className="label mt-1.5 text-ink4 lg:mt-2.5">{r.edition.month}</div>
         </div>
-        <div className="min-w-0 flex-1 pb-[3px]">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <span className="label text-spark">{head.kicker}</span>
             {r.sample && (
