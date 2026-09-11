@@ -103,6 +103,9 @@ type Ctx = {
   selectedId: string;
   select: (id: string) => void;
   step: (dir: 1 | -1) => void;
+  /** Scroll the reading pane. Owns the arrow keys, wherever they are pressed. */
+  scrollReading: (direction: 1 | -1) => void;
+  registerReaderScroll: (element: HTMLDivElement | null) => void;
 
   counts: {
     all: number;
@@ -173,6 +176,7 @@ export function useReaderState(edition: Edition): Ctx {
   const [refreshing, setRefreshing] = useState<string | null>(null);
   // relative timestamps for fetched stories need a clock, not a constant
   const [now, setNow] = useState(() => Date.now());
+  const readerScroll = useRef<HTMLDivElement | null>(null);
 
   const shapedOwnNav = useRef(false);
 
@@ -529,6 +533,24 @@ export function useReaderState(edition: Edition): Ctx {
 
   const toggleShortcuts = useCallback(() => setShortcutsOpen((open) => !open), []);
 
+  /*
+   * Arrow keys scroll the article rather than moving between stories.
+   *
+   * The reading surface is the product, and arrows are the keys people reach
+   * for while reading a page — binding them to "next story" meant a long piece
+   * could not be scrolled from the keyboard at all. `j` and `k` are the
+   * navigation keys, and they always mean the same thing in every mode.
+   */
+  const registerReaderScroll = useCallback((element: HTMLDivElement | null) => {
+    readerScroll.current = element;
+  }, []);
+
+  const scrollReading = useCallback((direction: 1 | -1) => {
+    // roughly three lines at the default text size: enough to feel like a step,
+    // small enough to keep your place
+    readerScroll.current?.scrollBy({ top: direction * 90 });
+  }, []);
+
   const setView = useCallback((v: ViewId) => {
     setViewRaw(v);
     setQuery("");
@@ -634,6 +656,8 @@ export function useReaderState(edition: Edition): Ctx {
     selectedId: activeId,
     select,
     step,
+    scrollReading,
+    registerReaderScroll,
     counts,
     todayMinutes,
     todayTotal,
@@ -695,14 +719,17 @@ export function useKeyboardShortcuts(ctx: Ctx) {
 
       switch (e.key) {
         case "j":
-        case "ArrowDown":
           e.preventDefault();
           c.step(1);
           break;
         case "k":
-        case "ArrowUp":
           e.preventDefault();
           c.step(-1);
+          break;
+        case "ArrowDown":
+        case "ArrowUp":
+          e.preventDefault();
+          c.scrollReading(e.key === "ArrowDown" ? 1 : -1);
           break;
         case "m":
           c.toggle("read", c.selectedId);

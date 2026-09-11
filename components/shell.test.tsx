@@ -398,6 +398,18 @@ describe("the key legend", () => {
     }
   });
 
+  it("says the arrows scroll, not that they change story", async () => {
+    const { user } = await mount();
+    await user.keyboard("?");
+    await waitFor(() => expect(legend()).toBeTruthy());
+    const entries = [...legend()!.querySelectorAll("dl > div")].map((row) => ({
+      caps: [...row.querySelectorAll("kbd")].map((k) => k.textContent),
+      label: row.querySelector("dd")?.textContent ?? "",
+    }));
+    expect(entries.find((r) => r.caps.includes("↓"))?.label).toMatch(/scroll/i);
+    expect(entries.find((r) => r.caps.includes("J"))?.label).toMatch(/next story/i);
+  });
+
   it("documents only keys the reader actually implements", async () => {
     const { user } = await mount();
     /*
@@ -418,6 +430,12 @@ describe("the key legend", () => {
       ["f", "f"],
       ["?", "?"],
     ];
+    /*
+     * The arrow keys are documented too, but they scroll the reading pane, and
+     * jsdom has no layout: scrollHeight and clientHeight are both 0, so a
+     * scroll is a no-op and there is nothing observable to assert. They are
+     * covered in a browser instead.
+     */
     // each key has to land before the next one is measured, so this is sequential
     /* oxlint-disable no-await-in-loop */
     for (const [key, press] of presses) {

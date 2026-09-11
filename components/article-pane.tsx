@@ -237,6 +237,16 @@ export function ArticlePane() {
    * and this only has to apply the answer. It runs on `progress` so it consults
    * committed geometry rather than measuring mid-scroll.
    */
+  const registerReaderScroll = r.registerReaderScroll;
+  // `ready` is the trigger, not a read: the container does not exist until
+  // storage has loaded, so there is nothing to hand over before that.
+  /* oxlint-disable react/exhaustive-effect-dependencies */
+  useEffect(() => {
+    registerReaderScroll(scrollRef.current);
+    return () => registerReaderScroll(null);
+  }, [registerReaderScroll, r.ready]);
+  /* oxlint-enable react/exhaustive-effect-dependencies */
+
   const creditRead = r.markRead;
   useEffect(() => {
     // mid-story is the common case while scrolling, and never evidence of much

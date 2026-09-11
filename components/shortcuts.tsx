@@ -26,8 +26,9 @@ const GROUPS: { title: string; entries: Entry[] }[] = [
   {
     title: "Reading",
     entries: [
-      { caps: ["J", "↓"], label: "Next story" },
-      { caps: ["K", "↑"], label: "Previous story" },
+      { caps: ["J"], label: "Next story" },
+      { caps: ["K"], label: "Previous story" },
+      { caps: ["↑", "↓"], label: "Scroll the article" },
       { caps: ["O"], label: "Open the original in a new tab" },
       { caps: ["M"], label: "Mark read, or unread" },
       { caps: ["S"], label: "Save" },
