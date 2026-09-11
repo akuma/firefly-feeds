@@ -378,7 +378,9 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
           >
             {s.title}
           </h2>
-          <p className="mt-3 max-w-[46ch] text-[15px] leading-[1.55] text-ink3">{s.dek}</p>
+          {s.dek && (
+            <p className="mt-3 max-w-[46ch] text-[15px] leading-[1.55] text-ink3">{s.dek}</p>
+          )}
           <Meta s={s} className="mt-4" />
         </div>
       </article>
@@ -451,9 +453,11 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
           >
             {s.title}
           </h2>
-          <p className="mt-2 line-clamp-2 max-w-[52ch] text-[13.5px] leading-[1.5] text-ink3">
-            {s.dek}
-          </p>
+          {s.dek && (
+            <p className="mt-2 line-clamp-2 max-w-[52ch] text-[13.5px] leading-[1.5] text-ink3">
+              {s.dek}
+            </p>
+          )}
         </div>
       </article>
     );
@@ -485,9 +489,11 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
           >
             {s.title}
           </h2>
-          <p className="mt-2.5 line-clamp-3 max-w-[54ch] text-[13.5px] leading-[1.55] text-ink3">
-            {s.dek}
-          </p>
+          {s.dek && (
+            <p className="mt-2.5 line-clamp-3 max-w-[54ch] text-[13.5px] leading-[1.55] text-ink3">
+              {s.dek}
+            </p>
+          )}
           <Meta s={s} className="mt-3" />
         </div>
         {withPlate && (

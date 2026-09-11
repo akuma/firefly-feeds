@@ -397,12 +397,27 @@ export async function readFeed(input: string): Promise<ParsedFeed> {
 
 /* ------------------------------------------------------------- shaping */
 
-/** Deterministic stream rhythm for fetched stories, so live feeds sit in the same visual system as the seeded ones. */
-export function layoutFor(index: number, hasImage: boolean, hasQuote: boolean): StoryLayout {
-  if (hasQuote && index % 9 === 4) return "quote";
-  if (index === 0) return hasImage ? "standard" : "compact";
-  if (index % 7 === 3) return "brief";
-  if (hasImage && index % 3 === 0) return "standard";
+/**
+ * A fetched story's row shape follows the story, never its position in the feed.
+ *
+ * It used to be positional, and that was wrong twice over. Every seventh entry
+ * was forced into `brief` — the bare contents-page row — so the same story
+ * rendered differently depending on when it happened to be published, and a row
+ * with no summary reads as missing data rather than as a deliberate layout.
+ * Measured across six real feeds, thirty entries, none lacked a summary: the
+ * rule cost information and bought nothing.
+ *
+ * A positional "lead story" treatment would be wrong here too. The stream merges
+ * every source and sorts by time, so a per-source lead would land at an
+ * arbitrary height in the column.
+ *
+ * What is left is genuinely earned: a picture makes a thumbnail row, and an
+ * entry with nothing to summarise — rare, but real for title-only feeds — is
+ * the one case where hiding the summary costs nothing.
+ */
+export function layoutFor(input: { hasImage: boolean; hasSummary: boolean }): StoryLayout {
+  if (!input.hasSummary) return "brief";
+  if (input.hasImage) return "standard";
   return "compact";
 }
 

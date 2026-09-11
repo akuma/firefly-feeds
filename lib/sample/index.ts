@@ -633,7 +633,7 @@ export const ARTICLES: Article[] = [
     feedId: "longcontext",
     dek: "Confident wrongness is not a bug you wait out. It is a property you design around, the same way you design around latency.",
     minutesAgo: 520,
-    layout: "brief",
+    layout: "compact",
     byline: "Dmitri Vance",
     body: [
       {
@@ -740,7 +740,7 @@ export const ARTICLES: Article[] = [
     feedId: "longcontext",
     dek: "The autonomous-agent pitch keeps stalling. The narrow, boring, single-purpose tools keep working.",
     minutesAgo: 1000,
-    layout: "brief",
+    layout: "compact",
     byline: "Dmitri Vance",
     body: [
       {

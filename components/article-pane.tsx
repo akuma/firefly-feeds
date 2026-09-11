@@ -437,9 +437,11 @@ export function ArticlePane() {
             {s.title}
           </h1>
 
-          <p className="mt-5 max-w-[54ch] text-[17px] leading-[1.5] tracking-[-0.006em] text-ink3 italic">
-            {s.dek}
-          </p>
+          {s.dek && (
+            <p className="mt-5 max-w-[54ch] text-[17px] leading-[1.5] tracking-[-0.006em] text-ink3 italic">
+              {s.dek}
+            </p>
+          )}
 
           <div className="mt-7 h-px w-full bg-rule" />
 

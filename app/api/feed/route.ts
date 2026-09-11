@@ -38,16 +38,15 @@ export async function GET(request: Request) {
           count: feed.items.length,
           id: `x${hashString(feed.feedUrl).toString(36)}`,
         },
-        items: items.map((item, index) => ({
+        items: items.map((item) => ({
           ...item,
           body: full ? item.body : [],
           truncated: Boolean(item.truncated),
           minutes: readingTime(item.body),
-          layout: layoutFor(
-            index,
-            Boolean(item.image),
-            item.body.some((b) => b.kind === "quote"),
-          ),
+          layout: layoutFor({
+            hasImage: Boolean(item.image),
+            hasSummary: item.summary.trim().length > 0,
+          }),
         })),
       },
       { headers: { "cache-control": "no-store" } },

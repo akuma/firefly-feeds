@@ -129,11 +129,14 @@ describe("parseFeedXml", () => {
 });
 
 describe("layoutFor", () => {
-  it("gives the newest entry a wider treatment and varies the rest", () => {
-    expect(layoutFor(0, true, false)).toBe("standard");
-    expect(layoutFor(0, false, false)).toBe("compact");
-    expect(layoutFor(3, false, false)).toBe("brief");
-    // deterministic: the stream rhythm must not reshuffle between renders
-    expect(layoutFor(9, true, false)).toBe(layoutFor(9, true, false));
+  it("follows the story, not its position in the feed", () => {
+    // a picture earns a thumbnail row
+    expect(layoutFor({ hasImage: true, hasSummary: true })).toBe("standard");
+    // otherwise the standard row
+    expect(layoutFor({ hasImage: false, hasSummary: true })).toBe("compact");
+    // and only a genuinely bare entry gets the contents-page row, where
+    // hiding a summary that does not exist costs nothing
+    expect(layoutFor({ hasImage: false, hasSummary: false })).toBe("brief");
+    expect(layoutFor({ hasImage: true, hasSummary: false })).toBe("brief");
   });
 });
