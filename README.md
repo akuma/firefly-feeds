@@ -19,10 +19,10 @@ bun run start    # production server
 
 Three paper tones stacked inside hairline rules — no cards, no shadows, no glass.
 
-| Token | Light | Dark | Role |
-| --- | --- | --- | --- |
+| Token    | Light     | Dark      | Role                |
+| -------- | --------- | --------- | ------------------- |
 | `canvas` | `#e9e4d9` | `#0b0a09` | navigation / chrome |
-| `stream` | `#f4f1e9` | `#131210` | the story column |
+| `stream` | `#f4f1e9` | `#131210` | the story column    |
 | `reader` | `#fcfaf5` | `#1b1a17` | the reading surface |
 
 The ink ramp is calibrated so **every** tier clears 4.5:1 contrast against the darkest paper tone, including 9.5px mono captions: `ink #17150f` → `ink2 #433e35` → `ink3 #5b5647` → `ink4 #6a6353`.
@@ -33,7 +33,7 @@ Three families, each with one job.
 
 - **Instrument Serif** — the masthead, the edition date, nothing else. Used at display sizes only.
 - **Newsreader** — every headline and all reading text. Variable optical sizing, so small text and 46px text are drawn differently.
-- **IBM Plex Mono** — navigation, kickers, timestamps, counts, captions. Everything that is *metadata* is monospace, uppercase, and widely tracked.
+- **IBM Plex Mono** — navigation, kickers, timestamps, counts, captions. Everything that is _metadata_ is monospace, uppercase, and widely tracked.
 
 All three are self-hosted from `public/fonts` as variable subsets and preloaded,
 so there is no font CDN in the request path and the type renders identically
@@ -47,13 +47,13 @@ reader steps from 17.5px to 23.5px.
 
 The stream deliberately does not render every story the same way. Five layouts are mixed by editorial judgement:
 
-| Layout | Use |
-| --- | --- |
-| `feature` | one per edition — full-bleed plate, 30px headline |
-| `standard` | headline + standfirst + 84px plate |
-| `compact` | headline + two-line standfirst, no artwork |
-| `quote` | a pull quote *is* the story, marked by a 2px accent rule |
-| `brief` | table-of-contents row with a dotted leader |
+| Layout     | Use                                                      |
+| ---------- | -------------------------------------------------------- |
+| `feature`  | one per edition — full-bleed plate, 30px headline        |
+| `standard` | headline + standfirst + 84px plate                       |
+| `compact`  | headline + two-line standfirst, no artwork               |
+| `quote`    | a pull quote _is_ the story, marked by a 2px accent rule |
+| `brief`    | table-of-contents row with a dotted leader               |
 
 Plates are generative SVG compositions (halftone, arcs, stripes, bands, grid, hatch, horizon, numeral), deterministic per story — so the product ships with artwork that is designed rather than borrowed.
 
@@ -86,7 +86,7 @@ sanitiser dependency, fetched stories inherit exactly the same typography as the
 rest of the product instead of smuggling in a publisher's stylesheet, and
 `<blockquote>`, `<h2>`, `<ul>`, `<pre>` and `<img>` all land as the same blocks
 the seeded edition uses. Bodies are capped at 60 blocks / 8,000 characters and
-20 entries per source, and a cut-off body says so — *Excerpt · Continues at …*
+20 entries per source, and a cut-off body says so — _Excerpt · Continues at …_
 rather than pretending to be the whole piece.
 
 Each source row in the navigation carries **refresh** and **unsubscribe** on
@@ -98,11 +98,11 @@ hover (always visible on touch), and a refresh that fails marks the row with a
 An RSS reader should not be a roach motel. Every story has a canonical URL, and
 it is reachable three ways:
 
-| | |
-| --- | --- |
-| Keyboard | `O` (or `V`) opens the original in a new tab |
-| Reader toolbar | the ⧉ button, a real `<a target="_blank">` |
-| Stream row | the ⧉ button on hover, which does *not* open the reader |
+|                |                                                         |
+| -------------- | ------------------------------------------------------- |
+| Keyboard       | `O` (or `V`) opens the original in a new tab            |
+| Reader toolbar | the ⧉ button, a real `<a target="_blank">`              |
+| Stream row     | the ⧉ button on hover, which does _not_ open the reader |
 
 For a fetched story the canonical URL is the entry's own `<link>`; for the
 seeded edition it falls back to the source's site. All three paths carry
@@ -124,14 +124,14 @@ lib/store.tsx                  →  repository.ts  →  db.ts  →  IndexedDB
 ### Three stores, three lifetimes
 
 The v0 design kept everything in one localStorage blob per concern. That was
-the actual problem, and it is worth being precise about *why*: it conflated
+the actual problem, and it is worth being precise about _why_: it conflated
 things with completely different lifetimes.
 
-| Store | Holds | Size | Synced? |
-| --- | --- | --- | --- |
-| `sources` | the subscription registry | tiny, durable | **yes** |
-| `reading` | read / saved / later per article | tiny, high write rate | **yes** — and the most valuable thing you own |
-| `articles` | cached bodies | large, disposable | **never** |
+| Store      | Holds                            | Size                  | Synced?                                       |
+| ---------- | -------------------------------- | --------------------- | --------------------------------------------- |
+| `sources`  | the subscription registry        | tiny, durable         | **yes**                                       |
+| `reading`  | read / saved / later per article | tiny, high write rate | **yes** — and the most valuable thing you own |
+| `articles` | cached bodies                    | large, disposable     | **never**                                     |
 
 Cached prose is re-fetchable; your read/saved/later state is not. Keeping them
 in separate stores means a future sync uploads a few kilobytes of state instead
@@ -183,7 +183,7 @@ discarded — a failed upgrade can never lose the original.
 Two bugs found while building this, both fixed:
 
 - The preferences write ran before loading finished, so it wrote defaults over
-  the stored blob *while the migration was still reading it* — silently
+  the stored blob _while the migration was still reading it_ — silently
   dropping every read/saved/later flag. Prefs now only persist once loading has
   completed.
 - Cleanup originally happened during the read rather than after the commit,
@@ -194,19 +194,19 @@ reads — it simply does not remember anything, and says so in the console.
 
 ## Interaction
 
-| Action | Pointer | Key |
-| --- | --- | --- |
-| Next / previous story | click | `J` / `K`, `↓` / `↑` |
-| Save | bookmark icon | `S` |
-| Read later | clock icon | `L` |
-| Toggle read | check icon | `M` |
-| Search | search icon | `/` or `⌘K` |
-| Immersive reading | maximise icon | `F` |
-| Theme | sun / moon | `T` |
-| Text size | `Aa` menu | `[` / `]` |
-| Add a source | `+` in the stream header | — |
-| Open original | ⧉ in the reader or a stream row | `O` |
-| Close overlay | — | `Esc` |
+| Action                | Pointer                         | Key                  |
+| --------------------- | ------------------------------- | -------------------- |
+| Next / previous story | click                           | `J` / `K`, `↓` / `↑` |
+| Save                  | bookmark icon                   | `S`                  |
+| Read later            | clock icon                      | `L`                  |
+| Toggle read           | check icon                      | `M`                  |
+| Search                | search icon                     | `/` or `⌘K`          |
+| Immersive reading     | maximise icon                   | `F`                  |
+| Theme                 | sun / moon                      | `T`                  |
+| Text size             | `Aa` menu                       | `[` / `]`            |
+| Add a source          | `+` in the stream header        | —                    |
+| Open original         | ⧉ in the reader or a stream row | `O`                  |
+| Close overlay         | —                               | `Esc`                |
 
 State (read / saved / later / theme / text size / nav) persists in `localStorage`. The colour scheme is written by an inline boot script before hydration, so there is no light-mode flash.
 
