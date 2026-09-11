@@ -364,6 +364,18 @@ export function htmlToText(input: string): string {
 }
 
 /**
+ * The plain text of a block list, paragraphs only, whitespace collapsed.
+ * Used to tell a body that *is* the summary from one that merely resembles it.
+ */
+export function blocksToText(blocks: Block[]): string {
+  return blocks
+    .map((block) => (block.kind === "p" ? block.text : ""))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * A “keep reading” stub dressed up as content.
  *
  * Some feeds put a short “Read more” / “Continue reading” paragraph (or its

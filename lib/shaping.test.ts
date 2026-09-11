@@ -256,6 +256,22 @@ describe("storyFromArticle", () => {
     extractionState: "idle",
   };
 
+  it("reads a body that is exactly the summary as a summary, even with no stored state", () => {
+    // records cached before the classifier existed have no contentState, and
+    // would otherwise default to `full` and never offer the article
+    const legacy = {
+      ...article,
+      contentState: undefined,
+      extractionState: undefined,
+      summary: "Just the teaser.",
+      body: [{ kind: "p" as const, text: "Just the teaser." }],
+    } as unknown as ArticleRecord;
+    expect(storyFromArticle(legacy, 1000).contentState).toBe("summary");
+
+    // a real body is not character-for-character its own summary
+    expect(storyFromArticle(article, 1000).contentState).toBe("full");
+  });
+
   it("converts a live record into a story with a relative age", () => {
     const now = 60 * 60 * 1000;
     const story = storyFromArticle(article, now);

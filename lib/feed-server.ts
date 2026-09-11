@@ -1,5 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
 import {
+  blocksToText,
   hashString,
   hasReadMoreCue,
   htmlToBlocks,
@@ -337,18 +338,23 @@ function normalizeItem(
     parseDate(raw.date);
 
   const { blocks: body, truncated } = htmlToBlocks(contentHtml, baseUrl);
-  /*
-   * Which field the body came from is the first signal, not its length: a
-   * `<content:encoded>` body is the publisher saying “this is the piece”, while
-   * `<description>` is their summary. A “read more” stub can still downgrade a
-   * content body, and our own cut wins over both.
-   */
-  let contentState: ContentState = rich ? "full" : "summary";
-  if (contentState === "full" && hasReadMoreCue(contentHtml)) contentState = "summary";
-  if (truncated) contentState = "truncated";
   const summary = htmlToSummary(
     firstText(raw.description) || firstText(raw.summary) || contentHtml,
   );
+  /*
+   * Which field the body came from is the first signal, not its length: a
+   * `<content:encoded>` body is the publisher saying “this is the piece”, while
+   * `<description>` is their summary. Two content signals can still downgrade a
+   * content body: a “read more” stub, or a body that is *exactly* the feed's own
+   * summary — some feeds put their one-paragraph teaser in `content:encoded`.
+   * Our own cut wins over all of them.
+   */
+  let contentState: ContentState = rich ? "full" : "summary";
+  if (contentState === "full" && hasReadMoreCue(contentHtml)) contentState = "summary";
+  if (contentState === "full" && summary && blocksToText(body) === summary.trim()) {
+    contentState = "summary";
+  }
+  if (truncated) contentState = "truncated";
   const image = pickImage(raw, contentHtml, baseUrl);
 
   return {

@@ -1,6 +1,7 @@
 import { initials } from "./hash";
+import { blocksToText } from "./feed-html";
 import type { ArticleRecord, ReadingRecord, SourceRecord } from "./storage/types";
-import type { Feed, Story } from "./types";
+import type { ContentState, Feed, Story } from "./types";
 
 /**
  * Records → the view model. This is the seam where stored data becomes the
@@ -52,9 +53,28 @@ export function storyFromArticle(article: ArticleRecord, now: number): Story {
     link: article.link,
     publishedLabel: formatPublished(article.publishedAt),
     live: true,
-    contentState: article.contentState ?? "full",
+    contentState: contentStateOf(article),
     extractionState: article.extractionState ?? "idle",
   };
+}
+
+/**
+ * A cached body's `contentState`, with the one inference the stored record may
+ * not have made.
+ *
+ * Records cached before the classifier existed have no state at all, and a feed
+ * that puts its one-paragraph teaser in a `<content:encoded>` is stored as
+ * `full`. The reader would then be shown the summary and never offered the
+ * article it came from. A body that is *exactly* the feed's summary is the safe
+ * tell — a full piece is never character-for-character its own dek — so it is
+ * treated as a summary and the on-demand fetch runs.
+ */
+function contentStateOf(article: ArticleRecord): ContentState {
+  const stored = article.contentState;
+  if (stored === "summary" || stored === "truncated") return stored;
+  const summary = article.summary.replace(/\s+/g, " ").trim();
+  if (summary && blocksToText(article.body) === summary) return "summary";
+  return "full";
 }
 
 /** Flat `Record<id, boolean>` view, which is what the components consume. */

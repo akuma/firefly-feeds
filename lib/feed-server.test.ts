@@ -144,6 +144,15 @@ describe("parseFeedXml", () => {
     expect(feed.items[0].contentState).toBe("summary");
   });
 
+  it("downgrades a content body that is exactly the description", () => {
+    // some feeds put their one-paragraph teaser in content:encoded
+    const feed = parseFeedXml(
+      `<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>T</title><item><title>A</title><link>https://x.example/a</link><description>Just the teaser.</description><content:encoded><![CDATA[<p>Just the teaser.</p>]]></content:encoded></item></channel></rss>`,
+      "https://x.example/feed",
+    );
+    expect(feed.items[0].contentState).toBe("summary");
+  });
+
   it("marks a body cut by our own budget as truncated", () => {
     const huge = `<p>${"word ".repeat(3000)}</p>`;
     const feed = parseFeedXml(
