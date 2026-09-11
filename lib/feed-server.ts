@@ -1,5 +1,12 @@
 import { XMLParser } from "fast-xml-parser";
-import { hashString, htmlToBlocks, htmlToSummary, htmlToText, resolveUrl } from "./feed-html";
+import {
+  hashString,
+  htmlToBlocks,
+  htmlToSummary,
+  htmlToText,
+  resolveUrl,
+  sharedOpening,
+} from "./feed-html";
 import type { Block, Story, StoryLayout } from "./types";
 
 /* --------------------------------------------------------------- types */
@@ -349,6 +356,15 @@ export function parseFeedXml(xml: string, feedUrl: string): ParsedFeed {
   }
 
   if (!items.length) throw new FeedError("That feed contains no readable entries.", 422);
+
+  // A summary that is the same in every row is not a summary. Strip whatever
+  // opening the feed repeats, so each row says something about its own entry.
+  const common = sharedOpening(items.map((item) => item.summary));
+  if (common) {
+    for (const item of items) {
+      if (item.summary.startsWith(common)) item.summary = item.summary.slice(common.length).trim();
+    }
+  }
 
   return {
     title: title.slice(0, 120),

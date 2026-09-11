@@ -83,6 +83,23 @@ describe("readingTime", () => {
     expect(readingTime(long)).toBe(2);
   });
 
+  it("counts CJK by character, not by whitespace", () => {
+    // a Chinese article has no spaces, so counting words makes the whole thing
+    // one "word" and reports a minute for what is really five
+    const chinese = "科技爱好者周刊每周分享值得阅读的科技内容".repeat(120);
+    expect(chinese.length).toBe(2400);
+    // ~400 characters a minute, so six, not the one that whitespace-counting gave
+    const minutes = readingTime([{ kind: "p", text: chinese }]);
+    expect(minutes).toBeGreaterThanOrEqual(5);
+    expect(minutes).toBeLessThanOrEqual(7);
+  });
+
+  it("handles mixed script in one body", () => {
+    const mixed = "这是一个中文段落，包含一些 English words mixed in.".repeat(40);
+    const minutes = readingTime([{ kind: "p", text: mixed }]);
+    expect(minutes).toBeGreaterThan(1);
+  });
+
   it("counts a code block as slower to read than the same word count of prose", () => {
     const words = "const x = 1; ".repeat(400);
     const prose = readingTime([{ kind: "p", text: words }]);

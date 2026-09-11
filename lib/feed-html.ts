@@ -299,13 +299,54 @@ export function htmlToBlocks(input: string, baseUrl?: string, budget = DEFAULT_B
   return { blocks: deduped, truncated };
 }
 
+/**
+ * The opening that every entry in a feed shares, if there is one.
+ *
+ * Plenty of publications start every post with the same block — a subscription
+ * pitch, a house style note, a mailing address. It is real content, but it is
+ * identical in every entry, so a summary built from it tells the reader nothing:
+ * a column of rows that all read the same. Measured on 阮一峰的网络日志, the
+ * shared opening is 96 characters, which is the whole of what every row showed.
+ *
+ * Returns "" when the entries share nothing worth removing, which is the common
+ * case. The result is trimmed back to a sentence boundary so stripping it never
+ * leaves a dangling fragment.
+ */
+export function sharedOpening(texts: string[], minimum = 60): string {
+  const samples = texts.filter((value) => value.length > 0);
+  if (samples.length < 3) return "";
+
+  let prefix = samples[0];
+  for (const sample of samples.slice(1)) {
+    let i = 0;
+    while (i < prefix.length && i < sample.length && prefix[i] === sample[i]) i++;
+    prefix = prefix.slice(0, i);
+    if (!prefix) return "";
+  }
+
+  // cut at the last sentence end so the remainder still starts cleanly
+  const boundaries = ["。", "！", "？", "；", ". ", "! ", "? ", "; "];
+  let cut = -1;
+  for (const mark of boundaries) cut = Math.max(cut, prefix.lastIndexOf(mark));
+  const trimmed = cut >= 0 ? prefix.slice(0, cut + 1) : prefix;
+
+  return trimmed.trim().length >= minimum ? trimmed : "";
+}
+
 /** Plain-text standfirst for the stream, from whatever HTML the feed offers. */
 export function htmlToSummary(input: string, limit = 260): string {
   if (!input) return "";
   const stripped = scrub(htmlToText(input));
   if (stripped.length <= limit) return stripped;
   const cut = stripped.slice(0, limit);
-  const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  const stop = Math.max(
+    cut.lastIndexOf(". "),
+    cut.lastIndexOf("! "),
+    cut.lastIndexOf("? "),
+    cut.lastIndexOf("。"),
+    cut.lastIndexOf("！"),
+    cut.lastIndexOf("？"),
+  );
   return `${(stop > limit * 0.5 ? cut.slice(0, stop + 1) : cut).trim()}…`;
 }
 

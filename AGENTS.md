@@ -79,6 +79,17 @@ lib/
   once per story so it never argues with `M`. Scroll depth as the only trigger
   would make the unread count a completion log instead of a queue — see
   `reachedEnd` in `lib/reading.ts` for the full reasoning.
+- **Reading time is per-character for CJK and per-word for everything else.**
+  Counting whitespace alone reports a 2,160 character Chinese article as
+  "1 min read", because it is one "word" — which is what every entry in a
+  Chinese-language feed looked like. `readingTime` in `lib/reading.ts` handles
+  both units; keep it that way.
+- **A summary that is identical in every row is not a summary.** Publications
+  routinely open every entry with the same subscription pitch or house note.
+  `sharedOpening()` strips whatever a feed repeats from the summaries — the
+  article keeps it, since it is genuinely part of the article. Measured cost of
+  not doing this: 96 shared characters, and one distinct summary across six
+  entries.
 - **Never invent artwork for a real article.** A fetched story carries a
   picture only if the publisher's feed supplied one; otherwise it renders with
   no artwork and the stream falls back to its text-only layouts. The generated

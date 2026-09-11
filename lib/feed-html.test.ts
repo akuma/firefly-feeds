@@ -6,6 +6,7 @@ import {
   htmlToSummary,
   htmlToText,
   isSafeUrl,
+  sharedOpening,
 } from "./feed-html";
 
 describe("decodeEntities", () => {
@@ -26,6 +27,47 @@ describe("decodeEntities", () => {
     expect(decodeEntities("&notarealentity;")).toBe("&notarealentity;");
     expect(decodeEntities("&#xD800;")).toBe("&#xD800;");
     expect(decodeEntities("&#999999999;")).toBe("&#999999999;");
+  });
+});
+
+describe("sharedOpening", () => {
+  const house =
+    "Subscribe to the newsletter for weekly updates. Write to us at hello@example.com. ";
+
+  it("finds the block a feed repeats in every entry", () => {
+    const texts = [house + "First story.", house + "Second story.", house + "Third story."];
+    // returned trimmed, so callers can slice without leaving a leading space
+    expect(sharedOpening(texts)).toBe(house.trim());
+  });
+
+  it("cuts back to a sentence boundary so nothing dangles", () => {
+    const texts = [`${house}First story.`, `${house}Second`, `${house}Third story.`];
+    const opening = sharedOpening(texts);
+    expect(opening.endsWith(".")).toBe(true);
+    expect(opening).not.toContain("Second");
+  });
+
+  it("cuts at full-width stops too, which is where CJK sentences end", () => {
+    const header =
+      "这里记录每周值得分享的科技内容，周五发布。本杂志开源，欢迎投稿。" +
+      "另有《谁在招人》服务，发布程序员招聘信息。合作请邮件联系（yifeng.ruan@gmail.com）。";
+    const texts = [`${header}第一篇内容。`, `${header}第二篇内容。`, `${header}第三篇内容。`];
+    expect(sharedOpening(texts)).toBe(header);
+  });
+
+  it("says nothing when the entries have nothing in common", () => {
+    expect(sharedOpening(["Alpha one.", "Beta two.", "Gamma three."])).toBe("");
+  });
+
+  it("ignores a shared opening too short to be boilerplate", () => {
+    // three entries opening with the same word is not a subscription pitch
+    expect(sharedOpening(["Weekly, part one.", "Weekly, part two.", "Weekly, part three."])).toBe(
+      "",
+    );
+  });
+
+  it("needs a few entries before it will call anything boilerplate", () => {
+    expect(sharedOpening([`${house}Only one.`, `${house}And two.`])).toBe("");
   });
 });
 

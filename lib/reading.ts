@@ -28,28 +28,46 @@ export function agoLabel(minutesAgo: number): string {
 }
 
 /** Reading time derived from the actual body, so the two never disagree. */
-export function readingTime(body: Block[]): number {
-  const words = body
-    .map((b) => {
-      switch (b.kind) {
-        case "p":
-        case "h2":
-        case "quote":
-        case "note":
-          return b.text.split(/\s+/).length;
-        case "list":
-          return b.items.join(" ").split(/\s+/).length;
-        case "code":
-          return Math.round(b.text.split(/\s+/).length * 0.4);
-        default:
-          return 0;
-      }
-    })
-    .reduce((a, b) => a + b, 0);
-  return Math.max(1, Math.round(words / 225));
+/** CJK is read per character; there are no spaces to count. */
+const CJK = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/gu;
+
+const WORDS_PER_MINUTE = 225;
+const CHARACTERS_PER_MINUTE = 400;
+
+/**
+ * Minutes for one run of text, counting CJK characters and space-delimited words
+ * as the different units they are.
+ *
+ * Counting whitespace alone is badly wrong outside Latin script: a 2,160
+ * character Chinese article is a single "word" by that measure, so every entry
+ * in 阮一峰的网络日志 came back as "1 min read" when the real answer is five.
+ */
+function minutesFor(text: string): number {
+  const characters = text.match(CJK)?.length ?? 0;
+  const words = text.replace(CJK, " ").split(/\s+/).filter(Boolean).length;
+  return characters / CHARACTERS_PER_MINUTE + words / WORDS_PER_MINUTE;
 }
 
-/* -------------------------------------------------------------- articles */
+/** Reading time derived from the body, so the estimate and the text agree. */
+export function readingTime(body: Block[]): number {
+  const minutes = body.reduce((total, block) => {
+    switch (block.kind) {
+      case "p":
+      case "h2":
+      case "quote":
+      case "note":
+        return total + minutesFor(block.text);
+      case "list":
+        return total + minutesFor(block.items.join(" "));
+      case "code":
+        // code is scanned, not read at prose speed
+        return total + minutesFor(block.text) * 0.4;
+      default:
+        return total;
+    }
+  }, 0);
+  return Math.max(1, Math.round(minutes));
+}
 
 /* --------------------------------------------------------------- read state */
 

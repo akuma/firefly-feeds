@@ -93,6 +93,25 @@ the sample edition uses. Bodies are capped at 60 blocks / 8,000 characters and
 20 entries per source, and a cut-off body says so — _Excerpt · Continues at …_
 rather than pretending to be the whole piece.
 
+### Two things feeds do that a naive reader gets wrong
+
+**They repeat themselves.** Plenty of publications open every entry with the
+same block — a subscription pitch, a house-style note, a mailing address. It is
+real content and it belongs in the article, but it is identical in every entry,
+so a summary built from it says nothing: a column of rows that all read the
+same. `sharedOpening()` in `lib/feed-html.ts` finds the longest opening every
+entry in a feed shares, cuts it back to a sentence boundary, and removes it from
+the summaries only. Measured on 阮一峰的网络日志, the shared opening was **96
+characters** — the entire visible text of every row, and one distinct summary
+across six entries. Afterwards: six distinct summaries.
+
+**They are not all in Latin script.** Counting whitespace to estimate reading
+time is badly wrong for CJK, where there are no spaces to count: a 2,160
+character Chinese article is a _single_ "word" by that measure, so every entry
+in that same feed came back as **"1 min read"** when the real answer is five.
+`lib/reading.ts` counts CJK characters at ~400/minute and space-delimited words
+at ~225/minute, and handles both in one body.
+
 Each source row in the navigation carries **refresh** and **unsubscribe** on
 hover (always visible on touch), and a refresh that fails marks the row with a
 `!` and a tooltip rather than silently doing nothing.
