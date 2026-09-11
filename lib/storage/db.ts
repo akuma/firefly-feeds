@@ -1,6 +1,5 @@
-import { deleteDB, openDB, type DBSchema, type IDBPDatabase } from "idb";
+import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { hashString } from "../hash";
-import { PREFS_KEY } from "./prefs";
 import type { ArticleRecord, MetaRecord, ReadingRecord, SourceRecord } from "./types";
 
 /**
@@ -9,13 +8,9 @@ import type { ArticleRecord, MetaRecord, ReadingRecord, SourceRecord } from "./t
  * remote-backed adapter later is a change to one directory.
  */
 
-const DB_NAME = "firefly.feeds";
-/** The pre-rename database. Adopted once, then removed. */
-const LEGACY_DB = "firefly";
+const DB_NAME = "firefly-feeds";
 const DB_VERSION = 1;
 const SEEDED = "seed:initialised";
-const LEGACY_SOURCES = "firefly.sources.v1";
-const LEGACY_PREFS = "firefly.reader.v1";
 
 export interface FireflyDB extends DBSchema {
   sources: {
@@ -83,68 +78,8 @@ async function connect(): Promise<IDBPDatabase<FireflyDB>> {
     },
   });
 
-  await adoptLegacyDatabase(database);
   await initialise(database);
-  /*
-   * After both, and only after: `initialise` short-circuits when the store is
-   * already seeded, which is exactly what happens when a pre-rename database
-   * was adopted — its seeded flag comes with it. Cleaning up inside either one
-   * leaves the old localStorage keys behind in that case, which is how they
-   * survived the first attempt at this.
-   */
-  discardLegacy();
   return database;
-}
-
-/* ------------------------------------------------------------ adoption */
-
-/**
- * Carry a pre-rename database across.
- *
- * The product was called FireflyReader, and the store was called `firefly`.
- * Renaming it without this would orphan every subscription, every cached body
- * and every read flag — the client would simply open an empty database and
- * look like it had forgotten everything. So the old store is copied in on the
- * first open of the new one, and only then removed.
- */
-async function adoptLegacyDatabase(database: IDBPDatabase<FireflyDB>): Promise<void> {
-  if (await database.get("meta", SEEDED)) return;
-  if (!(await databaseExists(LEGACY_DB))) return;
-
-  const previous = await openDB(LEGACY_DB);
-  try {
-    const [sources, articles, reading, meta] = await Promise.all([
-      previous.getAll("sources"),
-      previous.getAll("articles"),
-      previous.getAll("reading"),
-      previous.getAll("meta"),
-    ]);
-    if (!sources.length && !articles.length && !reading.length) return;
-
-    const tx = database.transaction(["sources", "articles", "reading", "meta"], "readwrite");
-    for (const record of sources) tx.objectStore("sources").put(record);
-    for (const record of articles) tx.objectStore("articles").put(record);
-    for (const record of reading) tx.objectStore("reading").put(record);
-    // the seeded flag comes with it, so `initialise` does not seed on top
-    for (const record of meta) tx.objectStore("meta").put(record);
-    await tx.done;
-  } finally {
-    previous.close();
-  }
-
-  // Another tab may still hold it open; the copy is done either way.
-  await deleteDB(LEGACY_DB).catch(() => {});
-}
-
-async function databaseExists(name: string): Promise<boolean> {
-  if (typeof indexedDB.databases !== "function") return false;
-  try {
-    // Probing by opening would create the database, which is the opposite of
-    // what is being asked here.
-    return (await indexedDB.databases()).some((entry) => entry.name === name);
-  } catch {
-    return false;
-  }
 }
 
 /* ------------------------------------------------------------------ seed */
@@ -172,156 +107,12 @@ function curatedRecords(): ReadingRecord[] {
   return [...map.values()];
 }
 
-/* ----------------------------------------------------------- migration */
-
-type LegacyItem = {
-  id: string;
-  title: string;
-  link?: string;
-  author?: string;
-  publishedMs?: number;
-  summary: string;
-  body: ArticleRecord["body"];
-  image?: string;
-  minutes: number;
-  layout: ArticleRecord["layout"];
-  truncated?: boolean;
-};
-
-type LegacySubscription = {
-  id: string;
-  title: string;
-  host: string;
-  feedUrl: string;
-  siteUrl: string;
-  folder: SourceRecord["folder"];
-  addedAt?: number;
-  fetchedAt?: number;
-  items?: LegacyItem[];
-};
-
-type LegacyDump = { reading: ReadingRecord[]; sources: LegacySubscription[] };
-
-/**
- * v0 kept everything in two localStorage blobs. Read them once and hand the
- * contents back for a single atomic write.
- *
- * This is deliberately a *pure read*. Destroying the legacy data before the
- * new store has committed would turn a failed upgrade into permanent loss, so
- * cleanup happens in `discardLegacy`, after the transaction resolves.
- */
-function readLegacy(): LegacyDump | null {
-  if (typeof localStorage === "undefined") return null;
-  const dump: LegacyDump = { reading: [], sources: [] };
-
-  try {
-    const raw = localStorage.getItem(LEGACY_SOURCES);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) dump.sources = parsed as LegacySubscription[];
-    }
-  } catch {
-    /* corrupted — start clean rather than blocking the upgrade */
-  }
-
-  try {
-    const raw = localStorage.getItem(LEGACY_PREFS);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const at = Date.now();
-      const flags = new Map<string, ReadingRecord>();
-      for (const bucket of ["read", "saved", "later"] as const) {
-        const value = parsed[bucket];
-        if (value && typeof value === "object") {
-          for (const [id, on] of Object.entries(value as Record<string, boolean>)) {
-            if (!on) continue;
-            const record = flags.get(id) ?? ({ id, updatedAt: at } as ReadingRecord);
-            record[bucket] = true;
-            flags.set(id, record);
-          }
-        }
-      }
-      dump.reading = [...flags.values()];
-    }
-  } catch {
-    /* ignore */
-  }
-
-  return dump.reading.length || dump.sources.length ? dump : null;
-}
-
-/**
- * Only call this once the migrated records are durably written.
- *
- * The prefs move to the new key here rather than waiting for the next write,
- * so the theme is not lost in the window between this running and the app
- * saving again.
- */
-function discardLegacy(): void {
-  try {
-    const raw = localStorage.getItem(LEGACY_PREFS);
-    if (raw && !localStorage.getItem(PREFS_KEY)) {
-      // nothing here yet — carry the four scalars over before the key goes
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const prefs: Record<string, unknown> = {};
-      for (const key of ["theme", "font", "navOpen", "view"]) {
-        if (key in parsed) prefs[key] = parsed[key];
-      }
-      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-    }
-    localStorage.removeItem(LEGACY_SOURCES);
-    localStorage.removeItem(LEGACY_PREFS);
-  } catch {
-    /* ignore */
-  }
-}
-
 async function initialise(database: IDBPDatabase<FireflyDB>): Promise<void> {
   if (await database.get("meta", SEEDED)) return;
 
-  const legacy = readLegacy();
-  const reading = legacy && legacy.reading.length ? legacy.reading : curatedRecords();
-
-  const tx = database.transaction(["reading", "meta", "sources", "articles"], "readwrite");
-  const readingStore = tx.objectStore("reading");
-  const sourceStore = tx.objectStore("sources");
-  const articleStore = tx.objectStore("articles");
-
-  for (const record of reading) readingStore.put(record);
-
-  for (const source of legacy?.sources ?? []) {
-    const addedAt = source.addedAt ?? Date.now();
-    const fetchedAt = source.fetchedAt ?? addedAt;
-    sourceStore.put({
-      id: source.id,
-      url: source.feedUrl,
-      siteUrl: source.siteUrl,
-      title: source.title,
-      host: source.host,
-      folder: source.folder,
-      addedAt,
-      fetchedAt,
-      updatedAt: addedAt,
-    });
-    for (const item of source.items ?? []) {
-      articleStore.put({
-        id: `${source.id}~${item.id}`,
-        sourceId: source.id,
-        title: item.title,
-        link: item.link,
-        author: item.author,
-        publishedAt: item.publishedMs ?? fetchedAt,
-        fetchedAt,
-        summary: item.summary,
-        body: item.body,
-        image: item.image,
-        minutes: item.minutes,
-        layout: item.layout,
-        truncated: item.truncated,
-      });
-    }
-  }
-
+  const tx = database.transaction(["reading", "meta"], "readwrite");
+  const reading = tx.objectStore("reading");
+  for (const record of curatedRecords()) reading.put(record);
   tx.objectStore("meta").put({ key: SEEDED, value: { at: Date.now(), version: DB_VERSION } });
   await tx.done;
 }

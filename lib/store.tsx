@@ -235,9 +235,9 @@ export function useReaderState(edition: Edition): Ctx {
   }, []);
 
   /*
-   * Prefs are only written once loading has finished. Before that we are still
-   * holding defaults, and writing them would overwrite the stored values —
-   * including the v0 reading flags the migration is about to consume.
+   * Prefs are written only once loading has finished. Before that the app is
+   * holding defaults, and persisting them would write those over whatever is
+   * actually stored.
    */
   useEffect(() => {
     if (!ready) return;

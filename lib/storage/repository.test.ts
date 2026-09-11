@@ -3,8 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArticleRecord, ReadingRecord, SourceRecord } from "./types";
 
 const FEED_URL = "https://example.com/feed.xml";
-const LEGACY_SOURCES = "firefly.sources.v1";
-const LEGACY_PREFS = "firefly.reader.v1";
 
 /**
  * The repository memoises its connection and seeds on first open, so each test
@@ -13,67 +11,15 @@ const LEGACY_PREFS = "firefly.reader.v1";
  */
 let previous: typeof import("./db") | undefined;
 
-/** Close, forget the module graph, and remove both database names. */
-async function cleanDatabases() {
+async function freshRepository() {
   if (previous) {
     await previous.close();
     previous = undefined;
   }
   vi.resetModules();
-  await deleteDB("firefly.feeds").catch(() => {});
-  await deleteDB("firefly").catch(() => {});
-}
-
-/** Import the storage layer. Separate from cleaning so a test can plant a
- *  pre-rename database in between and watch it being adopted. */
-async function openRepository() {
+  await deleteDB("firefly-feeds").catch(() => {});
   previous = await import("./db");
   return import("./repository");
-}
-
-async function freshRepository() {
-  await cleanDatabases();
-  return openRepository();
-}
-
-function seedLegacy() {
-  localStorage.setItem(
-    LEGACY_SOURCES,
-    JSON.stringify([
-      {
-        id: "slegacy",
-        title: "Legacy Weekly",
-        host: "legacy.example",
-        feedUrl: FEED_URL,
-        siteUrl: "https://legacy.example",
-        folder: "design",
-        addedAt: 1_000,
-        fetchedAt: 2_000,
-        items: [
-          {
-            id: "a1",
-            title: "Inherited",
-            summary: "s",
-            body: [{ kind: "p", text: "hello" }],
-            minutes: 3,
-            layout: "compact",
-            publishedMs: 1_500,
-          },
-        ],
-      },
-    ]),
-  );
-  localStorage.setItem(
-    LEGACY_PREFS,
-    JSON.stringify({
-      read: { "quiet-return": true },
-      saved: { "web-we-lost": true },
-      later: { aeon: true },
-      theme: "dark",
-      font: 2,
-      navOpen: true,
-    }),
-  );
 }
 
 beforeEach(() => {
@@ -83,6 +29,12 @@ beforeEach(() => {
 /* --------------------------------------------------------------- seeding */
 
 describe("first run", () => {
+  it("opens a database under the name the product uses", async () => {
+    const repo = await freshRepository();
+    await repo.loadAll();
+    expect((await indexedDB.databases()).map((d) => d.name)).toEqual(["firefly-feeds"]);
+  });
+
   it("seeds the curated reading states and nothing else", async () => {
     const repo = await freshRepository();
     const snapshot = await repo.loadAll();
@@ -96,64 +48,12 @@ describe("first run", () => {
     // timestamps are what a sync client diffs on
     expect(snapshot.reading.every((r) => typeof r.updatedAt === "number")).toBe(true);
   });
-});
 
-/* ------------------------------------------------------------- migration */
-
-describe("v0 migration", () => {
-  it("moves both legacy blobs into the new stores", async () => {
-    seedLegacy();
+  it("does not seed twice", async () => {
     const repo = await freshRepository();
-    const snapshot = await repo.loadAll();
-
-    expect(snapshot.sources.map((s) => s.title)).toEqual(["Legacy Weekly"]);
-    expect(snapshot.articles.map((a) => a.title)).toEqual(["Inherited"]);
-    expect(snapshot.articles[0].id).toBe("slegacy~a1");
-    expect(snapshot.articles[0].publishedAt).toBe(1_500);
-  });
-
-  it("prefers the reader's real flags over the curated demo state", async () => {
-    seedLegacy();
-    const repo = await freshRepository();
-    const reading = (await repo.loadAll()).reading;
-    const byId = new Map(reading.map((r) => [r.id, r]));
-
-    expect(byId.get("quiet-return")?.read).toBe(true);
-    expect(byId.get("web-we-lost")?.saved).toBe(true);
-    expect(byId.get("aeon")?.later).toBe(true);
-    // the curated seeds must not leak in alongside migrated data — this is the
-    // regression that silently discarded every legacy flag
-    expect(byId.has("screen-typography")).toBe(false);
-    expect(reading).toHaveLength(3);
-  });
-
-  it("discards the legacy blobs only after the new records are committed", async () => {
-    seedLegacy();
-    const repo = await freshRepository();
-    // before any read there has been no transaction, so the source blob must survive
-    expect(localStorage.getItem(LEGACY_SOURCES)).not.toBeNull();
-    await repo.loadAll();
-    expect(localStorage.getItem(LEGACY_SOURCES)).toBeNull();
-  });
-
-  it("short-circuits once the store has been initialised", async () => {
-    seedLegacy();
-    const repo = await freshRepository();
-    await repo.loadAll();
-
-    // plant a new legacy blob; a second initialisation must ignore it
-    seedLegacy();
-    const after = await repo.loadAll();
-    expect(after.reading).toHaveLength(3);
-    expect(localStorage.getItem(LEGACY_SOURCES)).not.toBeNull();
-  });
-
-  it("starts clean when a legacy blob is corrupt", async () => {
-    localStorage.setItem(LEGACY_SOURCES, "{not json");
-    const repo = await freshRepository();
-    const snapshot = await repo.loadAll();
-    expect(snapshot.sources).toEqual([]);
-    expect(snapshot.reading.length).toBeGreaterThan(0);
+    const first = await repo.loadAll();
+    const second = await repo.loadAll();
+    expect(second.reading).toHaveLength(first.reading.length);
   });
 });
 
@@ -185,81 +85,7 @@ const article = (id: string, sourceId: string): ArticleRecord => ({
 
 /* ---------------------------------------------------------- adoption */
 
-describe("the pre-rename database", () => {
-  it("is carried across rather than orphaned", async () => {
-    await cleanDatabases();
-    // build a database under the old name, exactly as the previous version left it
-    const { openDB } = await import("idb");
-    const old = await openDB("firefly", 1, {
-      upgrade(db) {
-        const sources = db.createObjectStore("sources", { keyPath: "id" });
-        sources.createIndex("by-folder", "folder");
-        const articles = db.createObjectStore("articles", { keyPath: "id" });
-        articles.createIndex("by-source", "sourceId");
-        const reading = db.createObjectStore("reading", { keyPath: "id" });
-        reading.createIndex("by-updated", "updatedAt");
-        db.createObjectStore("meta", { keyPath: "key" });
-      },
-    });
-    await old.put("sources", {
-      ...source("sold"),
-      title: "Subscribed Before The Rename",
-      updatedAt: 1,
-    });
-    await old.put("articles", article("sold~a", "sold"));
-    await old.put("reading", { id: "sold~a", read: true, updatedAt: 1 });
-    await old.put("meta", { key: "seed:initialised", value: { at: 1, version: 1 } });
-    old.close();
-    // ...and prefs under the old key, which is the case that slips through:
-    // the adopted database brings its seeded flag with it, so `initialise`
-    // short-circuits and any cleanup living inside it never runs
-    localStorage.setItem(
-      "firefly.reader.v1",
-      JSON.stringify({ theme: "dark", font: 2, navOpen: true }),
-    );
-
-    const repo = await openRepository();
-    const snapshot = await repo.loadAll();
-
-    expect(snapshot.sources.map((s) => s.title)).toEqual(["Subscribed Before The Rename"]);
-    expect(snapshot.articles.map((a) => a.id)).toEqual(["sold~a"]);
-    expect(snapshot.reading.map((r) => r.id)).toEqual(["sold~a"]);
-    // the curated seeds must not land on top of adopted data
-    expect(snapshot.reading).toHaveLength(1);
-
-    const names = (await indexedDB.databases()).map((d) => d.name);
-    expect(names).not.toContain("firefly");
-
-    expect(localStorage.getItem("firefly.reader.v1")).toBeNull();
-    expect(JSON.parse(localStorage.getItem("firefly.feeds.v1") ?? "{}")).toMatchObject({
-      theme: "dark",
-      font: 2,
-    });
-  });
-
-  it("leaves a fresh install untouched", async () => {
-    const repo = await freshRepository();
-    const snapshot = await repo.loadAll();
-    // nothing to adopt, nothing to clean up, and the curated seeds still apply
-    expect(snapshot.sources).toEqual([]);
-    expect(snapshot.reading.length).toBeGreaterThan(0);
-    expect(localStorage.getItem("firefly.reader.v1")).toBeNull();
-  });
-
-  it("carries the prefs to their new key before the old one goes", async () => {
-    seedLegacy();
-    const repo = await freshRepository();
-    await repo.loadAll();
-
-    expect(localStorage.getItem("firefly.reader.v1")).toBeNull();
-    expect(localStorage.getItem("firefly.sources.v1")).toBeNull();
-    expect(JSON.parse(localStorage.getItem("firefly.feeds.v1") ?? "{}")).toMatchObject({
-      theme: "dark",
-      font: 2,
-      navOpen: true,
-    });
-  });
-});
+/* --------------------------------------------------------------- caching */
 
 describe("article cache", () => {
   it("evicts stale entries on refresh", async () => {

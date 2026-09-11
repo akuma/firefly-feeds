@@ -18,7 +18,7 @@ export const viewport: Viewport = {
 };
 
 const THEME_BOOT = `(function(){try{
-var raw=localStorage.getItem("firefly.feeds.v1")||localStorage.getItem("firefly.reader.v1");
+var raw=localStorage.getItem("firefly.feeds.v1");
 var t=raw?JSON.parse(raw).theme:null;
 if(!t){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}
 if(t==="dark"){document.documentElement.classList.add("dark");}

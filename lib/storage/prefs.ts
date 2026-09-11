@@ -12,12 +12,6 @@ import type { ViewId } from "../types";
 
 export const PREFS_KEY = "firefly.feeds.v1";
 
-/**
- * The pre-rename key. Read as a fallback, and carried across by the store
- * migration; never written.
- */
-const LEGACY_PREFS_KEY = "firefly.reader.v1";
-
 export type Prefs = {
   theme?: "light" | "dark";
   font?: number;
@@ -28,9 +22,7 @@ export type Prefs = {
 export function loadPrefs(): Prefs {
   if (typeof localStorage === "undefined") return {};
   try {
-    // the old key also holds the v0 read/saved/later buckets, which parse
-    // harmlessly as extra fields we do not read
-    const raw = localStorage.getItem(PREFS_KEY) ?? localStorage.getItem(LEGACY_PREFS_KEY);
+    const raw = localStorage.getItem(PREFS_KEY);
     return raw ? (JSON.parse(raw) as Prefs) : {};
   } catch {
     return {};

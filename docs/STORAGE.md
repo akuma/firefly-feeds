@@ -14,25 +14,30 @@ in-memory mirror      the storage contract            the schema, and the
                       (the only sync surface)          only file that names it
 ```
 
-### The storage keys are frozen
+### The names are addresses
 
 ```ts
-const DB_NAME = "firefly"; // lib/storage/db.ts
-export const PREFS_KEY = "firefly.reader.v1"; // lib/storage/prefs.ts
+const DB_NAME = "firefly-feeds"; // lib/storage/db.ts
+export const PREFS_KEY = "firefly.feeds.v1"; // lib/storage/prefs.ts
 ```
 
-**These still say "firefly.reader" and must keep saying it**, even though the
-product is called Firefly Feeds. They are not names, they are addresses:
+**Do not rename either.** They are not decorative: `DB_NAME` is how the browser
+finds your subscriptions, cached bodies and read flags, and `PREFS_KEY` is how
+the pre-paint script finds the theme. Change one and the app opens an empty store
+and looks like it forgot everything.
 
-- renaming `DB_NAME` orphans every subscription, cached body and read flag;
-- renaming `PREFS_KEY` loses the theme, text size and last view — and breaks the
-  v0 migration, which reads that exact key to recover read/saved/later.
+If a rename is ever genuinely necessary it is a migration, not a
+find-and-replace: copy the old database into the new one in a single
+transaction, carry the prefs across before removing the old key, and keep reading
+the old names as a fallback. There is no such code today — nothing has shipped,
+so there is nothing to migrate from, and no compatibility surface worth
+carrying.
 
-Nothing user-facing depends on them. Leave them alone.
-
-**Nothing above `lib/storage/` imports `idb` or mentions IndexedDB.** A remote
-adapter, or SQLite on a server for real cross-device sync, is a change to one
-directory rather than a rewrite.
+The two use different conventions deliberately. An IndexedDB name is a top-level
+resource, listed in DevTools beside every other site's, so it takes the
+kebab-case of the package: `firefly-feeds`. A localStorage key is a flat
+namespace shared with anything else on the origin, so it takes the dotted,
+versioned form: `firefly.feeds.v1`.
 
 ## Three stores, three lifetimes
 
@@ -43,7 +48,7 @@ The mistake a reader's storage usually makes is keeping these in one record.
 | `sources`  | the subscription registry        | tiny, durable, low write rate | **yes**                                       |
 | `reading`  | read / saved / later per article | tiny, high write rate         | **yes** — and the most valuable thing you own |
 | `articles` | cached bodies                    | large, disposable             | **never**                                     |
-| `meta`     | seeding and migration flags      | —                             | no                                            |
+| `meta`     | the seeding flag                 | —                             | no                                            |
 
 Cached prose is re-fetchable; your reading state is not. Keeping them apart means
 a future sync uploads a few kilobytes of state rather than megabytes of somebody
@@ -61,7 +66,7 @@ reading one source means parsing all of them. IndexedDB gives asynchronous
 writes, structured records, real indexes (articles are queried by `sourceId`),
 transactions, and a quota measured as a fraction of free disk.
 
-**One thing stays in localStorage**: `firefly.reader.v1`, holding exactly four
+**One thing stays in localStorage**: `firefly.feeds.v1`, holding exactly four
 scalars.
 
 ```ts
@@ -79,8 +84,8 @@ every load. That is a deliberate exception, not an oversight: this blob never
 holds article content.
 
 > **Prefs are written only after the store has finished loading.** Until then
-> the app is holding defaults, and persisting them would overwrite whatever the
-> migration is still reading.
+> the app is holding defaults, and persisting them would write those defaults
+> over whatever is actually stored.
 
 ## Records are shaped for replication
 
@@ -104,16 +109,6 @@ re-fetchable rather than user data.
 Conflict resolution is deliberately **last-write-wins on a single timestamp**:
 correct enough for read flags, and honest about not being a CRDT.
 
-## Migration
-
-A v0 install is folded in on first open. Both legacy localStorage blobs are read
-_purely_ — nothing is mutated during the read — written into the new stores in a
-single transaction, and only then is the legacy data discarded. A failed upgrade
-can never lose the original.
-
-Afterwards the legacy blob keeps serving the pre-paint theme, with the migrated
-buckets stripped out.
-
 ## Failure
 
 If IndexedDB is unavailable — private mode, storage disabled — `loadAll()`
@@ -127,6 +122,6 @@ helper closes the previous connection, resets the module registry and deletes th
 store — all three are needed, because the module memoises its connection and the
 database outlives the module graph. Reuse it rather than writing new setup.
 
-The suite covers the v0 migration (including that it prefers real flags over the
-curated demo state, and that it does not run twice), cache eviction with the
-`keep` exemption, tombstones, and the last-write-wins and tie-break rules.
+The suite covers seeding, cache eviction with the `keep` exemption, tombstones,
+and the last-write-wins and tie-break rules. It does not cover migration, because
+there is none.

@@ -67,13 +67,16 @@ lib/
 ### Layering rules
 
 - **`lib/store.tsx` is the only state container.** Components read it through `useReader()`. Do not introduce a second context, a reducer, or a store library without a reason you can defend.
-- **Storage keys are addresses, not names.** `DB_NAME = "firefly.feeds"` and
-  `PREFS_KEY = "firefly.feeds.v1"`. Renaming either orphans every subscription,
-  cached body and read flag — so if you ever must, do it as a migration:
-  copy the old database in (including its seeded flag), carry the prefs to the
-  new key, and keep reading the old keys as a fallback. `adoptLegacyDatabase`
-  and `discardLegacy` are the worked example. Cleanup runs in `connect`, **not**
-  inside `initialise`, which short-circuits for an adopted database.
+- **Storage names are addresses, not names.** `DB_NAME = "firefly-feeds"` and
+  `PREFS_KEY = "firefly.feeds.v1"`. Change either and the app opens an empty
+  store and appears to have forgotten every subscription and read flag. A rename
+  would be a migration — copy the old database across in one transaction, carry
+  the prefs before removing the old key, keep reading the old names as a
+  fallback — but there is none to write, because there is nothing to migrate
+  from.
+- **Nothing has shipped, so there is no compatibility surface.** No migration
+  code, no legacy key fallbacks, no version shims. Do not add one for a
+  hypothetical earlier install.
 - **Nothing above `lib/storage/` may import `idb` or mention IndexedDB.** The storage contract is `lib/storage/repository.ts`; that seam is what makes a future remote adapter a swap rather than a rewrite.
 - **`app/api/feed/route.ts` is the only place that talks to the network on the server.** Feed fetching lives there so publishers never need CORS headers and the page makes no third-party requests until the reader subscribes.
 - **The sample edition in `lib/sample/` is the only fabricated content in the
@@ -126,7 +129,7 @@ Rules that are easy to break by accident:
 - Every mutable record carries `updatedAt`. Deletions are **tombstones** (`deletedAt`), never removals — a delete has to be able to replicate.
 - `articles` is a cache with an eviction rule: **anything saved or queued is exempt** (`replaceArticles(..., keep)`). Pruning must never remove something the reader deliberately kept.
 - `lib/storage/prefs.ts` is the one thing that stays in localStorage, because the inline script in `<head>` must read the theme _synchronously before first paint_. Do not move it.
-- Prefs are only written once `ready` is true. Writing them earlier overwrites stored values with defaults while the migration is still reading them — that bug silently discarded every read/saved/later flag once already.
+- Prefs are only written once `ready` is true. Writing them earlier overwrites stored values with defaults.
 
 ---
 
@@ -204,7 +207,7 @@ Vitest with jsdom and `fake-indexeddb`. Tests live beside the code as `*.test.ts
 | `lib/feed-html.test.ts`          | entity decoding, URL safety, block extraction, budgets, boilerplate |
 | `lib/feed-server.test.ts`        | RSS 2.0 / Atom / RDF parsing, author fallback, link picking         |
 | `lib/shaping.test.ts`            | records → view model, the seeded edition's invariants               |
-| `lib/storage/repository.test.ts` | v0 migration, cache eviction, tombstones, the sync primitives       |
+| `lib/storage/repository.test.ts` | seeding, cache eviction, tombstones, the sync primitives            |
 | `components/shell.test.tsx`      | the whole shell: state, storage and layout together                 |
 
 **Scope every DOM query to a column.** The three-column layout renders desktop _and_ mobile chrome into the same tree, one hidden by CSS, so an unscoped `getByText` finds the same control twice and proves nothing. Use the `nav()` / `stream()` / `reader()` helpers in `shell.test.tsx`.
@@ -215,7 +218,7 @@ are the contract.
 
 `lib/storage/repository.test.ts` opens a real database. Its `freshRepository()` helper closes the previous connection, resets the module registry and deletes the store — you need all three, because the module memoises its connection and the database outlives the module graph. Reuse that helper rather than writing your own setup.
 
-Tests are the reason four real bugs were found in the feed pipeline (relative URLs being discarded, `rel="self"` winning over `rel="alternate"`, RDF channel metadata read from the wrong node, and controls missing from one story layout). Write tests for parsing, migration and eviction — that is where the sharp edges are.
+Tests are the reason four real bugs were found in the feed pipeline (relative URLs being discarded, `rel="self"` winning over `rel="alternate"`, RDF channel metadata read from the wrong node, and controls missing from one story layout). Write tests for parsing, seeding and eviction — that is where the sharp edges are.
 
 ---
 
