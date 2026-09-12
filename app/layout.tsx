@@ -55,6 +55,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           crossOrigin="anonymous"
         />
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+        {/* One mark: a multi-size .ico for browsers, the same PNG for the ones
+            that prefer it, and the touch icon for iOS. */}
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="icon" type="image/png" href="/mark.png" sizes="64x64" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
       <body>{children}</body>
     </html>

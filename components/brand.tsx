@@ -2,7 +2,6 @@
 
 import type { LucideIcon } from "lucide-react";
 import { clsx } from "./clsx";
-import { Firefly } from "./plate";
 
 export function Wordmark({ size = "md", onClick }: { size?: "md" | "sm"; onClick?: () => void }) {
   const small = size === "sm";
@@ -10,11 +9,26 @@ export function Wordmark({ size = "md", onClick }: { size?: "md" | "sm"; onClick
     <button
       type="button"
       onClick={onClick}
-      className="group flex items-start gap-2.5 text-left"
+      className="group flex flex-col items-start text-left"
       aria-label="Firefly Feeds — a quiet place to read the web"
     >
-      <Firefly size={small ? 6 : 7} pulse className={small ? "mt-[5px]" : "mt-[6px]"} />
-      <span className="flex min-w-0 flex-col">
+      {/* The mark is the same height as the name beside it; the strapline sits
+          under both, so it reads as one lockup rather than an indent. */}
+      <span className="flex items-center gap-1">
+        <img
+          src="/mark.png"
+          alt=""
+          width={small ? 17 : 19}
+          height={small ? 17 : 19}
+          draggable={false}
+          /*
+           * Centring on the line box would sit the mark on the descender — the
+           * line box carries the descender space, the capitals do not. Newsreader
+           * is ascender 1470 / descender −530 / cap 1340 over a 2000 em, so the
+           * cap centre is ~2px above the line-box centre at this size.
+           */
+          className={clsx("shrink-0 -translate-y-[2px]", small ? "size-[17px]" : "size-[19px]")}
+        />
         {/* One name, one size. The strapline below does the differentiating. */}
         <span
           className={clsx(
@@ -24,14 +38,14 @@ export function Wordmark({ size = "md", onClick }: { size?: "md" | "sm"; onClick
         >
           Firefly Feeds
         </span>
-        <span
-          className={clsx(
-            "mono mt-1.5 truncate tracking-[0.12em] text-ink4 uppercase",
-            small ? "text-[7px]" : "text-[8px]",
-          )}
-        >
-          A quiet place to read
-        </span>
+      </span>
+      <span
+        className={clsx(
+          "mono mt-1 max-w-full truncate tracking-[0.12em] text-ink4 uppercase",
+          small ? "text-[7px]" : "text-[8px]",
+        )}
+      >
+        A quiet place to read
       </span>
     </button>
   );
