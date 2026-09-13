@@ -357,8 +357,17 @@ function normalizeItem(
   if (truncated) contentState = "truncated";
   const image = pickImage(raw, contentHtml, baseUrl);
 
+  /*
+   * Identity must not depend on the entry's position: a feed that inserts a
+   * new entry shifts every later index, which used to hand the same stories
+   * brand-new ids on every refresh — the whole list remounted and the locally
+   * fetched full text lost its owner. The publisher's guid wins, then its
+   * link; position is only the last resort for a feed that offers neither.
+   */
+  const identity = firstText(raw.guid) || link || title || `item-${index}`;
+
   return {
-    id: hashString(`${link || title}|${index}`).toString(36),
+    id: hashString(identity).toString(36),
     title: title || "Untitled",
     link,
     author: author ? htmlToText(author).slice(0, 120) : undefined,

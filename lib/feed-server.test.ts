@@ -54,6 +54,11 @@ const RDF = `<?xml version="1.0"?>
   </item>
 </rdf:RDF>`;
 
+const rssItem = (title: string, link: string) =>
+  `<item><title>${title}</title><link>${link}</link><description>x</description></item>`;
+const rssDoc = (items: string) =>
+  `<?xml version="1.0"?><rss version="2.0"><channel><title>X</title><link>https://x.test</link><description>d</description>${items}</channel></rss>`;
+
 describe("normalizeInputUrl", () => {
   it("adds https to a bare host", () => {
     expect(normalizeInputUrl("daringfireball.net")).toBe("https://daringfireball.net/");
@@ -100,6 +105,24 @@ describe("parseFeedXml", () => {
     expect(feed.kind).toBe("rdf");
     expect(feed.title).toBe("RDF Weekly");
     expect(feed.items[0].title).toBe("An RDF item");
+  });
+
+  it("keeps entry ids stable when a new entry is inserted above them", () => {
+    // the id used to include the entry's position, so a feed that published a
+    // new post handed every later story a new id — remounting the whole list
+    // and orphaning its reading state on every refresh
+    const before = parseFeedXml(
+      rssDoc(rssItem("Second", "https://x.test/second")),
+      "https://x.test/feed",
+    );
+    const after = parseFeedXml(
+      rssDoc(rssItem("First", "https://x.test/first") + rssItem("Second", "https://x.test/second")),
+      "https://x.test/feed",
+    );
+
+    const secondBefore = before.items.find((i) => i.link === "https://x.test/second")!;
+    const secondAfter = after.items.find((i) => i.link === "https://x.test/second")!;
+    expect(secondAfter.id).toBe(secondBefore.id);
   });
 
   it("throws a typed error for a document that is not a feed", () => {

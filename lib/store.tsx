@@ -12,14 +12,14 @@ import {
 } from "react";
 import type { Edition } from "./edition";
 import { readingTime } from "./reading";
-import { STALE_MS, staleSourceIds } from "./refreshing";
+import { reconcileArticles, STALE_MS, staleSourceIds, type IncomingItem } from "./refreshing";
 import { SAMPLE_FEEDS, SAMPLE_STORIES } from "./sample";
 import { FOLDERS, SUGGESTED_BY_ID, SUGGESTED_SOURCES, type SuggestedSource } from "./sources";
 import { feedFromSource, readingFlags, storyFromArticle } from "./shaping";
 import * as repo from "./storage/repository";
 import { loadPrefs, savePrefs } from "./storage/prefs";
 import type { ArticleRecord, ReadingRecord, SourceRecord } from "./storage/types";
-import type { ContentState, Feed, FeedId, FolderId, Story, StoryLayout, ViewId } from "./types";
+import type { Feed, FeedId, FolderId, Story, ViewId } from "./types";
 /**
  * The theme is written by an inline boot script before React hydrates, so the
  * first apply pass must run before paint to avoid a light-mode flash.
@@ -44,19 +44,7 @@ export type SubscribeInput = {
   siteUrl: string;
   /** Absent when the reader subscribes without filing it under a folder. */
   folder?: FolderId;
-  items: {
-    id: string;
-    title: string;
-    link?: string;
-    author?: string;
-    publishedMs?: number;
-    summary: string;
-    body: ArticleRecord["body"];
-    image?: string;
-    minutes: number;
-    layout: StoryLayout;
-    contentState: ContentState;
-  }[];
+  items: IncomingItem[];
 };
 
 type Ctx = {
@@ -398,22 +386,7 @@ export function useReaderState(edition: Edition): Ctx {
         updatedAt: at,
       };
       if (input.folder) source.folder = input.folder;
-      const items: ArticleRecord[] = input.items.slice(0, MAX_ARTICLES).map((item) => ({
-        id: `${input.id}~${item.id}`,
-        sourceId: input.id,
-        title: item.title,
-        link: item.link,
-        author: item.author,
-        publishedAt: item.publishedMs ?? at,
-        fetchedAt: at,
-        summary: item.summary,
-        body: item.body,
-        image: item.image,
-        minutes: item.minutes,
-        layout: item.layout,
-        contentState: item.contentState,
-        extractionState: "idle",
-      }));
+      const items = reconcileArticles(input.id, input.items.slice(0, MAX_ARTICLES), [], at);
 
       await repo.putSource(source);
       await repo.replaceArticles(input.id, items);
@@ -477,24 +450,12 @@ export function useReaderState(edition: Edition): Ctx {
         if (!data?.ok) throw new Error(data?.error ?? "failed");
 
         const at = Date.now();
-        const items: ArticleRecord[] = data.items
-          .slice(0, MAX_ARTICLES)
-          .map((item: SubscribeInput["items"][number]) => ({
-            id: `${id}~${item.id}`,
-            sourceId: id,
-            title: item.title,
-            link: item.link,
-            author: item.author,
-            publishedAt: item.publishedMs ?? at,
-            fetchedAt: at,
-            summary: item.summary,
-            body: item.body,
-            image: item.image,
-            minutes: item.minutes,
-            layout: item.layout,
-            contentState: item.contentState,
-            extractionState: "idle",
-          }));
+        const items = reconcileArticles(
+          id,
+          (data.items as IncomingItem[]).slice(0, MAX_ARTICLES),
+          await repo.getArticles(id),
+          at,
+        );
 
         // anything the reader kept is exempt from cache eviction
         const keep = new Set(readingRef.current.filter((r) => r.saved || r.later).map((r) => r.id));

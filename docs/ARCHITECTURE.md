@@ -100,6 +100,21 @@ driven from `lib/store.tsx`):
 - The Sources section also offers a manual **refresh all**, which ignores the
   staleness window but still skips in-flight sources.
 
+A refresh **reconciles, it does not rebuild** (`reconcileArticles` in
+`lib/refreshing.ts`), so pressing refresh on an unchanged feed changes nothing
+visible:
+
+- Entry identity never includes the entry's position. The id is a hash of the
+  publisher's guid, then its link; a feed that inserts a new entry used to shift
+  every later index and hand the same stories new ids, which remounted the whole
+  list and orphaned their reading state. A link match bridges already-cached
+  records across the old id scheme, so the upgrade itself loses no read state.
+- A body fetched on demand is kept: a successful extraction stays `full`, and a
+  failed one stays failed instead of being re-armed to `idle` on every refresh
+  (the one exception is a feed that starts shipping the full piece itself).
+- Entries with no published date keep their first-seen timestamp rather than
+  inheriting the fetch time, which used to make them jump up the list.
+
 While the app is fully closed nothing can be fetched; that would require a
 server-side subscription store and is deliberately out of scope.
 
