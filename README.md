@@ -1,6 +1,6 @@
 # Firefly Feeds
 
-**Not a dashboard. A weekly publication that happens to know your subscriptions.**
+**Not a dashboard. Your feeds, edited into an edition.**
 
 Firefly Feeds is an editorial RSS reader for thoughtful, unhurried reading. It
 fetches real feeds, parses them on the server, and shapes them into something
