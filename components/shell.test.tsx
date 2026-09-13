@@ -577,6 +577,93 @@ describe("the source list", () => {
   });
 });
 
+describe("keeping sources fresh", () => {
+  it("re-fetches a stale source in the background when the edition opens", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "sstale",
+      url: "https://stale.example/feed.xml",
+      siteUrl: "https://stale.example",
+      title: "Stale Source",
+      host: "stale.example",
+      addedAt: now - 2 * 60 * 60_000,
+      // last fetched two hours ago: yesterday's copy
+      fetchedAt: now - 2 * 60 * 60_000,
+      updatedAt: now - 2 * 60 * 60_000,
+    });
+
+    const calls: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          items: [
+            {
+              id: "new",
+              title: "Freshly fetched entry",
+              summary: "s",
+              body: [{ kind: "p", text: "Brand new." }],
+              minutes: 1,
+              layout: "compact",
+              contentState: "full",
+              publishedMs: now,
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await mount();
+      await waitFor(() => expect(calls.some((url) => url.includes("/api/feed"))).toBe(true));
+      await waitFor(() =>
+        expect(within(stream()).getByText("Freshly fetched entry")).toBeInTheDocument(),
+      );
+      const saved = await repo.getSource("sstale");
+      expect(saved!.fetchedAt).toBeGreaterThan(now - 1000);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("does not re-fetch a source fetched minutes ago", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "sfresh",
+      url: "https://fresh.example/feed.xml",
+      siteUrl: "https://fresh.example",
+      title: "Fresh Source",
+      host: "fresh.example",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+
+    const calls: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({ ok: true, items: [] }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      await mount();
+      // settle, then prove no background fetch happened
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(calls.some((url) => url.includes("/api/feed"))).toBe(false);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
+
 describe("reading the full text on demand", () => {
   it("fetches the article when a summary-only story is opened, and caches it", async () => {
     const repo = await seedSummary();

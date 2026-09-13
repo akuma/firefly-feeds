@@ -12,6 +12,7 @@ import {
 } from "react";
 import type { Edition } from "./edition";
 import { readingTime } from "./reading";
+import { STALE_MS, staleSourceIds } from "./refreshing";
 import { SAMPLE_FEEDS, SAMPLE_STORIES } from "./sample";
 import { FOLDERS, SUGGESTED_BY_ID, SUGGESTED_SOURCES, type SuggestedSource } from "./sources";
 import { feedFromSource, readingFlags, storyFromArticle } from "./shaping";
@@ -83,8 +84,11 @@ type Ctx = {
   unsubscribe: (id: string) => Promise<void>;
   /** Rename a source and/or re-file it. `folder: null` leaves it unfiled. */
   editSource: (id: string, patch: { name: string; folder: FolderId | null }) => Promise<void>;
-  refreshing: string | null;
+  /** Sources with a refresh in flight; per-row spinners key off this set. */
+  refreshing: ReadonlySet<string>;
   refresh: (id: string) => Promise<void>;
+  /** Refresh every stale source; force refreshes even recently fetched ones. */
+  refreshAll: (options?: { force?: boolean }) => Promise<void>;
 
   /** The story whose full text is being fetched, if any. */
   extracting: string | null;
@@ -184,7 +188,13 @@ export function useReaderState(edition: Edition): Ctx {
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<FeedId | null>(null);
   const [pendingSource, setPendingSource] = useState<SuggestedSource | null>(null);
-  const [refreshing, setRefreshing] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState<ReadonlySet<string>>(new Set());
+  // Sources currently being fetched, so a second trigger (manual + scheduled)
+  // never issues the same request twice.
+  const refreshingIds = useRef(new Set<string>());
+  // Last automatic-attempt time per source. A failed fetch leaves fetchedAt
+  // untouched, so without this the sweep would retry a dead feed on every tick.
+  const lastAttempt = useRef(new Map<string, number>());
   // relative timestamps for fetched stories need a clock, not a constant
   const [now, setNow] = useState(() => Date.now());
   const readerScroll = useRef<HTMLDivElement | null>(null);
@@ -442,11 +452,25 @@ export function useReaderState(edition: Edition): Ctx {
     [sources, reloadSource],
   );
 
-  const refresh = useCallback(
+  /*
+   * Refresh reads the latest sources/reading through refs so that the scheduled
+   * sweep and a manual press share one implementation without stale closures.
+   */
+  const sourcesRef = useRef(sources);
+  const readingRef = useRef(reading);
+  // refs are synced after commit, never written during render
+  useEffect(() => {
+    sourcesRef.current = sources;
+    readingRef.current = reading;
+  });
+
+  const refreshSource = useCallback(
     async (id: string) => {
-      const source = sources.find((s) => s.id === id);
-      if (!source) return;
-      setRefreshing(id);
+      if (refreshingIds.current.has(id)) return;
+      const source = sourcesRef.current.find((s) => s.id === id);
+      if (!source || source.deletedAt) return;
+      refreshingIds.current.add(id);
+      setRefreshing((current) => new Set(current).add(id));
       try {
         const res = await fetch(`/api/feed?url=${encodeURIComponent(source.url)}&full=1`);
         const data = await res.json();
@@ -473,7 +497,7 @@ export function useReaderState(edition: Edition): Ctx {
           }));
 
         // anything the reader kept is exempt from cache eviction
-        const keep = new Set(reading.filter((r) => r.saved || r.later).map((r) => r.id));
+        const keep = new Set(readingRef.current.filter((r) => r.saved || r.later).map((r) => r.id));
         await repo.putSource({
           ...source,
           fetchedAt: at,
@@ -484,18 +508,79 @@ export function useReaderState(edition: Edition): Ctx {
         await reloadSource(id);
         setNow(Date.now());
       } catch (error) {
-        await repo.putSource({
-          ...source,
-          error: error instanceof Error ? error.message : "failed",
-          updatedAt: Date.now(),
-        });
-        await reloadSource(id);
+        const latest = sourcesRef.current.find((s) => s.id === id);
+        if (latest) {
+          await repo.putSource({
+            ...latest,
+            error: error instanceof Error ? error.message : "failed",
+            updatedAt: Date.now(),
+          });
+          await reloadSource(id);
+        }
       } finally {
-        setRefreshing(null);
+        lastAttempt.current.set(id, Date.now());
+        refreshingIds.current.delete(id);
+        setRefreshing((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
       }
     },
-    [sources, reading, reloadSource],
+    [reloadSource],
   );
+
+  const refresh = useCallback((id: string) => refreshSource(id), [refreshSource]);
+
+  /*
+   * The scheduled sweep. Sources are fetched one at a time — a personal reader
+   * has no reason to hammer the publishers, and the intake route rate-limits by
+   * address. A forced sweep is what the manual button asks for.
+   */
+  const refreshAll = useCallback(
+    async (options?: { force?: boolean }) => {
+      const at = Date.now();
+      const ids = options?.force
+        ? sourcesRef.current.filter((s) => !s.deletedAt).map((s) => s.id)
+        : staleSourceIds(sourcesRef.current, at).filter(
+            (id) => at - (lastAttempt.current.get(id) ?? 0) >= STALE_MS,
+          );
+      // serial on purpose: a personal reader fetches politely, one publisher
+      // at a time, and the intake route rate-limits per address
+      /* oxlint-disable no-await-in-loop */
+      for (const id of ids) {
+        await refreshSource(id);
+      }
+      /* oxlint-enable no-await-in-loop */
+    },
+    [refreshSource],
+  );
+
+  /*
+   * Opening the edition must not present yesterday's copy as today's. Once after
+   * load, and then whenever the tab comes back or the staleness window elapses,
+   * stale sources are re-fetched in the background. The existing stories stay on
+   * screen until replacements arrive.
+   */
+  const initialSweep = useRef(false);
+  useEffect(() => {
+    if (!ready || initialSweep.current) return;
+    initialSweep.current = true;
+    void refreshAll();
+  }, [ready, refreshAll]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const sweepIfVisible = () => {
+      if (!document.hidden) void refreshAll();
+    };
+    const timer = window.setInterval(sweepIfVisible, STALE_MS);
+    document.addEventListener("visibilitychange", sweepIfVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", sweepIfVisible);
+    };
+  }, [ready, refreshAll]);
 
   /* ------------------------------------------------------------- filter */
 
@@ -737,6 +822,7 @@ export function useReaderState(edition: Edition): Ctx {
     editSource,
     refreshing,
     refresh,
+    refreshAll,
     extracting,
     addOpen,
     setAddOpen,

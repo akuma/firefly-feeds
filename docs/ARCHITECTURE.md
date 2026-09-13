@@ -79,6 +79,30 @@ rate limit is what covers those.
 Requests are bounded by a 12-second timeout and only `http`/`https` addresses are
 accepted.
 
+## Keeping the edition fresh
+
+The app is a local reader: the Worker cannot push into the browser's IndexedDB,
+so nothing updates while the page is closed. Freshness is therefore the
+client's job, and follows a stale-while-revalidate sweep (`lib/refreshing.ts`,
+driven from `lib/store.tsx`):
+
+- A source is **stale** when its `fetchedAt` is older than 30 minutes
+  (`STALE_MS`). The view renders the cached copy immediately, never waiting.
+- Once after the edition loads, and then every 30 minutes while the tab is open
+  and whenever a hidden tab becomes visible again, every stale source is
+  re-fetched in the background, **one at a time** — polite to publishers and
+  clear of the intake route's per-address rate limit.
+- A source currently being fetched is skipped, so the scheduled sweep, a
+  visibility change and a manual press can never duplicate a request. A failed
+  fetch leaves `fetchedAt` untouched (so the failure is visible) but is
+  throttled by an in-memory last-attempt timestamp, so a dead feed is not
+  retried on every tick.
+- The Sources section also offers a manual **refresh all**, which ignores the
+  staleness window but still skips in-flight sources.
+
+While the app is fully closed nothing can be fetched; that would require a
+server-side subscription store and is deliberately out of scope.
+
 ## Parsing
 
 RSS 2.0, Atom and RDF (RSS 1.0) all normalise into one `ParsedFeed`. The

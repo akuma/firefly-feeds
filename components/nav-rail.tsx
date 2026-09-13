@@ -59,6 +59,27 @@ function AddButton({ onDone }: { onDone?: () => void }) {
   );
 }
 
+/** The two source-list actions: refresh every source, then add a new one. */
+function SourceActions({ onDone }: { onDone?: () => void }) {
+  const r = useReader();
+  const busy = r.refreshing.size > 0;
+  return (
+    <span className="flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={() => void r.refreshAll({ force: true })}
+        disabled={busy}
+        title={busy ? "Refreshing sources…" : "Refresh all sources"}
+        aria-label="Refresh all sources"
+        className="text-ink4 transition-colors hover:text-spark disabled:cursor-default disabled:text-spark"
+      >
+        <RefreshCw size={11} strokeWidth={2} className={busy ? "animate-spin" : undefined} />
+      </button>
+      <AddButton onDone={onDone} />
+    </span>
+  );
+}
+
 function Row({
   active,
   onClick,
@@ -410,7 +431,7 @@ export function NavRail({
         )}
 
         {!onboarding && (
-          <Section title="Sources" action={<AddButton onDone={onNavigate} />}>
+          <Section title="Sources" action={<SourceActions onDone={onNavigate} />}>
             {r.sources.map((source) => {
               const feed = r.feedById(source.id);
               if (!feed) return null;
@@ -420,7 +441,7 @@ export function NavRail({
                   feed={feed}
                   active={r.view === `feed:${feed.id}`}
                   count={r.counts.feeds[feed.id as FeedId] ?? 0}
-                  refreshing={r.refreshing === feed.id}
+                  refreshing={r.refreshing.has(feed.id)}
                   error={source.error}
                   onSelect={() => go(`feed:${feed.id}`)}
                   onRefresh={() => void r.refresh(feed.id)}
