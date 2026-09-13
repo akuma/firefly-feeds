@@ -662,6 +662,73 @@ describe("keeping sources fresh", () => {
       globalThis.fetch = original;
     }
   });
+
+  it("leaves the cached articles untouched when a refresh brings nothing new", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const seedFetchedAt = Date.now() - 2 * 60 * 60_000;
+    await repo.putSource({
+      id: "ssame",
+      url: "https://same.example/feed.xml",
+      siteUrl: "https://same.example",
+      title: "Same Source",
+      host: "same.example",
+      addedAt: seedFetchedAt,
+      fetchedAt: seedFetchedAt,
+      updatedAt: seedFetchedAt,
+    });
+    const article = {
+      id: "ssame~fixed",
+      sourceId: "ssame",
+      title: "Unchanged entry",
+      link: "https://same.example/a",
+      publishedAt: 5000,
+      fetchedAt: seedFetchedAt,
+      summary: "s",
+      body: [{ kind: "p" as const, text: "The same prose." }],
+      minutes: 1,
+      layout: "compact" as const,
+      contentState: "full" as const,
+      extractionState: "idle" as const,
+    };
+    await repo.replaceArticles("ssame", [article]);
+
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          items: [
+            {
+              id: "fixed",
+              title: "Unchanged entry",
+              link: "https://same.example/a",
+              publishedMs: 5000,
+              summary: "s",
+              body: [{ kind: "p", text: "The same prose." }],
+              minutes: 1,
+              layout: "compact",
+              contentState: "full",
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+
+    try {
+      await mount();
+      // the stale source is swept on load; the source watermark advances…
+      await waitFor(async () =>
+        expect((await repo.getSource("ssame"))!.fetchedAt).toBeGreaterThan(seedFetchedAt),
+      );
+      // …but the identical article is never rewritten, so its timestamp stands
+      const saved = await repo.getArticles("ssame");
+      expect(saved).toHaveLength(1);
+      expect(saved[0].fetchedAt).toBe(seedFetchedAt);
+      expect(saved[0].body).toEqual([{ kind: "p", text: "The same prose." }]);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
 });
 
 describe("reading the full text on demand", () => {

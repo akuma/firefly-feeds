@@ -89,3 +89,57 @@ export function reconcileArticles(
     };
   });
 }
+
+/**
+ * Whether a refresh changed anything worth persisting. `fetchedAt` is
+ * deliberately ignored: it moves on every fetch, and treating it as content
+ * would make every unchanged refresh a write plus a list re-render. When this
+ * is true the caller can leave the cached articles and the in-memory list
+ * untouched.
+ */
+export function articlesUnchanged(
+  existing: readonly ArticleRecord[],
+  next: readonly ArticleRecord[],
+): boolean {
+  if (existing.length !== next.length) return false;
+  const byId = new Map(existing.map((a) => [a.id, a]));
+  return next.every((candidate) => {
+    const prev = byId.get(candidate.id);
+    return prev !== undefined && sameRecord(prev, candidate);
+  });
+}
+
+function sameRecord(prev: ArticleRecord, next: ArticleRecord): boolean {
+  const keys = Object.keys(next) as (keyof ArticleRecord)[];
+  return keys.every((key) => {
+    if (key === "fetchedAt") return true;
+    const a = prev[key];
+    const b = next[key];
+    if (key !== "body") return a === b;
+    // blocks are fresh objects on every fetch even when the text is the same,
+    // so compare their contents rather than their references. Blocks come in
+    // several shapes (paragraph, list, figure), so compare every field — a
+    // paragraph only carries text, but a figure also carries src and seed.
+    const pa = a as ArticleRecord["body"];
+    const pb = b as ArticleRecord["body"];
+    if (!Array.isArray(pa) || pa.length !== pb.length) return false;
+    return pb.every((block, i) => {
+      const prevBlock = pa[i];
+      if (!prevBlock || prevBlock.kind !== block.kind) return false;
+      const fields = new Set([...Object.keys(prevBlock), ...Object.keys(block)]);
+      return [...fields].every((field) => {
+        const left = (prevBlock as Record<string, unknown>)[field];
+        const right = (block as Record<string, unknown>)[field];
+        if (Array.isArray(left) || Array.isArray(right)) {
+          return (
+            Array.isArray(left) &&
+            Array.isArray(right) &&
+            left.length === right.length &&
+            left.every((v, j) => v === right[j])
+          );
+        }
+        return left === right;
+      });
+    });
+  });
+}

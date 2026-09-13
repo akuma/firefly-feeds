@@ -12,7 +12,13 @@ import {
 } from "react";
 import type { Edition } from "./edition";
 import { readingTime } from "./reading";
-import { reconcileArticles, STALE_MS, staleSourceIds, type IncomingItem } from "./refreshing";
+import {
+  articlesUnchanged,
+  reconcileArticles,
+  STALE_MS,
+  staleSourceIds,
+  type IncomingItem,
+} from "./refreshing";
 import { SAMPLE_FEEDS, SAMPLE_STORIES } from "./sample";
 import { FOLDERS, SUGGESTED_BY_ID, SUGGESTED_SOURCES, type SuggestedSource } from "./sources";
 import { feedFromSource, readingFlags, storyFromArticle } from "./shaping";
@@ -450,24 +456,35 @@ export function useReaderState(edition: Edition): Ctx {
         if (!data?.ok) throw new Error(data?.error ?? "failed");
 
         const at = Date.now();
+        const cachedArticles = await repo.getArticles(id);
         const items = reconcileArticles(
           id,
           (data.items as IncomingItem[]).slice(0, MAX_ARTICLES),
-          await repo.getArticles(id),
+          cachedArticles,
           at,
         );
 
-        // anything the reader kept is exempt from cache eviction
-        const keep = new Set(readingRef.current.filter((r) => r.saved || r.later).map((r) => r.id));
-        await repo.putSource({
+        // The source fetch itself succeeded, so its watermark always advances;
+        // the article cache is rewritten only when the feed actually changed,
+        // which is what keeps an unchanged "refresh all" off the screen.
+        const refreshedSource = {
           ...source,
           fetchedAt: at,
           error: null,
           updatedAt: at,
-        });
-        await repo.replaceArticles(id, items, keep);
-        await reloadSource(id);
-        setNow(Date.now());
+        };
+        await repo.putSource(refreshedSource);
+        if (articlesUnchanged(cachedArticles, items)) {
+          setSources((current) => current.map((s) => (s.id === id ? refreshedSource : s)));
+        } else {
+          // anything the reader kept is exempt from cache eviction
+          const keep = new Set(
+            readingRef.current.filter((r) => r.saved || r.later).map((r) => r.id),
+          );
+          await repo.replaceArticles(id, items, keep);
+          await reloadSource(id);
+          setNow(Date.now());
+        }
       } catch (error) {
         const latest = sourcesRef.current.find((s) => s.id === id);
         if (latest) {

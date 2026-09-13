@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { reconcileArticles, STALE_MS, staleSourceIds, type IncomingItem } from "./refreshing";
+import {
+  articlesUnchanged,
+  reconcileArticles,
+  STALE_MS,
+  staleSourceIds,
+  type IncomingItem,
+} from "./refreshing";
 import type { ArticleRecord, SourceRecord } from "./storage/types";
 
 function source(id: string, fetchedAt: number, extra?: Partial<SourceRecord>): SourceRecord {
@@ -49,7 +55,7 @@ describe("staleSourceIds", () => {
 function incoming(id: string, extra?: Partial<IncomingItem>): IncomingItem {
   return {
     id,
-    title: id,
+    title: "A title",
     summary: "s",
     body: [{ kind: "p", text: "feed body" }],
     minutes: 1,
@@ -63,7 +69,7 @@ function cached(id: string, extra?: Partial<ArticleRecord>): ArticleRecord {
   return {
     id,
     sourceId: "src",
-    title: id,
+    title: "A title",
     publishedAt: 1000,
     fetchedAt: 1000,
     summary: "s",
@@ -157,5 +163,119 @@ describe("reconcileArticles", () => {
     const next = reconcileArticles("src", [incoming("a"), incoming("b")], [], 9000);
     expect(next.map((a) => a.id)).toEqual(["src~a", "src~b"]);
     expect(next.every((a) => a.extractionState === "idle")).toBe(true);
+  });
+});
+
+describe("articlesUnchanged", () => {
+  it("treats a refreshed-but-identical feed as unchanged", () => {
+    const existing = [
+      cached("src~a", {
+        link: "https://e.test/a",
+        publishedAt: 5000,
+        title: "Same title",
+        fetchedAt: 1000,
+      }),
+    ];
+    const next = reconcileArticles(
+      "src",
+      [incoming("a", { link: "https://e.test/a", publishedMs: 5000, title: "Same title" })],
+      existing,
+      9000,
+    );
+    // fetchedAt moved with the fetch, but the content is the same
+    expect(next[0].fetchedAt).toBe(9000);
+    expect(articlesUnchanged(existing, next)).toBe(true);
+  });
+
+  it("regards a locally enriched record with only a new fetchedAt as unchanged", () => {
+    const existing = [cached("src~a", { contentState: "full", extractionState: "success" })];
+    const next = reconcileArticles("src", [incoming("a")], existing, 9000);
+    expect(articlesUnchanged(existing, next)).toBe(true);
+  });
+
+  it("notices a new entry", () => {
+    const existing = [cached("src~a")];
+    const next = reconcileArticles("src", [incoming("a"), incoming("b")], existing, 9000);
+    expect(articlesUnchanged(existing, next)).toBe(false);
+  });
+
+  it("notices an entry that left the feed", () => {
+    const existing = [cached("src~a"), cached("src~b")];
+    const next = reconcileArticles("src", [incoming("a")], existing, 9000);
+    expect(articlesUnchanged(existing, next)).toBe(false);
+  });
+
+  it("notices a changed title even when ids line up", () => {
+    const existing = [cached("src~a", { title: "Old title" })];
+    const next = reconcileArticles("src", [incoming("a", { title: "New title" })], existing, 9000);
+    expect(articlesUnchanged(existing, next)).toBe(false);
+  });
+
+  it("compares block contents rather than block references", () => {
+    const existing = [cached("src~a", { body: [{ kind: "p", text: "Same prose." }] })];
+    const next = reconcileArticles(
+      "src",
+      [incoming("a", { body: [{ kind: "p", text: "Same prose." }] })],
+      existing,
+      9000,
+    );
+    // fresh block objects, identical contents
+    expect(next[0].body).not.toBe(existing[0].body);
+    expect(articlesUnchanged(existing, next)).toBe(true);
+  });
+
+  it("notices changed text inside a block", () => {
+    const existing = [cached("src~a", { body: [{ kind: "p", text: "Old prose." }] })];
+    const next = reconcileArticles(
+      "src",
+      [incoming("a", { body: [{ kind: "p", text: "New prose." }] })],
+      existing,
+      9000,
+    );
+    expect(articlesUnchanged(existing, next)).toBe(false);
+  });
+
+  it("compares every field of non-paragraph blocks", () => {
+    const existing = [
+      cached("src~a", {
+        body: [{ kind: "figure", caption: "Plate", seed: 7, src: "https://e.test/p.jpg" }],
+      }),
+    ];
+    const changedImage = reconcileArticles(
+      "src",
+      [
+        incoming("a", {
+          body: [{ kind: "figure", caption: "Plate", seed: 7, src: "https://e.test/q.jpg" }],
+        }),
+      ],
+      existing,
+      9000,
+    );
+    const changedSeed = reconcileArticles(
+      "src",
+      [incoming("a", { body: [{ kind: "figure", caption: "Plate", seed: 8 }] })],
+      existing,
+      9000,
+    );
+    expect(articlesUnchanged(existing, changedImage)).toBe(false);
+    expect(articlesUnchanged(existing, changedSeed)).toBe(false);
+  });
+
+  it("compares list block items", () => {
+    const existing = [cached("src~a", { body: [{ kind: "list", items: ["one", "two"] }] })];
+    const same = reconcileArticles(
+      "src",
+      [incoming("a", { body: [{ kind: "list", items: ["one", "two"] }] })],
+      existing,
+      9000,
+    );
+    const changed = reconcileArticles(
+      "src",
+      [incoming("a", { body: [{ kind: "list", items: ["one", "three"] }] })],
+      existing,
+      9000,
+    );
+    expect(articlesUnchanged(existing, same)).toBe(true);
+    expect(articlesUnchanged(existing, changed)).toBe(false);
   });
 });

@@ -114,6 +114,12 @@ visible:
   (the one exception is a feed that starts shipping the full piece itself).
 - Entries with no published date keep their first-seen timestamp rather than
   inheriting the fetch time, which used to make them jump up the list.
+- When the reconciled feed is identical to the cache — compared field by field,
+  ignoring `fetchedAt` and looking inside blocks rather than at their fresh
+  object identities (`articlesUnchanged`) — the article store is not written
+  and the list state is not replaced, so an unchanged refresh causes zero
+  article I/O and zero list re-render. The source's own `fetchedAt` still
+  advances, since the fetch genuinely happened.
 
 While the app is fully closed nothing can be fetched; that would require a
 server-side subscription store and is deliberately out of scope.
