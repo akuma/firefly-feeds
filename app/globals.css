@@ -531,10 +531,26 @@
   float: left;
   font-family: var(--font-serif);
   font-size: 3.1em;
-  line-height: 0.8;
+  line-height: 1;
   font-weight: 500;
   color: var(--c-spark);
-  padding: 0.04em 0.09em 0 0;
+  padding-right: 0.09em;
+}
+
+/*
+ * Where the browser supports it, let `initial-letter` place the cap: it sizes
+ * the letter to the requested number of lines and aligns its top with the
+ * first line's, which a float can only approximate.
+ */
+@supports (initial-letter: 2) or (-webkit-initial-letter: 2) {
+  .reading.dropcap > p:first-of-type::first-letter {
+    float: none;
+    font-size: inherit;
+    line-height: inherit;
+    initial-letter: 2;
+    -webkit-initial-letter: 2;
+    padding-right: 0.09em;
+  }
 }
 
 .reading a {
