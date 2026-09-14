@@ -172,6 +172,29 @@ describe("htmlToBlocks", () => {
     expect((para.inline ?? []).every((segment) => !segment.href)).toBe(true);
   });
 
+  it("decodes a Cloudflare-protected email instead of the placeholder", () => {
+    const { blocks } = htmlToBlocks(
+      `<p>Mail <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="e49d8d82818a83ca9691858aa48389858d88ca878b89">[email&#160;protected]</a>.</p>`,
+    );
+    const para = blocks.find((b) => b.kind === "p")!;
+    expect(para.text).toBe("Mail yifeng.ruan@gmail.com.");
+    expect((para.inline ?? []).find((segment) => segment.href)).toEqual({
+      text: "yifeng.ruan@gmail.com",
+      href: "mailto:yifeng.ruan@gmail.com",
+    });
+  });
+
+  it("keeps the publisher's label on an encoded email link", () => {
+    const { blocks } = htmlToBlocks(
+      `<p>Write <a href="/cdn-cgi/l/email-protection#10697976757e773e6265717e50777d71797c3e737f7d">邮件联系</a>.</p>`,
+    );
+    const para = blocks.find((b) => b.kind === "p")!;
+    expect((para.inline ?? []).find((segment) => segment.href)).toEqual({
+      text: "邮件联系",
+      href: "mailto:yifeng.ruan@gmail.com",
+    });
+  });
+
   it("keeps a two-character heading, which is a heading in CJK", () => {
     // a Latin-only minimum of three dropped 封面, 文章, 工具 and every other
     // two-character section title

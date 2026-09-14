@@ -261,6 +261,46 @@ export const ARTICLE_BODY_BUDGET: BodyBudget = { blocks: 200, chars: 50_000 };
 
 export type Extraction = { blocks: Block[]; truncated: boolean };
 
+/**
+ * Cloudflare's email obfuscation. The first byte of the hex is the XOR key and
+ * the rest is the address, so it is decoded rather than shown as the
+ * “[email protected]” placeholder Cloudflare's script would replace.
+ */
+function decodeCfEmail(encoded: string | undefined): string | undefined {
+  const hex = encoded?.trim().replace(/^#/, "") ?? "";
+  if (hex.length < 4 || hex.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(hex)) return undefined;
+  const key = Number.parseInt(hex.slice(0, 2), 16);
+  let address = "";
+  for (let i = 2; i < hex.length; i += 2) {
+    address += String.fromCharCode(Number.parseInt(hex.slice(i, i + 2), 16) ^ key);
+  }
+  return address.includes("@") ? address : undefined;
+}
+
+/**
+ * Undoes Cloudflare's email obfuscation on the raw page.
+ *
+ * It must run before extraction: the extractor strips `data-cfemail`, leaving
+ * the “[email protected]” placeholder that Cloudflare's own script would have
+ * replaced in a browser.
+ */
+export function decodeObfuscatedEmails(html: string): string {
+  if (!html.includes("data-cfemail") && !html.includes("email-protection")) return html;
+  return html.replace(/<a\b[^>]*>[\s\S]*?<\/a\s*>/gi, (match) => {
+    const encoded = /\bdata-cfemail\s*=\s*["']([0-9a-f]+)["']/i.exec(match)?.[1];
+    const hash = /\/cdn-cgi\/l\/email-protection#([0-9a-f]+)/i.exec(
+      /\bhref\s*=\s*["']([^"']*)["']/i.exec(match)?.[1] ?? "",
+    )?.[1];
+    const address = decodeCfEmail(encoded) ?? decodeCfEmail(hash);
+    if (!address) return match;
+    // The placeholder anchor's own text is “[email protected]”; every other
+    // anchor keeps the label the publisher wrote.
+    const inner = match.replace(/^<a\b[^>]*>|<\/a\s*>$/gi, "");
+    const label = encoded ? address : text(inner) || address;
+    return `<a href="mailto:${address}">${label}</a>`;
+  });
+}
+
 export function htmlToBlocks(
   input: string,
   baseUrl?: string,
@@ -268,7 +308,7 @@ export function htmlToBlocks(
 ): Extraction {
   if (!input) return { blocks: [], truncated: false };
 
-  let s = input
+  let s = decodeObfuscatedEmails(input)
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(
       /<(script|style|head|noscript|iframe|svg|canvas|form|button|select|textarea|video|audio)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
@@ -304,9 +344,23 @@ export function htmlToBlocks(
   const anchors: Inline[] = [];
   s = s.replace(/<a\b[^>]*>([\s\S]*?)<\/a\s*>/gi, (match, inner: string) => {
     if (/<img\b/i.test(inner)) return match;
+    const encoded = attr(match, "data-cfemail");
+    const hash = /\/cdn-cgi\/l\/email-protection#([0-9a-f]+)/i.exec(attr(match, "href") ?? "")?.[1];
+    const address = decodeCfEmail(encoded) ?? decodeCfEmail(hash);
+    if (address) {
+      // Cloudflare hides addresses from scrapers and un-hides them with script.
+      // The placeholder anchor's own text is “[email protected]”, so the
+      // decoded address replaces it; the other anchor keeps its label.
+      const label = encoded ? address : text(inner) || address;
+      anchors.push({ text: label, href: `mailto:${address}` });
+      return `\uE001${anchors.length - 1}\uE001`;
+    }
     const label = text(inner);
     if (!label) return "";
-    anchors.push({ text: label, href: resolveUrl(attr(match, "href"), baseUrl) });
+    const raw = attr(match, "href") ?? "";
+    // A `mailto:` is a legitimate publisher link that resolveUrl would drop.
+    const href = /^mailto:/i.test(raw) ? raw : resolveUrl(raw, baseUrl);
+    anchors.push({ text: label, href });
     return `\uE001${anchors.length - 1}\uE001`;
   });
 

@@ -153,9 +153,8 @@ function Rich({ inline, text }: { inline?: Inline[]; text: string }) {
           <a
             key={i}
             href={segment.href}
-            target="_blank"
+            target={segment.href.startsWith("mailto:") ? undefined : "_blank"}
             rel="noopener noreferrer"
-            className="text-spark transition-opacity hover:opacity-80"
           >
             {segment.text}
           </a>

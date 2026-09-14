@@ -524,14 +524,11 @@
 }
 
 .reading a {
-  color: var(--c-ink);
-  text-decoration: underline;
-  text-decoration-color: var(--c-spark);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
+  color: var(--c-spark);
+  text-decoration: none;
 }
 .reading a:hover {
-  color: var(--c-spark);
+  opacity: 0.8;
 }
 
 .reading h2 {

@@ -6,6 +6,7 @@ import {
   ARTICLE_BODY_BUDGET,
   bodyLeadsWithMedia,
   decodeEntities,
+  decodeObfuscatedEmails,
   firstFigureSrc,
   htmlToBlocks,
   htmlToText,
@@ -314,11 +315,14 @@ export function extractArticle(html: string, url: string, siteHint?: string): Ex
   // be watched at the source. `og:type` is the standard signal for that.
   const videoPage = !video && declaresVideo(html);
 
+  // Cloudflare's email obfuscation is undone before extraction, which would
+  // otherwise strip the attribute and leave the placeholder text behind.
+  const decoded = decodeObfuscatedEmails(html);
   let parsed: DefuddleResponse | null = null;
   try {
     // Sync `parse()` never touches the async third-party extractors, so the
     // reader still fetches one page and nothing else.
-    parsed = new Defuddle(documentFor(html, url), { url, useAsync: false }).parse();
+    parsed = new Defuddle(documentFor(decoded, url), { url, useAsync: false }).parse();
   } catch {
     parsed = null;
   }
