@@ -48,6 +48,7 @@ export function storyFromArticle(article: ArticleRecord, now: number): Story {
      * edition, where everything is labelled and nothing links out.
      */
     image: article.image,
+    imageCaption: article.imageCaption,
     byline: article.author,
     body: article.body,
     link: article.link,

@@ -75,6 +75,8 @@ export type Article = {
   plate?: number;
   /** Photograph supplied by the feed, used instead of a generated plate. */
   image?: string;
+  /** Caption printed under the lead image, when the page had one. */
+  imageCaption?: string;
   /** Pull quote used by the `quote` layout in the stream. */
   pull?: string;
   byline?: string;

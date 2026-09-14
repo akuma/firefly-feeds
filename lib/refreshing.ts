@@ -30,7 +30,7 @@ export const EXTRACTION_RETRY_MS = 12 * 60 * 60_000;
  * keeps seeing the previous extractor's output until the article happens to
  * go stale.
  */
-export const EXTRACTOR_VERSION = 3;
+export const EXTRACTOR_VERSION = 4;
 
 /**
  * Whether opening this article should touch the network.

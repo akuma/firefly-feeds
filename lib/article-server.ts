@@ -8,6 +8,7 @@ import {
   firstFigureSrc,
   htmlToBlocks,
   htmlToText,
+  imageIdentity,
   isJunkImageUrl,
   resolveUrl,
   stripLeadFigure,
@@ -41,6 +42,8 @@ export type ExtractedArticle = {
   truncated: boolean;
   /** The article's own lead image, when it has one. */
   image?: string;
+  /** The caption the page printed under that lead image, when it had one. */
+  imageCaption?: string;
   /** Validators to send back on the next conditional GET. */
   etag?: string;
   lastModified?: string;
@@ -247,6 +250,19 @@ function usableImage(raw: string | undefined, base: string): string | undefined 
   return resolved;
 }
 
+/**
+ * The caption the body printed under the lead image, if the body has it.
+ * The lead is often the same photograph as a body figure at another size, and
+ * that figure is about to be removed — so its caption is carried up first.
+ */
+function captionForImage(blocks: Block[], image: string): string | undefined {
+  const target = imageIdentity(image);
+  const figure = blocks.find(
+    (block) => block.kind === "figure" && block.src && imageIdentity(block.src) === target,
+  );
+  return figure?.kind === "figure" ? figure.caption.trim() || undefined : undefined;
+}
+
 export function extractArticle(html: string, url: string): ExtractedArticle {
   // Read the page's own video before extraction: a video page has almost no
   // prose, and content extraction often returns null or a handful of credits.
@@ -279,7 +295,8 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
   // lead than whichever figure happens to come first in the body.
   const image = usableImage(parsed?.image, url) ?? firstFigureSrc(blocks);
   // The reader shows `image` above the body, so the same figure must not
-  // appear a second time inside it.
+  // appear a second time inside it — but its caption belongs to the lead.
+  const imageCaption = image ? captionForImage(blocks, image) : undefined;
   const body = stripLeadFigure(blocks, image);
   // Content extraction drops iframes, so the video is placed at the top of
   // what it did keep. Only a provider id is stored, never publisher markup.
@@ -293,6 +310,7 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     blocks: withVideo,
     truncated,
     image,
+    imageCaption,
   };
 }
 

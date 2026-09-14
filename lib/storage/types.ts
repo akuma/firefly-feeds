@@ -49,6 +49,8 @@ export type ArticleRecord = {
   summary: string;
   body: Block[];
   image?: string;
+  /** Caption printed under the lead image, when the page had one. */
+  imageCaption?: string;
   minutes: number;
   layout: StoryLayout;
   contentState: ContentState;

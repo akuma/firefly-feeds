@@ -99,6 +99,20 @@ describe("extractArticle", () => {
     expect(figures).toEqual(["https://cdn.test/other.jpg"]);
   });
 
+  it("carries the lead image's caption from the body figure it replaces", () => {
+    const page = `<!doctype html><html><head>
+      <meta property="og:image" content="https://thumb.test/fit-in/1600x0/https://cdn.test/photo.jpg">
+      <title>Captioned hero</title>
+    </head><body><article><h1>Captioned hero</h1>
+      <figure><img src="https://thumb.test/600x400/https://cdn.test/photo.jpg" width="800" height="600" alt="Hero"><figcaption>A hedgehog at dusk. Jane Doe</figcaption></figure>
+      ${paragraph("Body text that is long enough to be a real article.")}
+    </article></body></html>`;
+    const article = extractArticle(page, "https://example.com/a");
+    expect(article.imageCaption).toBe("A hedgehog at dusk. Jane Doe");
+    // the figure itself is gone; its caption now belongs to the lead
+    expect(article.blocks.some((b) => b.kind === "figure")).toBe(false);
+  });
+
   it("does not cut a real article at the feed budget", () => {
     const body = Array.from(
       { length: 20 },

@@ -518,10 +518,16 @@ export function ArticlePane() {
                 big
                 className="aspect-[16/9] w-full"
               />
-              {isSample && (
+              {isSample ? (
                 <figcaption className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                   Sample edition
                 </figcaption>
+              ) : (
+                s.imageCaption && (
+                  <figcaption className="mono mt-3 max-w-[62ch] text-[10px] leading-[1.75] tracking-[0.04em] text-ink4">
+                    {s.imageCaption}
+                  </figcaption>
+                )
               )}
             </figure>
           )}

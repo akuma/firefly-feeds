@@ -62,7 +62,9 @@ export function blockText(block: Block): string {
     case "list":
       return block.items.join(" · ");
     case "figure":
-      return block.src ?? block.caption ?? "(figure)";
+      return block.caption
+        ? `${block.src ?? "(figure)"} — ${block.caption}`
+        : (block.src ?? "(figure)");
     case "video":
       return `${block.provider}:${block.id}`;
     case "rule":
