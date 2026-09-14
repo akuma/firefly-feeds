@@ -550,12 +550,6 @@ export function StreamColumn() {
             {filtered.map((s, i) => (
               <div key={s.id} data-story={s.id}>
                 <StoryRow s={s} index={i} />
-                {i === 4 && filtered.length > 6 && (
-                  <div className="flex items-center gap-3 border-t border-rule px-5 py-3">
-                    <span className="label text-ink4">Also in this edition</span>
-                    <span className="h-px flex-1 bg-rule" />
-                  </div>
-                )}
               </div>
             ))}
             <div className="flex flex-col items-center gap-2.5 border-t border-rule px-5 py-10">
