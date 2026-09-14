@@ -1307,6 +1307,107 @@ describe("video embeds", () => {
     expect(frame?.getAttribute("src")).toBe("https://www.youtube-nocookie.com/embed/3ezPMAoxSbw");
     expect(frame?.getAttribute("sandbox")).toBeTruthy();
   });
+
+  it("offers a watch link for a video page with no embeddable player", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "sbbc",
+      url: "https://www.bbc.com/rss",
+      siteUrl: "https://www.bbc.com",
+      title: "BBC News",
+      host: "bbc.com",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    await repo.replaceArticles("sbbc", [
+      {
+        id: "sbbc~a",
+        sourceId: "sbbc",
+        title: "A BBC video",
+        link: "https://www.bbc.com/news/videos/cx2z5gjj838o",
+        publishedAt: now,
+        fetchedAt: now,
+        summary: "s",
+        body: [{ kind: "p", text: "A short description of the video." }],
+        image: "https://cdn.test/frame.jpg",
+        videoPage: true,
+        minutes: 1,
+        layout: "standard",
+        contentState: "full",
+        extractionState: "success",
+        contentFetchedAt: now,
+        contentCheckedAt: now,
+        extractorVersion: EXTRACTOR_VERSION,
+      },
+    ]);
+
+    await mount();
+    // the page's own frame is shown, and the reader links out to watch it
+    expect(reader().querySelector("img")?.getAttribute("src")).toContain("frame.jpg");
+    const watch = within(reader()).getByLabelText("Watch on bbc.com");
+    expect(watch.getAttribute("href")).toBe("https://www.bbc.com/news/videos/cx2z5gjj838o");
+  });
+
+  it("carries a video-page flag from the extractor through to the reader", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "sbbc2",
+      url: "https://feeds.bbci.co.uk/news/rss.xml",
+      siteUrl: "https://www.bbc.co.uk",
+      title: "BBC News",
+      host: "bbc.co.uk",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    // the feed gives a summary and a link, exactly as the real one does
+    await repo.replaceArticles("sbbc2", [
+      {
+        id: "sbbc2~a",
+        sourceId: "sbbc2",
+        title: "A BBC video",
+        link: "https://www.bbc.co.uk/news/videos/cx2z5gjj838o",
+        publishedAt: now,
+        fetchedAt: now,
+        summary: "A short description.",
+        body: [{ kind: "p", text: "A short description." }],
+        minutes: 1,
+        layout: "compact",
+        contentState: "summary",
+        extractionState: "idle",
+      },
+    ]);
+
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          article: {
+            title: "A BBC video",
+            blocks: [{ kind: "p", text: "A short description." }],
+            image: "https://cdn.test/frame.jpg",
+            videoPage: true,
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    try {
+      await mount();
+      await waitFor(() =>
+        expect(within(reader()).getByLabelText("Watch on bbc.co.uk")).toBeInTheDocument(),
+      );
+      const saved = (await repo.getArticles("sbbc2")).find((a) => a.id === "sbbc2~a");
+      expect(saved?.videoPage).toBe(true);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
 });
 
 describe("the wordmark", () => {

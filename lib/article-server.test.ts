@@ -128,6 +128,30 @@ describe("extractArticle", () => {
     expect(extractArticle(page, "https://example.com/a").videoPage).toBeUndefined();
   });
 
+  it("flags a website page whose primary entity is a VideoObject", () => {
+    // BBC's .co.uk mirror says `website` but carries the video in JSON-LD
+    const page = `<!doctype html><html><head>
+      <meta property="og:type" content="website">
+      <meta property="og:image" content="https://cdn.test/frame.jpg">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoObject","name":"A clip"}</script>
+      <title>A clip</title>
+    </head><body><article><h1>A clip</h1>
+      ${paragraph("A short description of the video.")}
+    </article></body></html>`;
+    expect(extractArticle(page, "https://example.com/v").videoPage).toBe(true);
+  });
+
+  it("does not flag an article that merely embeds a VideoObject", () => {
+    const page = `<!doctype html><html><head>
+      <meta property="og:type" content="article">
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoObject","name":"Embedded"}</script>
+      <title>Article</title>
+    </head><body><article><h1>Article</h1>
+      ${paragraph("Body text that is long enough to be a real article.")}
+    </article></body></html>`;
+    expect(extractArticle(page, "https://example.com/a").videoPage).toBeUndefined();
+  });
+
   it("does not cut a real article at the feed budget", () => {
     const body = Array.from(
       { length: 20 },

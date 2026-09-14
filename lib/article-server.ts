@@ -165,8 +165,18 @@ function metaContent(html: string, property: string): string | undefined {
 
 /** Whether the page declares itself a video rather than an article. */
 function declaresVideo(html: string): boolean {
-  const type = metaContent(html, "og:type");
-  return typeof type === "string" && /^video\b/i.test(type.trim());
+  const type = (metaContent(html, "og:type") ?? "").trim().toLowerCase();
+  if (type.startsWith("video")) return true;
+  // An ordinary article may embed a clip and stays an article.
+  if (type === "article") return false;
+  // A generic `website` page (or one with no og:type) whose primary entity is
+  // a schema.org VideoObject is still a video page — BBC's .co.uk mirror
+  // declares itself exactly that way, while its .com twin says video.other.
+  return [
+    ...html.matchAll(
+      /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+    ),
+  ].some((match) => /"VideoObject"/.test(match[1]));
 }
 
 /**
