@@ -73,10 +73,8 @@ export type Article = {
   layout: StoryLayout;
   /** Seed for the generative plate, when the story carries artwork. */
   plate?: number;
-  /** Photograph supplied by the feed, used instead of a generated plate. */
+  /** Photograph supplied by the feed or page, used as the stream thumbnail. */
   image?: string;
-  /** Caption printed under the lead image, when the page had one. */
-  imageCaption?: string;
   /** True when the page is a video that has to be watched at the source. */
   videoPage?: boolean;
   /** Pull quote used by the `quote` layout in the stream. */

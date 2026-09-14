@@ -243,25 +243,25 @@ describe("parseFeedXml", () => {
     expect(feed.items[1].contentState).toBe("summary");
   });
 
-  describe("lead images", () => {
-    it("uses a body image as the lead and removes it from the body", () => {
+  describe("cover images", () => {
+    it("uses a body image as the cover and leaves it in the body", () => {
       const feed = parseFeedXml(
         `<rss version="2.0"><channel><title>T</title><link>https://x.test</link><description>d</description><item><title>A</title><link>https://x.test/a</link><description><![CDATA[<p>Text</p><img src="https://x.test/lead.jpg" width="800" height="600" alt="Lead"><p>More</p>]]></description></item></channel></rss>`,
         "https://x.test/feed",
       );
       expect(feed.items[0].image).toBe("https://x.test/lead.jpg");
-      // the reader prints the lead above the body, so it must not repeat here
-      expect(feed.items[0].body.filter((b) => b.kind === "figure")).toHaveLength(0);
+      // the image is a stream thumbnail only; the body keeps it where it was
+      expect(feed.items[0].body.filter((b) => b.kind === "figure")).toHaveLength(1);
       expect(feed.items[0].body.some((b) => b.kind === "p")).toBe(true);
     });
 
-    it("prefers the feed's declared image and still strips a matching body figure", () => {
+    it("prefers the feed's declared cover and still leaves the body alone", () => {
       const feed = parseFeedXml(
         `<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>T</title><link>https://x.test</link><description>d</description><item><title>A</title><link>https://x.test/a</link><description><![CDATA[<p>Text</p><img src="https://x.test/hero.jpg" width="800" height="600" alt="Hero">]]></description><media:content url="https://x.test/hero.jpg"/></item></channel></rss>`,
         "https://x.test/feed",
       );
       expect(feed.items[0].image).toBe("https://x.test/hero.jpg");
-      expect(feed.items[0].body.filter((b) => b.kind === "figure")).toHaveLength(0);
+      expect(feed.items[0].body.filter((b) => b.kind === "figure")).toHaveLength(1);
     });
   });
 

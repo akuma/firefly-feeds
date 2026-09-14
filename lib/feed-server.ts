@@ -9,7 +9,6 @@ import {
   htmlToText,
   resolveUrl,
   sharedOpening,
-  stripLeadFigure,
 } from "./feed-html";
 import type { Block, ContentState, Story, StoryLayout } from "./types";
 
@@ -357,10 +356,10 @@ function normalizeItem(
     contentState = "summary";
   }
   if (truncated) contentState = "truncated";
-  // The feed's own lead image wins; otherwise the first body figure is the
-  // lead. Either way the body must not print it a second time.
+  // The feed's own lead image is the stream cover; otherwise the first body
+  // figure is. The body is left alone, so an image keeps the place the feed
+  // gave it.
   const image = pickFeedImage(raw, baseUrl) ?? firstFigureSrc(body);
-  const cleanBody = stripLeadFigure(body, image);
 
   /*
    * Identity answers "is this the same article?", which is a different question
@@ -388,7 +387,7 @@ function normalizeItem(
     author: author ? htmlToText(author).slice(0, 120) : undefined,
     publishedMs,
     summary: summary || htmlToText(contentHtml).slice(0, 220),
-    body: cleanBody,
+    body,
     image,
     contentState,
   };

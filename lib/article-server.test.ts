@@ -38,15 +38,15 @@ describe("extractArticle", () => {
     expect(() => extractArticle(nav, "https://example.com/")).toThrow(FeedError);
   });
 
-  it("keeps the lead image out of the body", () => {
+  it("keeps a body image in its place instead of lifting it to the cover", () => {
     const article = extractArticle(ARTICLE, "https://example.com/a-piece");
+    // no og:image, so the first body figure is the cover
     expect(article.image).toBe("https://example.com/lead.jpg");
-    // ArticlePane renders the image above the body; a second copy reads as a
-    // different picture, or as padding
-    expect(article.blocks.some((b) => b.kind === "figure" && b.src === article.image)).toBe(false);
+    // …but it is still in the body, where the piece put it
+    expect(article.blocks.some((b) => b.kind === "figure" && b.src === article.image)).toBe(true);
   });
 
-  it("uses the body's first figure as the lead, not the metadata image", () => {
+  it("uses the page's metadata image as the cover when it has one", () => {
     const page = `<!doctype html><html><head>
       <meta property="og:image" content="https://example.com/hero.jpg">
       <title>With a hero</title>
@@ -55,16 +55,16 @@ describe("extractArticle", () => {
       ${paragraph("Body text that is long enough to be a real article.")}
     </article></body></html>`;
     const article = extractArticle(page, "https://example.com/a");
-    expect(article.image).toBe("https://example.com/inline.jpg");
-    // the lead came out of the body, so it is not printed there a second time
+    expect(article.image).toBe("https://example.com/hero.jpg");
+    // the body image is not moved or removed
     expect(
       article.blocks.some((b) => b.kind === "figure" && b.src === "https://example.com/inline.jpg"),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("falls back to the metadata image when the body has no figures", () => {
+  it("keeps a metadata cover whose URL contains crop coordinates", () => {
     // the og:image was once mistaken for a 1x1 pixel because “1751x1143”
-    // contains that substring; it must survive as a fallback
+    // contains that substring
     const hero =
       "https://thumb.test/fit-in/1600x0/filters:focal(1751x1143:1752x1144)/https://cdn.test/heat.jpg";
     const page = `<!doctype html><html><head>
@@ -77,37 +77,33 @@ describe("extractArticle", () => {
     expect(article.image).toBe(hero);
   });
 
-  it("ignores a metadata variant of the body's lead, so it is not shown twice", () => {
-    const page = `<!doctype html><html><head>
-      <meta property="og:image" content="https://thumb.test/fit-in/1600x0/https://cdn.test/photo.jpg">
-      <title>Resized hero</title>
-    </head><body><article><h1>Resized hero</h1>
-      <img src="https://thumb.test/600x400/https://cdn.test/photo.jpg" width="800" height="600" alt="Hero">
+  it("falls back to a body image when the page declares no cover", () => {
+    const page = `<!doctype html><html><head><title>No cover</title></head><body><article><h1>No cover</h1>
+      <img src="https://cdn.test/chart.png" width="800" height="600" alt="Chart">
       ${paragraph("Body text that is long enough to be a real article.")}
-      <img src="https://cdn.test/other.jpg" width="800" height="600" alt="Other">
     </article></body></html>`;
     const article = extractArticle(page, "https://example.com/a");
-    // the body's own copy is the lead, so the metadata crop is never added
-    expect(article.image).toBe("https://thumb.test/600x400/https://cdn.test/photo.jpg");
-    const figures = article.blocks
-      .filter((b) => b.kind === "figure")
-      .map((b) => (b as Extract<typeof b, { kind: "figure" }>).src);
-    expect(figures).toEqual(["https://cdn.test/other.jpg"]);
+    expect(article.image).toBe("https://cdn.test/chart.png");
   });
 
-  it("keeps the lead image's own caption", () => {
+  it("leaves a mid-article image where the piece put it", () => {
     const page = `<!doctype html><html><head>
-      <meta property="og:image" content="https://thumb.test/fit-in/1600x0/https://cdn.test/photo.jpg">
-      <title>Captioned hero</title>
-    </head><body><article><h1>Captioned hero</h1>
-      <figure><img src="https://thumb.test/600x400/https://cdn.test/photo.jpg" width="800" height="600" alt="Hero"><figcaption>A hedgehog at dusk. Jane Doe</figcaption></figure>
-      ${paragraph("Body text that is long enough to be a real article.")}
+      <meta property="og:image" content="https://cdn.test/cover.jpg">
+      <title>Text first</title>
+    </head><body><article><h1>Text first</h1>
+      ${paragraph("Opening paragraph before any picture.")}
+      <figure><img src="https://cdn.test/inset.jpg" width="800" height="600" alt="Inset"><figcaption>An inset caption.</figcaption></figure>
+      ${paragraph("More body text after the picture.")}
     </article></body></html>`;
     const article = extractArticle(page, "https://example.com/a");
-    expect(article.image).toBe("https://thumb.test/600x400/https://cdn.test/photo.jpg");
-    expect(article.imageCaption).toBe("A hedgehog at dusk. Jane Doe");
-    // the figure itself is gone; its caption now belongs to the lead
-    expect(article.blocks.some((b) => b.kind === "figure")).toBe(false);
+    expect(article.image).toBe("https://cdn.test/cover.jpg");
+    const kinds = article.blocks.map((b) => b.kind);
+    // the picture stays after the opening paragraph, not above it
+    expect(kinds.indexOf("figure")).toBeGreaterThan(kinds.indexOf("p"));
+    // and it keeps the caption the page printed under it
+    expect(article.blocks.find((b) => b.kind === "figure")).toMatchObject({
+      caption: "An inset caption.",
+    });
   });
 
   it("flags a page that declares itself a video but has no embeddable player", () => {

@@ -18,7 +18,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { IconButton, Rule } from "./brand";
-import { Media, hasArt } from "./plate";
+import { Media } from "./plate";
 import { FOLDERS } from "@/lib/sources";
 import { DWELL_MS, progressFor, readSignal } from "@/lib/reading";
 import { FONT_SIZES, useReader, type ReaderFont } from "@/lib/store";
@@ -517,7 +517,13 @@ export function ArticlePane() {
             </span>
           </div>
 
-          {hasArt(s) && (
+          {/*
+           * A body image keeps its position, so the article never renders one
+           * above the body. Artwork appears here only for the sample edition's
+           * generated plate and for a video page, whose frame is the page's own
+           * poster — neither is a body figure.
+           */}
+          {(s.plate !== undefined || Boolean(s.videoPage && s.image)) && (
             <figure className="mt-8">
               <div className="relative">
                 <Media
@@ -544,21 +550,15 @@ export function ArticlePane() {
                   </a>
                 )}
               </div>
-              {isSample ? (
+              {isSample && (
                 <figcaption className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                   Sample edition
                 </figcaption>
-              ) : (
-                s.imageCaption && (
-                  <figcaption className="mono mt-3 max-w-[62ch] text-[10px] leading-[1.75] tracking-[0.04em] text-ink4">
-                    {s.imageCaption}
-                  </figcaption>
-                )
               )}
             </figure>
           )}
 
-          {!hasArt(s) && s.videoPage && articleHref && (
+          {s.videoPage && !s.image && articleHref && (
             <a
               href={articleHref}
               target="_blank"

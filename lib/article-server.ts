@@ -8,10 +8,8 @@ import {
   firstFigureSrc,
   htmlToBlocks,
   htmlToText,
-  imageIdentity,
   isJunkImageUrl,
   resolveUrl,
-  stripLeadFigure,
 } from "./feed-html";
 import type { Block } from "./types";
 import { isSafeTargetUrl } from "./url-safety";
@@ -40,10 +38,9 @@ export type ExtractedArticle = {
   blocks: Block[];
   /** True when our own article budget cut the body short. */
   truncated: boolean;
-  /** The article's own lead image, when it has one. */
+  /** The article's own lead image, when it has one. Cover for the stream; it
+   * is not shown above the body, because a body image must keep its place. */
   image?: string;
-  /** The caption the page printed under that lead image, when it had one. */
-  imageCaption?: string;
   /**
    * The page declares itself a video (`og:type` `video.*`) but offers no
    * embeddable player, so the reader can only link out to watch it.
@@ -271,19 +268,6 @@ function usableImage(raw: string | undefined, base: string): string | undefined 
   return resolved;
 }
 
-/**
- * The caption the body printed under the lead image, if the body has it.
- * The lead is often the same photograph as a body figure at another size, and
- * that figure is about to be removed — so its caption is carried up first.
- */
-function captionForImage(blocks: Block[], image: string): string | undefined {
-  const target = imageIdentity(image);
-  const figure = blocks.find(
-    (block) => block.kind === "figure" && block.src && imageIdentity(block.src) === target,
-  );
-  return figure?.kind === "figure" ? figure.caption.trim() || undefined : undefined;
-}
-
 export function extractArticle(html: string, url: string): ExtractedArticle {
   // Read the page's own video before extraction: a video page has almost no
   // prose, and content extraction often returns null or a handful of credits.
@@ -316,31 +300,23 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     throw new FeedError("That page did not contain a readable article.", 422);
   }
 
-  // A video page's frame is its metadata image; the body markup around it is
-  // mostly related-clip furniture. An ordinary article's hero, by contrast, is
-  // its first body figure, and preferring that keeps the picture and its
-  // caption together and never prints a metadata crop above a body copy of the
-  // same artwork.
-  const image = videoPage
-    ? (usableImage(parsed?.image, url) ?? firstFigureSrc(blocks))
-    : (firstFigureSrc(blocks) ?? usableImage(parsed?.image, url));
-  // The reader shows `image` above the body, so the same figure must not
-  // appear a second time inside it — but its caption belongs to the lead.
-  const imageCaption = image ? captionForImage(blocks, image) : undefined;
-  const body = stripLeadFigure(blocks, image);
+  // The page's own metadata names its cover image — that is the stream
+  // thumbnail. When there is none, any reasonable picture in the article will
+  // do. It is never lifted out of the body: a figure keeps the position the
+  // piece gave it, so the detail page reads in the order the publisher set.
+  const image = usableImage(parsed?.image, url) ?? firstFigureSrc(blocks);
   // Content extraction drops iframes, so the video is placed at the top of
   // what it did keep. Only a provider id is stored, never publisher markup.
-  const withVideo = video ? [{ kind: "video" as const, ...video }, ...body] : body;
+  const body = video ? [{ kind: "video" as const, ...video }, ...blocks] : blocks;
 
   return {
     title: parsed?.title?.trim() || undefined,
     author: parsed?.author?.trim() || undefined,
     publishedTime: parsed?.published?.trim() || undefined,
     siteName: parsed?.site?.trim() || undefined,
-    blocks: withVideo,
+    blocks: body,
     truncated,
     image,
-    imageCaption,
     videoPage: videoPage || undefined,
   };
 }

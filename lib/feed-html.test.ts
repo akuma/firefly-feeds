@@ -6,10 +6,8 @@ import {
   htmlToBlocks,
   htmlToSummary,
   htmlToText,
-  imageIdentity,
   isSafeUrl,
   sharedOpening,
-  stripLeadFigure,
 } from "./feed-html";
 
 describe("decodeEntities", () => {
@@ -323,19 +321,6 @@ describe("images", () => {
     ]);
   });
 
-  it("removes only the lead figure from the body", () => {
-    const blocks = [
-      { kind: "figure" as const, src: "https://e.test/a.jpg", caption: "", seed: 1 },
-      { kind: "p" as const, text: "Text" },
-      { kind: "figure" as const, src: "https://e.test/b.jpg", caption: "", seed: 2 },
-    ];
-    expect(figureSrcs(stripLeadFigure(blocks, "https://e.test/a.jpg"))).toEqual([
-      "https://e.test/b.jpg",
-    ]);
-    // a lead that never appeared in the body removes nothing
-    expect(stripLeadFigure(blocks, "https://e.test/c.jpg")).toHaveLength(3);
-  });
-
   it("does not mistake crop coordinates for a 1x1 tracking pixel", () => {
     // `filters:focal(1751x1143:…)` contains the substring “1x1”; a real pixel
     // is a size token, not digits inside another number
@@ -343,17 +328,5 @@ describe("images", () => {
       "https://thumb.test/fit-in/1600x0/filters:focal(1751x1143:1752x1144)/https://cdn.test/photo.jpg";
     const { blocks } = htmlToBlocks(`<img src="${url}" alt="Heat">`);
     expect(figureSrcs(blocks)).toEqual([url]);
-  });
-
-  it("recognises the same photo served at two resize sizes", () => {
-    const lead = "https://thumb.test/fit-in/1600x0/https://cdn.test/photo.jpg";
-    const smaller = "https://thumb.test/600x400/https://cdn.test/photo.jpg";
-    expect(imageIdentity(lead)).toBe(imageIdentity(smaller));
-
-    const blocks = [
-      { kind: "figure" as const, src: smaller, caption: "", seed: 1 },
-      { kind: "figure" as const, src: "https://cdn.test/other.jpg", caption: "", seed: 2 },
-    ];
-    expect(figureSrcs(stripLeadFigure(blocks, lead))).toEqual(["https://cdn.test/other.jpg"]);
   });
 });

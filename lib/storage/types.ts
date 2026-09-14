@@ -49,8 +49,6 @@ export type ArticleRecord = {
   summary: string;
   body: Block[];
   image?: string;
-  /** Caption printed under the lead image, when the page had one. */
-  imageCaption?: string;
   /** True when the page is a video that has to be watched at the source. */
   videoPage?: boolean;
   minutes: number;

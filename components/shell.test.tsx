@@ -1451,6 +1451,62 @@ describe("reading the full text on demand", () => {
   });
 });
 
+describe("body images", () => {
+  it("keeps a mid-article picture where the article put it", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "shoist",
+      url: "https://hoist.example/feed.xml",
+      siteUrl: "https://hoist.example",
+      title: "Hoist Source",
+      host: "hoist.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    await repo.replaceArticles("shoist", [
+      {
+        id: "shoist~a",
+        sourceId: "shoist",
+        title: "Text first",
+        link: "https://hoist.example/a",
+        publishedAt: now,
+        fetchedAt: now,
+        summary: "s",
+        body: [
+          { kind: "p", text: "Opening paragraph before any picture." },
+          {
+            kind: "figure",
+            src: "https://cdn.test/inset.jpg",
+            caption: "An inset caption.",
+            seed: 1,
+          },
+        ],
+        // the cover is a stream thumbnail; it must not be printed above the body
+        image: "https://cdn.test/cover.jpg",
+        minutes: 2,
+        layout: "standard",
+        contentState: "full",
+        extractionState: "success",
+        contentFetchedAt: now,
+        contentCheckedAt: now,
+        extractorVersion: EXTRACTOR_VERSION,
+      },
+    ]);
+
+    await mount();
+    // the cover image is not rendered at the top of the detail page
+    expect(reader().querySelector('img[src*="cover.jpg"]')).toBeNull();
+    // the body's own image stays after the paragraph that preceded it
+    const body = document.querySelector("[data-t='reader-body']")!;
+    const text = body.textContent ?? "";
+    expect(text.indexOf("Opening paragraph")).toBeLessThan(text.indexOf("An inset caption."));
+    expect(reader().querySelector('img[src*="inset.jpg"]')).not.toBeNull();
+  });
+});
+
 describe("video embeds", () => {
   it("renders an allowlisted provider in a sandboxed frame", async () => {
     const repo = await import("@/lib/storage/repository");
