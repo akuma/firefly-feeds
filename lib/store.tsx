@@ -375,6 +375,10 @@ export function useReaderState(edition: Edition): Ctx {
     (id: string) => {
       const existing = reading.find((r) => r.id === id);
       if (existing?.read) return;
+      // The first real story can be displayed through `activeId` while the raw
+      // selection still holds the sample id. Anchor the story being credited
+      // before Unread removes it, so the fallback cannot advance the reader.
+      setSelectedId(id);
       patchReading([id], (record) => ({ ...record, read: true }));
     },
     [reading, patchReading],

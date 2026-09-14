@@ -320,8 +320,10 @@ the open story removes it from the column, but the pane stays on the page:
 dropping to the next story under someone who is still reading it is the jump the
 filter would otherwise cause. `j`/`k` and the "Next up" link anchor on the column
 the filter was applied to (`listed` in `lib/store.tsx`), so a step continues from
-the story on screen instead of restarting at the top. Changing the view, a search
-or a collection still carries the reader to the new column.
+the story on screen instead of restarting at the top. When the initial real story
+is displayed through a fallback selection, crediting it also anchors that real id
+before the filter changes. Changing the view, a search or a collection still
+carries the reader to the new column.
 
 ## Sample content
 

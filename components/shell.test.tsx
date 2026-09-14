@@ -88,6 +88,51 @@ async function seedBody(opts: { image?: string; hasCover?: boolean; imageCaption
   ]);
 }
 
+/** Two real stories, so the initial selection cannot resolve to a sample id. */
+async function seedInitialRealStories() {
+  const repo = await import("@/lib/storage/repository");
+  const now = Date.now();
+  await repo.putSource({
+    id: "sinitial",
+    url: "https://initial.example/feed.xml",
+    siteUrl: "https://initial.example",
+    title: "Initial Source",
+    host: "initial.example",
+    folder: "news",
+    addedAt: now,
+    fetchedAt: now,
+    updatedAt: now,
+  });
+  await repo.replaceArticles("sinitial", [
+    {
+      id: "sinitial~first",
+      sourceId: "sinitial",
+      title: "First real story",
+      publishedAt: now,
+      fetchedAt: now,
+      summary: "First summary",
+      body: [{ kind: "p", text: "First body" }],
+      minutes: 2,
+      layout: "standard",
+      contentState: "full",
+      extractionState: "idle",
+    },
+    {
+      id: "sinitial~second",
+      sourceId: "sinitial",
+      title: "Second real story",
+      publishedAt: now - 60_000,
+      fetchedAt: now,
+      summary: "Second summary",
+      body: [{ kind: "p", text: "Second body" }],
+      minutes: 2,
+      layout: "standard",
+      contentState: "full",
+      extractionState: "idle",
+    },
+  ]);
+}
+
 /** A source whose one article opens with the given paragraph. */
 async function seedOpener(text: string, withFigure = false) {
   const repo = await import("@/lib/storage/repository");
@@ -393,6 +438,22 @@ describe("reading state", () => {
     // …and Next up still points at the story that follows the one on screen
     expect(within(reader()).getByText("Next up")).toBeInTheDocument();
     expect(within(reader()).getByText(following)).toBeInTheDocument();
+  });
+
+  it("keeps the initially opened real story when Unread drops it", async () => {
+    await seedInitialRealStories();
+    await mount();
+    const title = () => reader().querySelector("[data-t='reader-title']")?.textContent;
+    expect(title()).toBe("First real story");
+
+    const pane = document.querySelector<HTMLElement>("[data-t='reader-scroll']")!;
+    Object.defineProperty(pane, "scrollHeight", { value: 5000, configurable: true });
+    Object.defineProperty(pane, "clientHeight", { value: 900, configurable: true });
+    Object.defineProperty(pane, "scrollTop", { value: 4090, configurable: true, writable: true });
+    pane.dispatchEvent(new Event("scroll"));
+
+    await waitFor(() => expect(colophon().unread).toBe(1));
+    expect(title()).toBe("First real story");
   });
 
   it("steps onward from a story the Unread filter dropped", async () => {
