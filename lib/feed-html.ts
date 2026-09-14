@@ -155,7 +155,7 @@ function isJunkImageTag(tag: string): boolean {
   return SHARE_ALT.test((attr(tag, "alt") ?? "").trim());
 }
 
-function isJunkImageUrl(url: string): boolean {
+export function isJunkImageUrl(url: string): boolean {
   if (JUNK_IMAGE_URL.test(url)) return true;
   // Thumbnail services put the rendered box in the URL (`…/fit-in/160x80/…`).
   // A small box is a byline portrait or a related-item chip, not the picture

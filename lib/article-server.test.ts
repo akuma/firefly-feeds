@@ -46,6 +46,22 @@ describe("extractArticle", () => {
     expect(article.blocks.some((b) => b.kind === "figure" && b.src === article.image)).toBe(false);
   });
 
+  it("prefers the page's own metadata image over the first body figure", () => {
+    const page = `<!doctype html><html><head>
+      <meta property="og:image" content="https://example.com/hero.jpg">
+      <title>With a hero</title>
+    </head><body><article><h1>With a hero</h1>
+      <img src="https://example.com/inline.jpg" width="800" height="600" alt="Inline">
+      ${paragraph("Body text that is long enough to be a real article.")}
+    </article></body></html>`;
+    const article = extractArticle(page, "https://example.com/a");
+    expect(article.image).toBe("https://example.com/hero.jpg");
+    // a metadata hero that is not in the body leaves the body image alone
+    expect(
+      article.blocks.some((b) => b.kind === "figure" && b.src === "https://example.com/inline.jpg"),
+    ).toBe(true);
+  });
+
   it("does not cut a real article at the feed budget", () => {
     const body = Array.from(
       { length: 20 },

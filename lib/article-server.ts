@@ -1,11 +1,15 @@
-import { Readability } from "@mozilla/readability";
-import { parseHTML } from "linkedom";
+import Defuddle from "defuddle";
+import type { DefuddleResponse } from "defuddle";
+import { DOMParser, parseHTML } from "linkedom";
 import { FeedError, readCapped, USER_AGENT } from "./feed-server";
 import {
   ARTICLE_BODY_BUDGET,
   decodeEntities,
   firstFigureSrc,
   htmlToBlocks,
+  htmlToText,
+  isJunkImageUrl,
+  resolveUrl,
   stripLeadFigure,
 } from "./feed-html";
 import type { Block } from "./types";
@@ -17,7 +21,7 @@ import { isSafeTargetUrl } from "./url-safety";
  * When a feed gives a story an article URL, that page is the preferred body;
  * the feed's own text is the instant fallback until the original arrives. This
  * fetches the page the reader actually opened, extracts its body with
- * Readability, and returns it as the same `Block[]` the reader already renders
+ * Defuddle, and returns it as the same `Block[]` the reader already renders
  * — so the reading surface is unchanged and no publisher HTML reaches the DOM.
  *
  * It runs one page at a time, when a reader opens a story, never as a
@@ -203,53 +207,85 @@ export async function readArticle(
   };
 }
 
-export function extractArticle(html: string, url: string): ExtractedArticle {
-  // Read the page's own video before Readability: a video page has almost no
-  // prose, and Readability often returns null or a handful of credits for it.
-  const video = findVideoEmbed(html);
+/**
+ * linkedom does not implement the couple of layout APIs Defuddle probes for
+ * hidden elements, and its `defaultView` can resolve to a host `window` (jsdom
+ * under test) whose `getComputedStyle` refuses foreign elements. So the document
+ * gets a small window of its own — linkedom's matching DOM parser plus a
+ * no-layout `getComputedStyle` — that shadows whatever view it inherited.
+ */
+function documentFor(html: string, url: string): Document {
   const { document } = parseHTML(html);
-  const doc = document as unknown as Document;
-  // Readability resolves the content's relative URLs against `baseURI`, and
-  // linkedom exposes it as a getter-only property. Re-defining it per document
-  // is what keeps `/lead.jpg` resolving against the article, not the test host.
+  const doc = document as unknown as {
+    defaultView?: object | null;
+    URL?: string;
+    styleSheets?: unknown;
+  };
+  // Defuddle reads the page's own stylesheets to spot mobile-hidden elements;
+  // linkedom has none to give, and an empty list is the honest answer.
+  if (!doc.styleSheets) doc.styleSheets = [];
+  const view = Object.create(doc.defaultView ?? null) as Record<string, unknown>;
+  view.getComputedStyle = () => ({ display: "" });
+  view.DOMParser = DOMParser;
+  Object.defineProperty(doc, "defaultView", { value: view, configurable: true });
   try {
-    Object.defineProperty(doc, "baseURI", { value: url, configurable: true });
+    doc.URL = url;
   } catch {
-    /* fall back to htmlToBlocks' own resolution */
+    /* some DOM implementations expose URL as read-only */
   }
+  return document as unknown as Document;
+}
 
-  let parsed: ReturnType<Readability["parse"]> = null;
+/** The lead image from the page's own metadata, if it is worth showing. */
+function usableImage(raw: string | undefined, base: string): string | undefined {
+  const resolved = resolveUrl(raw, base);
+  if (!resolved || isJunkImageUrl(resolved)) return undefined;
+  return resolved;
+}
+
+export function extractArticle(html: string, url: string): ExtractedArticle {
+  // Read the page's own video before extraction: a video page has almost no
+  // prose, and content extraction often returns null or a handful of credits.
+  const video = findVideoEmbed(html);
+
+  let parsed: DefuddleResponse | null = null;
   try {
-    parsed = new Readability(doc, { charThreshold: 100 }).parse();
+    // Sync `parse()` never touches the async third-party extractors, so the
+    // reader still fetches one page and nothing else.
+    parsed = new Defuddle(documentFor(html, url), { url, useAsync: false }).parse();
   } catch {
     parsed = null;
   }
-  if (!parsed || !parsed.content) {
+
+  const content = parsed?.content ?? "";
+  if (!content) {
     // A video is the article here; a page with nothing but a player is still
     // readable rather than a failure.
     if (video) return { blocks: [{ kind: "video", ...video }], truncated: false };
     throw new FeedError("Could not read the article on that page.", 422);
   }
 
-  const { blocks, truncated } = htmlToBlocks(parsed.content, url, ARTICLE_BODY_BUDGET);
-  const text = (parsed.textContent ?? "").replace(/\s+/g, " ").trim();
+  const { blocks, truncated } = htmlToBlocks(content, url, ARTICLE_BODY_BUDGET);
+  const text = htmlToText(content);
   if (!video && (blocks.length === 0 || text.length < MIN_ARTICLE_CHARS)) {
     throw new FeedError("That page did not contain a readable article.", 422);
   }
 
-  const image = firstFigureSrc(blocks);
+  // The page's own metadata names the piece's main image, which is a better
+  // lead than whichever figure happens to come first in the body.
+  const image = usableImage(parsed?.image, url) ?? firstFigureSrc(blocks);
   // The reader shows `image` above the body, so the same figure must not
   // appear a second time inside it.
   const body = stripLeadFigure(blocks, image);
-  // Readability drops iframes, so the video is placed at the top of what it
-  // did keep. Only a provider id is stored, never publisher markup.
+  // Content extraction drops iframes, so the video is placed at the top of
+  // what it did keep. Only a provider id is stored, never publisher markup.
   const withVideo = video ? [{ kind: "video" as const, ...video }, ...body] : body;
 
   return {
-    title: parsed.title?.trim() || undefined,
-    author: parsed.byline?.trim() || undefined,
-    publishedTime: parsed.publishedTime?.trim() || undefined,
-    siteName: parsed.siteName?.trim() || undefined,
+    title: parsed?.title?.trim() || undefined,
+    author: parsed?.author?.trim() || undefined,
+    publishedTime: parsed?.published?.trim() || undefined,
+    siteName: parsed?.site?.trim() || undefined,
     blocks: withVideo,
     truncated,
     image,

@@ -204,10 +204,12 @@ article is opened, never swapped in under a reader mid-scroll.
 **Without an article URL**, the feed content is canonical: no original to
 fetch, no article-level revalidation, and no “Open original”.
 
-`GET /api/article?url=…` runs `fetch → linkedom → Readability` on the server and
+`GET /api/article?url=…` runs `fetch → linkedom → Defuddle` on the server and
 returns the same `Block[]` model, so the reading surface is unchanged and no
 publisher HTML reaches the DOM. `linkedom` rather than `jsdom`: the deployment
-is a Worker, and jsdom does not run there.
+is a Worker, and jsdom does not run there. Defuddle resolves the page's own
+metadata (title, byline, date, site, main image) and cleans the body; the
+reader still converts it to its own blocks.
 
 Images are filtered before they become figures: tracking pixels, logos,
 author avatars and byline headshots are dropped, whether the signal is in the
