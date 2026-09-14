@@ -151,7 +151,8 @@ type Block =
   | { kind: "p" | "h2" | "note" | "code"; text: string }
   | { kind: "quote"; text: string; cite?: string }
   | { kind: "list"; items: string[] }
-  | { kind: "figure"; caption: string; seed: number; src?: string };
+  | { kind: "figure"; caption: string; seed: number; src?: string }
+  | { kind: "video"; provider: "youtube" | "vimeo"; id: string; title?: string };
 ```
 
 Three things follow from this. There is no `dangerouslySetInnerHTML` and no
@@ -201,6 +202,18 @@ fetch, no article-level revalidation, and no “Open original”.
 returns the same `Block[]` model, so the reading surface is unchanged and no
 publisher HTML reaches the DOM. `linkedom` rather than `jsdom`: the deployment
 is a Worker, and jsdom does not run there.
+
+Images are filtered before they become figures: tracking pixels, logos,
+author avatars and byline headshots are dropped, whether the signal is in the
+`class`/`alt` or only in a thumbnail size baked into the URL. A `<figure>` with
+no usable image is not dropped — its inner markup flows on, so a pull quote or
+code sample wrapped in one is not lost.
+
+A page's own video is read from standard metadata (schema.org `VideoObject`,
+Open Graph/Twitter player meta, or a real `<iframe>`) and stored as
+`{ provider, id }` for an allowlisted host only. The reader renders it as a
+sandboxed `youtube-nocookie.com` / `player.vimeo.com` frame; arbitrary
+publisher iframes are never embedded.
 
 A stale page is revalidated with a **conditional GET** — `If-None-Match` when an
 ETag is stored, else `If-Modified-Since` — never a HEAD followed by a GET. A

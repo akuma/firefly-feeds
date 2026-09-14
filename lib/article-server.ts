@@ -1,7 +1,13 @@
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import { FeedError, readCapped, USER_AGENT } from "./feed-server";
-import { ARTICLE_BODY_BUDGET, firstFigureSrc, htmlToBlocks, stripLeadFigure } from "./feed-html";
+import {
+  ARTICLE_BODY_BUDGET,
+  decodeEntities,
+  firstFigureSrc,
+  htmlToBlocks,
+  stripLeadFigure,
+} from "./feed-html";
 import type { Block } from "./types";
 import { isSafeTargetUrl } from "./url-safety";
 
@@ -65,6 +71,119 @@ const FETCH_TIMEOUT_MS = 12_000;
  */
 const MIN_ARTICLE_CHARS = 200;
 
+/* ------------------------------------------------------------- video */
+
+type VideoEmbed = { provider: "youtube" | "vimeo"; id: string; title?: string };
+
+const VIDEO_HOSTS = new Set([
+  "youtube.com",
+  "youtube-nocookie.com",
+  "youtu.be",
+  "player.vimeo.com",
+]);
+
+/**
+ * Whether an address is a video from a provider we are willing to embed.
+ *
+ * Anything else is refused: the reader must never render an arbitrary
+ * publisher iframe, so an embed is only ever a known provider plus an id.
+ */
+export function parseVideoEmbedUrl(
+  raw: string,
+): { provider: "youtube" | "vimeo"; id: string } | undefined {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return undefined;
+  }
+  const host = url.hostname.replace(/^www\./, "").toLowerCase();
+  if (!VIDEO_HOSTS.has(host)) return undefined;
+
+  if (host === "youtu.be") {
+    const id = url.pathname.slice(1).split("/")[0];
+    return /^[A-Za-z0-9_-]{6,}$/.test(id) ? { provider: "youtube", id } : undefined;
+  }
+  if (host === "player.vimeo.com") {
+    const match = /^\/video\/(\d+)/.exec(url.pathname);
+    return match ? { provider: "vimeo", id: match[1] } : undefined;
+  }
+  const match = /^\/(?:embed|v|shorts)\/([A-Za-z0-9_-]{6,})/.exec(url.pathname);
+  return match ? { provider: "youtube", id: match[1] } : undefined;
+}
+
+/** Walks a JSON-LD graph looking for a `VideoObject` with a usable embed. */
+function videoFromJson(node: unknown): VideoEmbed | undefined {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = videoFromJson(item);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (!node || typeof node !== "object") return undefined;
+  const object = node as Record<string, unknown>;
+  const type = object["@type"];
+  const isVideo = type === "VideoObject" || (Array.isArray(type) && type.includes("VideoObject"));
+  if (isVideo) {
+    for (const key of ["embedUrl", "contentUrl"]) {
+      const value = object[key];
+      if (typeof value !== "string") continue;
+      const parsed = parseVideoEmbedUrl(value);
+      if (parsed) {
+        return { ...parsed, title: typeof object.name === "string" ? object.name : undefined };
+      }
+    }
+  }
+  for (const value of Object.values(object)) {
+    const found = videoFromJson(value);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function metaContent(html: string, property: string): string | undefined {
+  const tag = new RegExp(`<meta\\b[^>]*(?:property|name)=["']${property}["'][^>]*>`, "i").exec(
+    html,
+  )?.[0];
+  if (!tag) return undefined;
+  const content = /\bcontent=["']([^"']*)["']/i.exec(tag)?.[1];
+  return content ? decodeEntities(content) : undefined;
+}
+
+/**
+ * The page's own video, from standard metadata rather than publisher markup.
+ * schema.org `VideoObject` first, then Open Graph/Twitter player meta, then a
+ * real iframe.
+ */
+function findVideoEmbed(html: string): VideoEmbed | undefined {
+  for (const match of html.matchAll(
+    /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+  )) {
+    let data: unknown;
+    try {
+      data = JSON.parse(match[1]);
+    } catch {
+      continue;
+    }
+    const found = videoFromJson(data);
+    if (found) return found;
+  }
+
+  for (const property of ["og:video:secure_url", "og:video:url", "og:video", "twitter:player"]) {
+    const value = metaContent(html, property);
+    if (!value) continue;
+    const parsed = parseVideoEmbedUrl(value);
+    if (parsed) return parsed;
+  }
+
+  for (const match of html.matchAll(/<iframe\b[^>]*\bsrc=["']([^"']+)["']/gi)) {
+    const parsed = parseVideoEmbedUrl(match[1]);
+    if (parsed) return parsed;
+  }
+  return undefined;
+}
+
 export async function readArticle(
   raw: string,
   conditions?: ArticleConditions,
@@ -85,6 +204,9 @@ export async function readArticle(
 }
 
 export function extractArticle(html: string, url: string): ExtractedArticle {
+  // Read the page's own video before Readability: a video page has almost no
+  // prose, and Readability often returns null or a handful of credits for it.
+  const video = findVideoEmbed(html);
   const { document } = parseHTML(html);
   const doc = document as unknown as Document;
   // Readability resolves the content's relative URLs against `baseURI`, and
@@ -103,12 +225,15 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     parsed = null;
   }
   if (!parsed || !parsed.content) {
+    // A video is the article here; a page with nothing but a player is still
+    // readable rather than a failure.
+    if (video) return { blocks: [{ kind: "video", ...video }], truncated: false };
     throw new FeedError("Could not read the article on that page.", 422);
   }
 
   const { blocks, truncated } = htmlToBlocks(parsed.content, url, ARTICLE_BODY_BUDGET);
   const text = (parsed.textContent ?? "").replace(/\s+/g, " ").trim();
-  if (blocks.length === 0 || text.length < MIN_ARTICLE_CHARS) {
+  if (!video && (blocks.length === 0 || text.length < MIN_ARTICLE_CHARS)) {
     throw new FeedError("That page did not contain a readable article.", 422);
   }
 
@@ -116,13 +241,16 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
   // The reader shows `image` above the body, so the same figure must not
   // appear a second time inside it.
   const body = stripLeadFigure(blocks, image);
+  // Readability drops iframes, so the video is placed at the top of what it
+  // did keep. Only a provider id is stored, never publisher markup.
+  const withVideo = video ? [{ kind: "video" as const, ...video }, ...body] : body;
 
   return {
     title: parsed.title?.trim() || undefined,
     author: parsed.byline?.trim() || undefined,
     publishedTime: parsed.publishedTime?.trim() || undefined,
     siteName: parsed.siteName?.trim() || undefined,
-    blocks: body,
+    blocks: withVideo,
     truncated,
     image,
   };

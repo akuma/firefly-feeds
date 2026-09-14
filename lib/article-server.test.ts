@@ -71,6 +71,54 @@ describe("extractArticle", () => {
   });
 });
 
+const VIDEO_PAGE = `<!doctype html>
+<html>
+  <head>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoObject","name":"The Chinese room","embedUrl":"https://www.youtube.com/embed/3ezPMAoxSbw"}</script>
+  </head>
+  <body>
+    <article>
+      <h1>The Chinese room</h1>
+      ${paragraph("Devised by the late US philosopher John Searle in 1980.")}
+      <p>Video by TED-Ed</p>
+      <p>Directors: Hernando Bahamon</p>
+      <p>Producer: Sazia Afrin</p>
+      <p>Writers: Charles Wallace</p>
+    </article>
+  </body>
+</html>`;
+
+describe("video embeds", () => {
+  it("turns a schema.org VideoObject into a playable video block", () => {
+    const article = extractArticle(VIDEO_PAGE, "https://example.com/videos/x");
+    expect(article.blocks[0]).toMatchObject({
+      kind: "video",
+      provider: "youtube",
+      id: "3ezPMAoxSbw",
+      title: "The Chinese room",
+    });
+  });
+
+  it("reads a Vimeo player from Open Graph metadata", () => {
+    const page = `<!doctype html><html><head>
+      <meta property="og:video:url" content="https://player.vimeo.com/video/123456789">
+    </head><body><article><h1>V</h1>${paragraph("Some body text.")}</article></body></html>`;
+    const article = extractArticle(page, "https://example.com/v");
+    expect(article.blocks.find((b) => b.kind === "video")).toMatchObject({
+      provider: "vimeo",
+      id: "123456789",
+    });
+  });
+
+  it("refuses a video from a host that is not allowlisted", () => {
+    const page = `<!doctype html><html><head>
+      <meta property="og:video:url" content="https://evil.example/embed/abc">
+    </head><body><article><h1>V</h1>${paragraph("Some body text.")}</article></body></html>`;
+    const article = extractArticle(page, "https://example.com/v");
+    expect(article.blocks.some((b) => b.kind === "video")).toBe(false);
+  });
+});
+
 describe("readArticle", () => {
   it("refuses a target address before making any request", async () => {
     await expect(readArticle("http://localhost/x")).rejects.toThrow(/cannot be read/i);

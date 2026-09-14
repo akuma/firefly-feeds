@@ -31,6 +31,43 @@ function hostOf(url: string): string {
   }
 }
 
+/**
+ * A cross-origin player needs `allow-scripts` to run and `allow-same-origin`
+ * to keep its own storage. The usual objection — that a frame could remove its
+ * own sandbox — only applies when it shares our origin, which an allowlisted
+ * provider never does.
+ */
+/* oxlint-disable react/iframe-missing-sandbox */
+function VideoEmbed({
+  provider,
+  id,
+  title,
+}: {
+  provider: "youtube" | "vimeo";
+  id: string;
+  title?: string;
+}) {
+  const src =
+    provider === "vimeo"
+      ? `https://player.vimeo.com/video/${id}`
+      : `https://www.youtube-nocookie.com/embed/${id}`;
+  return (
+    <div className="relative aspect-video w-full overflow-hidden bg-plate">
+      <iframe
+        src={src}
+        title={title ?? "Video"}
+        loading="lazy"
+        sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowFullScreen
+        referrerPolicy="strict-origin-when-cross-origin"
+        className="absolute inset-0 h-full w-full border-0"
+      />
+    </div>
+  );
+}
+/* oxlint-enable react/iframe-missing-sandbox */
+
 /* ------------------------------------------------------------- font menu */
 
 /**
@@ -156,6 +193,18 @@ function Blocks({ blocks }: { blocks: Block[] }) {
                 <figcaption className="mono mt-3 max-w-[62ch] text-[10px] leading-[1.75] tracking-[0.08em] text-ink4 uppercase">
                   {b.caption}
                 </figcaption>
+              </figure>
+            );
+
+          case "video":
+            return (
+              <figure key={i} className="my-[2.4em]">
+                <VideoEmbed provider={b.provider} id={b.id} title={b.title} />
+                {b.title && (
+                  <figcaption className="mono mt-3 max-w-[62ch] text-[10px] leading-[1.75] tracking-[0.08em] text-ink4 uppercase">
+                    {b.title}
+                  </figcaption>
+                )}
               </figure>
             );
 

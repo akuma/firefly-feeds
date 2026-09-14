@@ -1146,6 +1146,46 @@ describe("reading the full text on demand", () => {
   });
 });
 
+describe("video embeds", () => {
+  it("renders an allowlisted provider in a sandboxed frame", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "svideo",
+      url: "https://video.example/feed.xml",
+      siteUrl: "https://video.example",
+      title: "Video Source",
+      host: "video.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    await repo.replaceArticles("svideo", [
+      {
+        id: "svideo~a",
+        sourceId: "svideo",
+        title: "A video piece",
+        publishedAt: now,
+        fetchedAt: now,
+        summary: "s",
+        body: [
+          { kind: "video", provider: "youtube", id: "3ezPMAoxSbw", title: "The Chinese room" },
+        ],
+        minutes: 1,
+        layout: "standard",
+        contentState: "full",
+        extractionState: "idle",
+      },
+    ]);
+
+    await mount();
+    const frame = reader().querySelector("iframe");
+    expect(frame?.getAttribute("src")).toBe("https://www.youtube-nocookie.com/embed/3ezPMAoxSbw");
+    expect(frame?.getAttribute("sandbox")).toBeTruthy();
+  });
+});
+
 describe("the wordmark", () => {
   it("sets the name as one word at one size, with a strapline beneath", async () => {
     await mount();

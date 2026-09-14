@@ -46,6 +46,11 @@ export type Block =
   | { kind: "quote"; text: string; cite?: string }
   /** `src` is set when the artwork came from the feed; otherwise a plate is generated. */
   | { kind: "figure"; caption: string; seed: number; src?: string }
+  /**
+   * A video the original page embeds. Only an allowlisted provider and an id
+   * are stored, never publisher markup, so the reader can render a safe embed.
+   */
+  | { kind: "video"; provider: "youtube" | "vimeo"; id: string; title?: string }
   | { kind: "list"; items: string[] }
   | { kind: "note"; text: string }
   | { kind: "code"; text: string }
