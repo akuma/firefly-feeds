@@ -1582,6 +1582,74 @@ describe("body images", () => {
     expect(text.indexOf("Opening paragraph")).toBeLessThan(text.indexOf("An inset caption."));
     expect(reader().querySelector('img[src*="inset.jpg"]')).not.toBeNull();
   });
+
+  it("clears a cover the feed declared when the extracted body leads with a picture", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "sqcover",
+      url: "https://www.quantamagazine.org/feed/",
+      siteUrl: "https://www.quantamagazine.org",
+      title: "Quanta",
+      host: "quantamagazine.org",
+      folder: "science",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    // the feed declared a cover and only a summary
+    await repo.replaceArticles("sqcover", [
+      {
+        id: "sqcover~a",
+        sourceId: "sqcover",
+        title: "Flipping shells",
+        link: "https://www.quantamagazine.org/shells/",
+        publishedAt: now,
+        fetchedAt: now,
+        summary: "Standfirst.",
+        body: [{ kind: "p", text: "A short summary." }],
+        image: "https://cdn.test/Social.jpg",
+        hasCover: true,
+        minutes: 1,
+        layout: "compact",
+        contentState: "summary",
+        extractionState: "idle",
+      },
+    ]);
+
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          article: {
+            title: "Flipping shells",
+            blocks: [
+              { kind: "figure", src: "https://cdn.test/Lede.webp", caption: "The lead", seed: 1 },
+              { kind: "p", text: "The full body." },
+            ],
+            image: "https://cdn.test/Social.jpg",
+            hasCover: false,
+            truncated: false,
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+
+    try {
+      await mount();
+      await waitFor(async () => {
+        const saved = (await repo.getArticles("sqcover")).find((a) => a.id === "sqcover~a");
+        expect(saved?.hasCover).toBe(false);
+      });
+      // only the body's own picture — no second cover drawn above it
+      const images = reader().querySelectorAll("img");
+      expect(images).toHaveLength(1);
+      expect(images[0].getAttribute("src")).toContain("Lede.webp");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
 });
 
 describe("links", () => {

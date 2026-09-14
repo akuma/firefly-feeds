@@ -75,7 +75,7 @@ describe("extractArticle", () => {
     // the metadata image is still the stream cover…
     expect(article.image).toBe("https://example.com/hero.jpg");
     // …but the body's own first picture is the top image, so it is not repeated
-    expect(article.hasCover).toBeUndefined();
+    expect(article.hasCover).toBe(false);
     expect(article.blocks.some((b) => b.kind === "figure")).toBe(true);
   });
 
@@ -153,7 +153,7 @@ describe("extractArticle", () => {
 
   it("does not flag an ordinary article as a video page", () => {
     const page = `<!doctype html><html><head><meta property="og:type" content="article"><title>A</title></head><body><article><h1>A</h1>${paragraph("Body text that is long enough to be a real article.")}</article></body></html>`;
-    expect(extractArticle(page, "https://example.com/a").videoPage).toBeUndefined();
+    expect(extractArticle(page, "https://example.com/a").videoPage).toBe(false);
   });
 
   it("flags a website page whose primary entity is a VideoObject", () => {
@@ -177,7 +177,7 @@ describe("extractArticle", () => {
     </head><body><article><h1>Article</h1>
       ${paragraph("Body text that is long enough to be a real article.")}
     </article></body></html>`;
-    expect(extractArticle(page, "https://example.com/a").videoPage).toBeUndefined();
+    expect(extractArticle(page, "https://example.com/a").videoPage).toBe(false);
   });
 
   it("does not cut a real article at the feed budget", () => {

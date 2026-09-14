@@ -361,8 +361,10 @@ export function extractArticle(html: string, url: string, siteHint?: string): Ex
     blocks: body,
     truncated,
     image,
-    hasCover: hasCover || undefined,
-    videoPage: videoPage || undefined,
+    // Explicit, not `|| undefined`: a successful extraction that finds no
+    // cover has to clear a cover the feed declared, or the reader draws both.
+    hasCover,
+    videoPage,
   };
 }
 
