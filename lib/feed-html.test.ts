@@ -137,6 +137,18 @@ describe("htmlToBlocks", () => {
     expect(blocks[3]).toMatchObject({ items: ["One", "Two"] });
   });
 
+  it("keeps a two-character heading, which is a heading in CJK", () => {
+    // a Latin-only minimum of three dropped 封面, 文章, 工具 and every other
+    // two-character section title
+    const { blocks } = htmlToBlocks("<h2>封面</h2><p>正文。</p>");
+    expect(blocks[0]).toMatchObject({ kind: "h2", text: "封面" });
+  });
+
+  it("still drops a one-character heading as noise", () => {
+    const { blocks } = htmlToBlocks("<h2>甲</h2><p>正文。</p>");
+    expect(blocks.some((b) => b.kind === "h2")).toBe(false);
+  });
+
   it("resolves images to absolute URLs and never emits raw HTML", () => {
     const { blocks } = htmlToBlocks(
       '<p>x</p><img src="/photo.jpg" alt="A photo" width="800" height="600">',

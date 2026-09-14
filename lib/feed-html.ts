@@ -335,7 +335,9 @@ export function htmlToBlocks(
 
   s = s.replace(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]\s*>/gi, (_m, inner: string) => {
     const body = text(inner);
-    if (body.length < 3 || body.length > 180) return "";
+    // Two characters is a heading in CJK: 封面, 文章, 工具 are all real section
+    // titles, and a Latin-only minimum of three silently dropped every one.
+    if (body.length < 2 || body.length > 180) return "";
     return hold({ kind: "h2", text: scrub(body) });
   });
 
