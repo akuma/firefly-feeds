@@ -543,6 +543,83 @@ describe("subscribing", () => {
 });
 
 describe("editing a source", () => {
+  it("changes the feed address and refetches from it", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "sediturl",
+      url: "https://old.example/feed.xml",
+      siteUrl: "https://old.example",
+      title: "A Source",
+      host: "old.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+
+    const calls: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          feed: {
+            id: "xnew",
+            title: "A Source",
+            host: "new.example",
+            siteUrl: "https://new.example",
+            feedUrl: "https://new.example/feed.xml",
+            description: "",
+            kind: "rss",
+            count: 1,
+          },
+          items: [
+            {
+              id: "a",
+              title: "A newer entry",
+              summary: "s",
+              body: [],
+              minutes: 1,
+              layout: "compact",
+              contentState: "full",
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const { user } = await mount();
+      await user.click(within(nav()).getByLabelText("Rename A Source"));
+      const panel = await screen.findByRole("dialog", { name: "Edit source" });
+      const urlField = within(panel).getByLabelText("Feed URL");
+      await user.clear(urlField);
+      await user.type(urlField, "https://new.example/feed.xml");
+      await user.click(within(panel).getByRole("button", { name: "Save" }));
+
+      // the record keeps its id (and therefore its reading state) but points at
+      // the new feed, with the host and site URL the feed itself reports
+      await waitFor(async () => {
+        const saved = await repo.getSource("sediturl");
+        expect(saved?.url).toBe("https://new.example/feed.xml");
+        expect(saved?.host).toBe("new.example");
+        expect(saved?.siteUrl).toBe("https://new.example");
+      });
+      expect(
+        calls.some(
+          (url) =>
+            url.includes("/api/feed") &&
+            url.includes(encodeURIComponent("https://new.example/feed.xml")),
+        ),
+      ).toBe(true);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("renames and re-files it in one dialog", async () => {
     const repo = await import("@/lib/storage/repository");
     const now = Date.now();

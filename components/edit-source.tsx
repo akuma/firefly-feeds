@@ -8,17 +8,20 @@ import { useReader } from "@/lib/store";
 import type { FolderId } from "@/lib/types";
 
 /**
- * Rename a source and re-file it, in one place.
+ * Rename a source, re-file it, or point it at a different feed address, in one
+ * place.
  *
  * A small dialog rather than an inline field: the row is 30px tall and holds a
  * name plus three controls, which leaves no room to also choose a folder. The
- * name and the folder are the same decision — "what is this and where does it
- * live" — so they are edited together.
+ * name, the feed address and the folder are the same decision — "what is this,
+ * where does it come from, and where does it live" — so they are edited
+ * together.
  */
 export function EditSource() {
   const r = useReader();
   const feed = r.editingId ? r.feedById(r.editingId) : undefined;
   const [name, setName] = useState(feed?.name ?? "");
+  const [url, setUrl] = useState(feed?.feedUrl ?? "");
   const [folder, setFolder] = useState<FolderId | null>(feed?.folder ?? null);
   const [saving, setSaving] = useState(false);
 
@@ -27,7 +30,7 @@ export function EditSource() {
   const save = async () => {
     setSaving(true);
     try {
-      await r.editSource(feed.id, { name, folder });
+      await r.editSource(feed.id, { name, folder, feedUrl: url });
       r.setEditingId(null);
     } finally {
       setSaving(false);
@@ -73,6 +76,24 @@ export function EditSource() {
               spellCheck={false}
               autoFocus
               className="min-w-0 flex-1 border-b border-rulestrong bg-transparent pb-1 text-[21px] leading-[1.15] tracking-[-0.016em] text-ink outline-none focus:border-ink"
+            />
+          </div>
+
+          <div className="mt-5">
+            <label htmlFor="edit-feed-url" className="label block text-ink4">
+              Feed URL
+            </label>
+            <input
+              id="edit-feed-url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void save();
+              }}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder="https://example.com/feed.xml"
+              className="mono mt-2 w-full border-b border-rule bg-transparent pb-1 text-[12.5px] text-ink2 outline-none focus:border-rulestrong"
             />
           </div>
 

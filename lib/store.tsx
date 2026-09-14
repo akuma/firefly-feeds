@@ -80,8 +80,14 @@ type Ctx = {
   sources: SourceRecord[];
   subscribe: (input: SubscribeInput) => Promise<void>;
   unsubscribe: (id: string) => Promise<void>;
-  /** Rename a source and/or re-file it. `folder: null` leaves it unfiled. */
-  editSource: (id: string, patch: { name: string; folder: FolderId | null }) => Promise<void>;
+  /**
+   * Rename a source, re-file it, and/or point it at a different feed URL.
+   * `folder: null` leaves it unfiled; a changed URL is fetched immediately.
+   */
+  editSource: (
+    id: string,
+    patch: { name: string; folder: FolderId | null; feedUrl?: string },
+  ) => Promise<void>;
   /** Sources with a refresh in flight; per-row spinners key off this set. */
   refreshing: ReadonlySet<string>;
   refresh: (id: string) => Promise<void>;
@@ -427,24 +433,6 @@ export function useReaderState(edition: Edition): Ctx {
     setViewRaw((current) => (current === `feed:${id}` ? "today" : current));
   }, []);
 
-  const editSource = useCallback(
-    async (id: string, patch: { name: string; folder: FolderId | null }) => {
-      const source = sources.find((s) => s.id === id);
-      if (!source) return;
-      const next: SourceRecord = {
-        ...source,
-        // an empty field is not a name; keeping the old one is the lesser surprise
-        title: patch.name.trim() || source.title,
-        updatedAt: Date.now(),
-      };
-      if (patch.folder) next.folder = patch.folder;
-      else delete next.folder;
-      await repo.putSource(next);
-      await reloadSource(id);
-    },
-    [sources, reloadSource],
-  );
-
   /*
    * Refresh reads the latest sources/reading through refs so that the scheduled
    * sweep and a manual press share one implementation without stale closures.
@@ -458,9 +446,9 @@ export function useReaderState(edition: Edition): Ctx {
   });
 
   const refreshSource = useCallback(
-    async (id: string) => {
+    async (id: string, override?: SourceRecord) => {
       if (refreshingIds.current.has(id)) return;
-      const source = sourcesRef.current.find((s) => s.id === id);
+      const source = override ?? sourcesRef.current.find((s) => s.id === id);
       if (!source || source.deletedAt) return;
       refreshingIds.current.add(id);
       setRefreshing((current) => new Set(current).add(id));
@@ -480,9 +468,13 @@ export function useReaderState(edition: Edition): Ctx {
 
         // The source fetch itself succeeded, so its watermark always advances;
         // the article cache is rewritten only when the feed actually changed,
-        // which is what keeps an unchanged "refresh all" off the screen.
+        // which is what keeps an unchanged "refresh all" off the screen. The
+        // feed's own metadata is authoritative after a URL edit.
+        const feed = data.feed as { host?: string; siteUrl?: string } | undefined;
         const refreshedSource = {
           ...source,
+          ...(feed?.host ? { host: feed.host } : {}),
+          ...(feed?.siteUrl ? { siteUrl: feed.siteUrl } : {}),
           fetchedAt: at,
           error: null,
           updatedAt: at,
@@ -500,7 +492,7 @@ export function useReaderState(edition: Edition): Ctx {
           setNow(Date.now());
         }
       } catch (error) {
-        const latest = sourcesRef.current.find((s) => s.id === id);
+        const latest = override ?? sourcesRef.current.find((s) => s.id === id);
         if (latest) {
           await repo.putSource({
             ...latest,
@@ -523,6 +515,43 @@ export function useReaderState(edition: Edition): Ctx {
   );
 
   const refresh = useCallback((id: string) => refreshSource(id), [refreshSource]);
+
+  /*
+   * Editing a source is mostly metadata, but a changed feed URL has to take
+   * effect: the new address is fetched straight away, so the reader sees the
+   * feed it just pointed at rather than yesterday's entries under a new URL.
+   */
+  const editSource = useCallback(
+    async (id: string, patch: { name: string; folder: FolderId | null; feedUrl?: string }) => {
+      const source = sources.find((s) => s.id === id);
+      if (!source) return;
+      const next: SourceRecord = {
+        ...source,
+        // an empty field is not a name; keeping the old one is the lesser surprise
+        title: patch.name.trim() || source.title,
+        updatedAt: Date.now(),
+      };
+      if (patch.folder) next.folder = patch.folder;
+      else delete next.folder;
+
+      const requested = patch.feedUrl?.trim();
+      const urlChanged = Boolean(requested) && requested !== source.url;
+      if (requested && urlChanged) {
+        next.url = requested;
+        // Host is display-only and the fetch below corrects it and the site URL.
+        try {
+          next.host = new URL(requested).hostname.replace(/^www\./, "");
+        } catch {
+          /* a malformed address is rejected by the fetch that follows */
+        }
+      }
+
+      await repo.putSource(next);
+      await reloadSource(id);
+      if (urlChanged) await refreshSource(id, next);
+    },
+    [sources, reloadSource, refreshSource],
+  );
 
   /*
    * The scheduled sweep. Sources are fetched one at a time — a personal reader
