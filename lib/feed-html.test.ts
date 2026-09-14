@@ -286,6 +286,27 @@ describe("images", () => {
     expect(figureSrcs(blocks)).toEqual([]);
   });
 
+  it("discards a byline headshot that arrives without size attributes", () => {
+    const { blocks } = htmlToBlocks(
+      `<img src="https://e.test/accounts/headshot/10172852.jpg" alt="Katherine J. Wu">`,
+    );
+    expect(figureSrcs(blocks)).toEqual([]);
+  });
+
+  it("discards a thumbnail whose size is only in the URL", () => {
+    const { blocks } = htmlToBlocks(
+      `<img src="https://e.test/fit-in/160x80/photo.jpg" alt="A person">`,
+    );
+    expect(figureSrcs(blocks)).toEqual([]);
+  });
+
+  it("keeps a large image whose size is only in the URL", () => {
+    const { blocks } = htmlToBlocks(
+      `<img src="https://e.test/fit-in/1200x800/photo.jpg" alt="A landscape">`,
+    );
+    expect(figureSrcs(blocks)).toEqual(["https://e.test/fit-in/1200x800/photo.jpg"]);
+  });
+
   it("keeps document order and drops a repeated resolved URL", () => {
     const { blocks } = htmlToBlocks(`
       <img src="https://e.test/a.jpg" width="600" height="400" alt="first">

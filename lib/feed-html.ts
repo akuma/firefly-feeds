@@ -142,7 +142,7 @@ function scrub(s: string): string {
 const JUNK_IMAGE_TAG =
   /avatar|author|profile|logo|icon|emoji|sprite|pixel|spacer|tracking|share|social|badge|gravatar/i;
 const JUNK_IMAGE_URL =
-  /feedburner|feeds\.wordpress|pixel|spacer|1x1|doubleclick|gravatar|\bavatar\b|\bauthor\b|\bprofile\b|emoji|sprite|\blogo\b|\bicon\b|badge|tracking/i;
+  /feedburner|feeds\.wordpress|pixel|spacer|1x1|doubleclick|gravatar|\bavatar\b|\bauthor\b|\bprofile\b|\bheadshot\b|\bbyline\b|\bcontributor\b|emoji|sprite|\blogo\b|\bicon\b|badge|tracking/i;
 const SHARE_ALT = /^(share|tweet|facebook|linkedin|whatsapp|email|print)$/i;
 
 /** Whether the tag itself marks the image as publisher furniture. */
@@ -156,7 +156,18 @@ function isJunkImageTag(tag: string): boolean {
 }
 
 function isJunkImageUrl(url: string): boolean {
-  return JUNK_IMAGE_URL.test(url);
+  if (JUNK_IMAGE_URL.test(url)) return true;
+  // Thumbnail services put the rendered box in the URL (`…/fit-in/160x80/…`).
+  // A small box is a byline portrait or a related-item chip, not the picture
+  // the article is about — and it often arrives without width/height
+  // attributes, so the tag alone cannot tell us.
+  const box = /(?:^|[/=_-])(\d{2,4})x(\d{2,4})(?:[/?_.-]|$)/.exec(url);
+  if (box) {
+    const width = Number(box[1]);
+    const height = Number(box[2]);
+    if (width <= 200 || (height > 0 && height <= 120)) return true;
+  }
+  return false;
 }
 
 type ImageCandidate = { url: string; width?: number };
