@@ -217,11 +217,13 @@ author avatars and byline headshots are dropped, whether the signal is in the
 no usable image is not dropped — its inner markup flows on, so a pull quote or
 code sample wrapped in one is not lost.
 
-The article's cover — the stream thumbnail — is its metadata image when it has
-one, otherwise any reasonable body picture. It is only a thumbnail: the detail
-page never lifts a body image to the top. A figure keeps the place the piece
-gave it, so an article that opens with prose and shows a picture later keeps
-that order on screen.
+The article's cover is its metadata image when it has one, otherwise any
+reasonable body picture. When the piece does not already open with a picture,
+that cover is shown above the body; when it does open with one, that first
+figure is the cover and the metadata image is only the stream thumbnail. A body
+picture is never lifted out of its place: if the body's first figure is the same
+photograph as the cover, that duplicate copy is dropped, and otherwise it stays
+exactly where the piece put it.
 
 A page's own video is read from standard metadata (schema.org `VideoObject`,
 Open Graph/Twitter player meta, or a real `<iframe>`) and stored as

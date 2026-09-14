@@ -41,6 +41,52 @@ function colophon(): { unread: number } {
   return { unread: Number(/^(\d+)/.exec(line ?? "")?.[1] ?? -1) };
 }
 
+/** A source whose one article has a text-first body with a picture in it. */
+async function seedBody(opts: { image?: string; hasCover?: boolean }) {
+  const repo = await import("@/lib/storage/repository");
+  const now = Date.now();
+  await repo.putSource({
+    id: "shoist",
+    url: "https://hoist.example/feed.xml",
+    siteUrl: "https://hoist.example",
+    title: "Hoist Source",
+    host: "hoist.example",
+    folder: "news",
+    addedAt: now,
+    fetchedAt: now,
+    updatedAt: now,
+  });
+  await repo.replaceArticles("shoist", [
+    {
+      id: "shoist~a",
+      sourceId: "shoist",
+      title: "Text first",
+      link: "https://hoist.example/a",
+      publishedAt: now,
+      fetchedAt: now,
+      summary: "s",
+      body: [
+        { kind: "p", text: "Opening paragraph before any picture." },
+        {
+          kind: "figure",
+          src: "https://cdn.test/inset.jpg",
+          caption: "An inset caption.",
+          seed: 1,
+        },
+      ],
+      image: opts.image,
+      hasCover: opts.hasCover,
+      minutes: 2,
+      layout: "standard",
+      contentState: "full",
+      extractionState: "success",
+      contentFetchedAt: now,
+      contentCheckedAt: now,
+      extractorVersion: EXTRACTOR_VERSION,
+    },
+  ]);
+}
+
 async function mount() {
   const user = userEvent.setup();
   const result = render(<Shell edition={editionFor(new Date("2026-09-11T09:00:00Z"))} />);
@@ -1452,56 +1498,23 @@ describe("reading the full text on demand", () => {
 });
 
 describe("body images", () => {
-  it("keeps a mid-article picture where the article put it", async () => {
-    const repo = await import("@/lib/storage/repository");
-    const now = Date.now();
-    await repo.putSource({
-      id: "shoist",
-      url: "https://hoist.example/feed.xml",
-      siteUrl: "https://hoist.example",
-      title: "Hoist Source",
-      host: "hoist.example",
-      folder: "news",
-      addedAt: now,
-      fetchedAt: now,
-      updatedAt: now,
-    });
-    await repo.replaceArticles("shoist", [
-      {
-        id: "shoist~a",
-        sourceId: "shoist",
-        title: "Text first",
-        link: "https://hoist.example/a",
-        publishedAt: now,
-        fetchedAt: now,
-        summary: "s",
-        body: [
-          { kind: "p", text: "Opening paragraph before any picture." },
-          {
-            kind: "figure",
-            src: "https://cdn.test/inset.jpg",
-            caption: "An inset caption.",
-            seed: 1,
-          },
-        ],
-        // the cover is a stream thumbnail; it must not be printed above the body
-        image: "https://cdn.test/cover.jpg",
-        minutes: 2,
-        layout: "standard",
-        contentState: "full",
-        extractionState: "success",
-        contentFetchedAt: now,
-        contentCheckedAt: now,
-        extractorVersion: EXTRACTOR_VERSION,
-      },
-    ]);
-
+  it("shows the declared cover above the body", async () => {
+    await seedBody({ image: "https://cdn.test/cover.jpg", hasCover: true });
     await mount();
-    // the cover image is not rendered at the top of the detail page
+    // the cover is rendered at the top of the detail page
+    expect(reader().querySelector('img[src*="cover.jpg"]')).not.toBeNull();
+    // and the body's own picture is still after the paragraph that preceded it
+    const text = document.querySelector("[data-t='reader-body']")!.textContent ?? "";
+    expect(text.indexOf("Opening paragraph")).toBeLessThan(text.indexOf("An inset caption."));
+    expect(reader().querySelector('img[src*="inset.jpg"]')).not.toBeNull();
+  });
+
+  it("does not lift a body picture to the top when there is no declared cover", async () => {
+    // a cover picked from the body is a stream thumbnail only
+    await seedBody({ image: "https://cdn.test/cover.jpg", hasCover: undefined });
+    await mount();
     expect(reader().querySelector('img[src*="cover.jpg"]')).toBeNull();
-    // the body's own image stays after the paragraph that preceded it
-    const body = document.querySelector("[data-t='reader-body']")!;
-    const text = body.textContent ?? "";
+    const text = document.querySelector("[data-t='reader-body']")!.textContent ?? "";
     expect(text.indexOf("Opening paragraph")).toBeLessThan(text.indexOf("An inset caption."));
     expect(reader().querySelector('img[src*="inset.jpg"]')).not.toBeNull();
   });
@@ -1571,6 +1584,7 @@ describe("video embeds", () => {
         summary: "s",
         body: [{ kind: "p", text: "A short description of the video." }],
         image: "https://cdn.test/frame.jpg",
+        hasCover: true,
         videoPage: true,
         minutes: 1,
         layout: "standard",
@@ -1630,6 +1644,7 @@ describe("video embeds", () => {
             title: "A BBC video",
             blocks: [{ kind: "p", text: "A short description." }],
             image: "https://cdn.test/frame.jpg",
+            hasCover: true,
             videoPage: true,
           },
         }),

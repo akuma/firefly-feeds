@@ -443,6 +443,43 @@ export function firstFigureSrc(blocks: readonly Block[]): string | undefined {
   return figure?.kind === "figure" ? figure.src : undefined;
 }
 
+/** Whether the piece opens with a picture or a video of its own. */
+export function bodyLeadsWithMedia(blocks: readonly Block[]): boolean {
+  for (const block of blocks) {
+    if (block.kind === "figure" || block.kind === "video") return true;
+    if (block.kind === "p") return false;
+  }
+  return false;
+}
+
+/**
+ * A stable identity for a picture, so the same photograph served at two resize
+ * sizes — including a resize proxy that wraps the original URL — compares equal.
+ */
+export function imageIdentity(url: string): string {
+  let value = url.trim().toLowerCase();
+  const nested = Math.max(value.lastIndexOf("http://"), value.lastIndexOf("https://"));
+  if (nested > 0) value = value.slice(nested);
+  const query = value.indexOf("?");
+  if (query !== -1) value = value.slice(0, query);
+  return value.replace(/[/#]+$/, "");
+}
+
+/**
+ * Removes the body's own copy of the cover, when its first figure is that same
+ * photograph. Only the first figure is considered, so a picture the piece put
+ * further down is never moved or removed.
+ */
+export function stripCoverCopy(blocks: Block[], cover?: string): Block[] {
+  if (!cover) return blocks;
+  const index = blocks.findIndex((block) => block.kind === "figure" && block.src);
+  if (index === -1) return blocks;
+  const first = blocks[index];
+  if (first.kind !== "figure" || !first.src) return blocks;
+  if (imageIdentity(first.src) !== imageIdentity(cover)) return blocks;
+  return blocks.filter((_, i) => i !== index);
+}
+
 /**
  * The opening that every entry in a feed shares, if there is one.
  *

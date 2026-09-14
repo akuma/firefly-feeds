@@ -46,20 +46,51 @@ describe("extractArticle", () => {
     expect(article.blocks.some((b) => b.kind === "figure" && b.src === article.image)).toBe(true);
   });
 
-  it("uses the page's metadata image as the cover when it has one", () => {
+  it("shows the metadata cover above a body that opens with text", () => {
     const page = `<!doctype html><html><head>
       <meta property="og:image" content="https://example.com/hero.jpg">
       <title>With a hero</title>
     </head><body><article><h1>With a hero</h1>
+      ${paragraph("Opening paragraph before the inline picture.")}
       <img src="https://example.com/inline.jpg" width="800" height="600" alt="Inline">
-      ${paragraph("Body text that is long enough to be a real article.")}
     </article></body></html>`;
     const article = extractArticle(page, "https://example.com/a");
     expect(article.image).toBe("https://example.com/hero.jpg");
+    expect(article.hasCover).toBe(true);
     // the body image is not moved or removed
     expect(
       article.blocks.some((b) => b.kind === "figure" && b.src === "https://example.com/inline.jpg"),
     ).toBe(true);
+  });
+
+  it("does not add a cover above a body that already opens with a picture", () => {
+    const page = `<!doctype html><html><head>
+      <meta property="og:image" content="https://example.com/hero.jpg">
+      <title>Picture first</title>
+    </head><body><article><h1>Picture first</h1>
+      <img src="https://example.com/inline.jpg" width="800" height="600" alt="Inline">
+      ${paragraph("Body text that is long enough to be a real article.")}
+    </article></body></html>`;
+    const article = extractArticle(page, "https://example.com/a");
+    // the metadata image is still the stream cover…
+    expect(article.image).toBe("https://example.com/hero.jpg");
+    // …but the body's own first picture is the top image, so it is not repeated
+    expect(article.hasCover).toBeUndefined();
+    expect(article.blocks.some((b) => b.kind === "figure")).toBe(true);
+  });
+
+  it("drops the body's copy when the cover is that same photograph", () => {
+    const page = `<!doctype html><html><head>
+      <meta property="og:image" content="https://cdn.test/hero.jpg">
+      <title>Same photo</title>
+    </head><body><article><h1>Same photo</h1>
+      ${paragraph("Opening paragraph.")}
+      <figure><img src="https://cdn.test/hero.jpg" width="800" height="600" alt="Hero"><figcaption>A caption.</figcaption></figure>
+    </article></body></html>`;
+    const article = extractArticle(page, "https://example.com/a");
+    expect(article.hasCover).toBe(true);
+    // the cover is shown above the body, so the body's copy of it is dropped
+    expect(article.blocks.some((b) => b.kind === "figure")).toBe(false);
   });
 
   it("keeps a metadata cover whose URL contains crop coordinates", () => {
@@ -97,6 +128,7 @@ describe("extractArticle", () => {
     </article></body></html>`;
     const article = extractArticle(page, "https://example.com/a");
     expect(article.image).toBe("https://cdn.test/cover.jpg");
+    expect(article.hasCover).toBe(true);
     const kinds = article.blocks.map((b) => b.kind);
     // the picture stays after the opening paragraph, not above it
     expect(kinds.indexOf("figure")).toBeGreaterThan(kinds.indexOf("p"));

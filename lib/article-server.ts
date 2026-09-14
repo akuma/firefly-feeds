@@ -4,12 +4,14 @@ import { DOMParser, parseHTML } from "linkedom";
 import { FeedError, readCapped, USER_AGENT } from "./feed-server";
 import {
   ARTICLE_BODY_BUDGET,
+  bodyLeadsWithMedia,
   decodeEntities,
   firstFigureSrc,
   htmlToBlocks,
   htmlToText,
   isJunkImageUrl,
   resolveUrl,
+  stripCoverCopy,
 } from "./feed-html";
 import type { Block } from "./types";
 import { isSafeTargetUrl } from "./url-safety";
@@ -38,9 +40,14 @@ export type ExtractedArticle = {
   blocks: Block[];
   /** True when our own article budget cut the body short. */
   truncated: boolean;
-  /** The article's own lead image, when it has one. Cover for the stream; it
-   * is not shown above the body, because a body image must keep its place. */
+  /** The article's own cover image, when it has one. */
   image?: string;
+  /**
+   * True when `image` is the page's declared cover and the piece does not
+   * already open with a picture, so the reader shows it above the body. A
+   * cover that comes from a body figure is not lifted out of the body.
+   */
+  hasCover?: boolean;
   /**
    * The page declares itself a video (`og:type` `video.*`) but offers no
    * embeddable player, so the reader can only link out to watch it.
@@ -300,14 +307,16 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     throw new FeedError("That page did not contain a readable article.", 422);
   }
 
-  // The page's own metadata names its cover image — that is the stream
-  // thumbnail. When there is none, any reasonable picture in the article will
-  // do. It is never lifted out of the body: a figure keeps the position the
-  // piece gave it, so the detail page reads in the order the publisher set.
-  const image = usableImage(parsed?.image, url) ?? firstFigureSrc(blocks);
-  // Content extraction drops iframes, so the video is placed at the top of
-  // what it did keep. Only a provider id is stored, never publisher markup.
-  const body = video ? [{ kind: "video" as const, ...video }, ...blocks] : blocks;
+  // The page's own cover image. It is shown above the body when the piece
+  // does not already open with a picture — otherwise that first figure is the
+  // cover and the metadata image is only a thumbnail. A cover that shares a
+  // photograph with the body's first figure removes that duplicate copy; any
+  // picture further down keeps its place.
+  const metaCover = usableImage(parsed?.image, url);
+  const bodyBlocks = video ? [{ kind: "video" as const, ...video }, ...blocks] : blocks;
+  const hasCover = Boolean(metaCover) && !bodyLeadsWithMedia(bodyBlocks);
+  const image = metaCover ?? firstFigureSrc(blocks);
+  const body = hasCover ? stripCoverCopy(bodyBlocks, metaCover) : bodyBlocks;
 
   return {
     title: parsed?.title?.trim() || undefined,
@@ -317,6 +326,7 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     blocks: body,
     truncated,
     image,
+    hasCover: hasCover || undefined,
     videoPage: videoPage || undefined,
   };
 }

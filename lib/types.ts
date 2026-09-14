@@ -75,6 +75,8 @@ export type Article = {
   plate?: number;
   /** Photograph supplied by the feed or page, used as the stream thumbnail. */
   image?: string;
+  /** True when `image` is the page's declared cover, shown above the body. */
+  hasCover?: boolean;
   /** True when the page is a video that has to be watched at the source. */
   videoPage?: boolean;
   /** Pull quote used by the `quote` layout in the stream. */

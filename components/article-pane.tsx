@@ -343,6 +343,10 @@ export function ArticlePane() {
   const folder = FOLDERS.find((f) => f.id === feed.folder) ?? FOLDERS[0];
   // invented content: there is no original to open, and saying so is the point
   const isSample = Boolean(feed.sample);
+  // Artwork above the body is only ever the page's own cover, the sample
+  // edition's plate, or a video page's frame. A body figure keeps its place,
+  // so it is never lifted here.
+  const leadingFigure = s.plate !== undefined || Boolean(s.hasCover && s.image);
   const saved = r.state.saved[s.id];
   const later = r.state.later[s.id];
   const read = r.state.read[s.id];
@@ -523,7 +527,7 @@ export function ArticlePane() {
            * generated plate and for a video page, whose frame is the page's own
            * poster — neither is a body figure.
            */}
-          {(s.plate !== undefined || Boolean(s.videoPage && s.image)) && (
+          {leadingFigure && (
             <figure className="mt-8">
               <div className="relative">
                 <Media
@@ -558,7 +562,7 @@ export function ArticlePane() {
             </figure>
           )}
 
-          {s.videoPage && !s.image && articleHref && (
+          {s.videoPage && !leadingFigure && articleHref && (
             <a
               href={articleHref}
               target="_blank"

@@ -30,7 +30,7 @@ export const EXTRACTION_RETRY_MS = 12 * 60 * 60_000;
  * keeps seeing the previous extractor's output until the article happens to
  * go stale.
  */
-export const EXTRACTOR_VERSION = 7;
+export const EXTRACTOR_VERSION = 8;
 
 /**
  * Whether opening this article should touch the network.
@@ -76,6 +76,8 @@ export type IncomingItem = {
   summary: string;
   body: Block[];
   image?: string;
+  /** True when `image` is the feed's declared cover, shown above the body. */
+  hasCover?: boolean;
   minutes: number;
   layout: StoryLayout;
   contentState: ContentState;
@@ -132,6 +134,7 @@ export function reconcileArticles(
       summary: item.summary,
       body: item.body,
       image: item.image,
+      hasCover: item.hasCover,
       minutes: item.minutes,
       layout: item.layout,
       contentState: item.contentState,

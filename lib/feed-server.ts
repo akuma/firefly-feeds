@@ -1,6 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
 import {
   blocksToText,
+  bodyLeadsWithMedia,
   firstFigureSrc,
   hashString,
   hasReadMoreCue,
@@ -9,6 +10,7 @@ import {
   htmlToText,
   resolveUrl,
   sharedOpening,
+  stripCoverCopy,
 } from "./feed-html";
 import type { Block, ContentState, Story, StoryLayout } from "./types";
 
@@ -23,6 +25,8 @@ export type ParsedItem = {
   summary: string;
   body: Block[];
   image?: string;
+  /** True when `image` is the feed's declared cover, shown above the body. */
+  hasCover?: boolean;
   contentState: ContentState;
 };
 
@@ -356,10 +360,13 @@ function normalizeItem(
     contentState = "summary";
   }
   if (truncated) contentState = "truncated";
-  // The feed's own lead image is the stream cover; otherwise the first body
-  // figure is. The body is left alone, so an image keeps the place the feed
-  // gave it.
-  const image = pickFeedImage(raw, baseUrl) ?? firstFigureSrc(body);
+  // The feed's own declared image is the cover; otherwise the first body figure
+  // is. The cover is shown above the body only when the piece does not already
+  // open with a picture, and the body is otherwise left in its own order.
+  const declared = pickFeedImage(raw, baseUrl);
+  const hasCover = Boolean(declared) && !bodyLeadsWithMedia(body);
+  const image = declared ?? firstFigureSrc(body);
+  const cleanBody = hasCover ? stripCoverCopy(body, declared) : body;
 
   /*
    * Identity answers "is this the same article?", which is a different question
@@ -387,8 +394,9 @@ function normalizeItem(
     author: author ? htmlToText(author).slice(0, 120) : undefined,
     publishedMs,
     summary: summary || htmlToText(contentHtml).slice(0, 220),
-    body,
+    body: cleanBody,
     image,
+    hasCover: hasCover || undefined,
     contentState,
   };
 }
