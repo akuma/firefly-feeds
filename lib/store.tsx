@@ -714,8 +714,13 @@ export function useReaderState(edition: Edition): Ctx {
 
     const at = Date.now();
     const params = new URLSearchParams({ url });
-    if (record.etag) params.set("etag", record.etag);
-    else if (record.lastModified) params.set("lastModified", record.lastModified);
+    // Conditional GET is only useful when the cached body came from this same
+    // extractor. After a version bump the page may be unchanged while the body
+    // still has to be rebuilt, and a `304` would leave no HTML to rebuild from.
+    if (revalidation) {
+      if (record.etag) params.set("etag", record.etag);
+      else if (record.lastModified) params.set("lastModified", record.lastModified);
+    }
 
     try {
       const res = await fetch(`/api/article?${params.toString()}`);

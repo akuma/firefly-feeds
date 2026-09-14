@@ -1088,11 +1088,14 @@ describe("reading the full text on demand", () => {
   it("re-fetches and shows a body produced by an older extractor", async () => {
     await seedCachedOriginal({
       extractorVersion: undefined,
+      etag: '"old"',
       body: [{ kind: "p", text: "Old extractor body." }],
     });
+    const calls: string[] = [];
     const original = globalThis.fetch;
-    globalThis.fetch = (async () =>
-      new Response(
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(
         JSON.stringify({
           ok: true,
           article: {
@@ -1102,7 +1105,8 @@ describe("reading the full text on demand", () => {
           },
         }),
         { headers: { "content-type": "application/json" } },
-      )) as typeof fetch;
+      );
+    }) as typeof fetch;
     try {
       await mount();
       // the body was fresh by timestamp, but made by the previous rules, so it
@@ -1110,6 +1114,9 @@ describe("reading the full text on demand", () => {
       await waitFor(() =>
         expect(reader().querySelector("iframe")?.getAttribute("src")).toContain("3ezPMAoxSbw"),
       );
+      // a rebuild must not be short-circuited by the old page's validator
+      const articleCall = calls.find((url) => url.includes("/api/article"))!;
+      expect(articleCall).not.toContain("etag=");
       expect(reader().textContent).not.toContain("Old extractor body.");
     } finally {
       globalThis.fetch = original;
