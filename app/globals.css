@@ -524,17 +524,15 @@
 
 /*
  * A drop cap on an English opening paragraph, gated in the component to those
- * long enough to wrap around it. Set in the accent colour, so it reads as a
- * mark the edition made rather than just a larger letter.
+ * long enough to wrap around it. It keeps the body's own font and weight — only
+ * the size and colour change.
  */
 .reading.dropcap > p:first-of-type::first-letter {
   float: left;
-  font-family: var(--font-serif);
   font-size: 3.1em;
   line-height: 1;
-  font-weight: 500;
   color: var(--c-spark);
-  padding-right: 0.09em;
+  padding: 0 0.16em 0 0.05em;
 }
 
 /*
@@ -549,7 +547,7 @@
     line-height: inherit;
     initial-letter: 2;
     -webkit-initial-letter: 2;
-    padding-right: 0.09em;
+    padding: 0 0.5em 0 0.15em;
   }
 }
 
