@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  ARTICLE_STALE_MS,
   articlesUnchanged,
+  EXTRACTION_RETRY_MS,
+  needsArticleRefresh,
   reconcileArticles,
   STALE_MS,
   staleSourceIds,
@@ -151,6 +154,95 @@ describe("reconcileArticles", () => {
     const next = reconcileArticles("src", [incoming("a"), incoming("b")], [], 9000);
     expect(next.map((a) => a.id)).toEqual(["src~a", "src~b"]);
     expect(next.every((a) => a.extractionState === "idle")).toBe(true);
+  });
+
+  it("keeps an original body when the feed refreshes", () => {
+    const extracted = cached("src~a", {
+      link: "https://e.test/a",
+      body: [{ kind: "p", text: "Original body" }],
+      contentState: "full",
+      extractionState: "success",
+      contentFetchedAt: 5000,
+      contentCheckedAt: 5000,
+    });
+    const next = reconcileArticles(
+      "src",
+      [incoming("a", { link: "https://e.test/a", contentState: "summary" })],
+      [extracted],
+      9000,
+    );
+    expect(next[0].body).toEqual([{ kind: "p", text: "Original body" }]);
+    expect(next[0].contentState).toBe("full");
+    expect(next[0].contentCheckedAt).toBe(5000);
+  });
+
+  it("preserves a legacy successful extraction that predates the freshness fields", () => {
+    const legacy = cached("src~a", {
+      link: "https://e.test/a",
+      body: [{ kind: "p", text: "Old extracted body" }],
+      contentState: "full",
+      extractionState: "success",
+    });
+    const next = reconcileArticles(
+      "src",
+      [incoming("a", { link: "https://e.test/a" })],
+      [legacy],
+      9000,
+    );
+    expect(next[0].body).toEqual([{ kind: "p", text: "Old extracted body" }]);
+  });
+});
+
+describe("needsArticleRefresh", () => {
+  const record = (extra?: Partial<ArticleRecord>) =>
+    cached("src~a", { link: "https://e.test/a", ...extra });
+
+  it("fetches a page that has never been fetched", () => {
+    expect(needsArticleRefresh(record(), NOW)).toBe(true);
+  });
+
+  it("does not fetch when there is no article URL", () => {
+    // a feed-native entry's body is canonical; there is nothing to get
+    expect(needsArticleRefresh(cached("src~a"), NOW)).toBe(false);
+  });
+
+  it("leaves a fresh original body alone", () => {
+    expect(
+      needsArticleRefresh(
+        record({ contentFetchedAt: NOW - 1000, contentCheckedAt: NOW - 1000 }),
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("revalidates an original body once it is stale", () => {
+    expect(
+      needsArticleRefresh(
+        record({
+          contentFetchedAt: NOW - ARTICLE_STALE_MS,
+          contentCheckedAt: NOW - ARTICLE_STALE_MS,
+        }),
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not retry a failure inside the retry window", () => {
+    expect(
+      needsArticleRefresh(record({ extractionState: "failed", contentCheckedAt: NOW - 1000 }), NOW),
+    ).toBe(false);
+  });
+
+  it("allows a retry once the retry window has passed", () => {
+    expect(
+      needsArticleRefresh(
+        record({
+          extractionState: "failed",
+          contentCheckedAt: NOW - EXTRACTION_RETRY_MS - 1,
+        }),
+        NOW,
+      ),
+    ).toBe(true);
   });
 });
 

@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { editionFor } from "@/lib/edition";
+import { ARTICLE_STALE_MS, EXTRACTION_RETRY_MS } from "@/lib/refreshing";
 import { Shell } from "./shell";
 
 /**
@@ -104,6 +105,43 @@ async function seedSummary() {
       layout: "compact",
       contentState: "summary",
       extractionState: "idle",
+    },
+  ]);
+  return repo;
+}
+
+/** A source with one article that already carries an extracted original body. */
+async function seedCachedOriginal(extra: Record<string, unknown> = {}) {
+  const repo = await import("@/lib/storage/repository");
+  const now = Date.now();
+  await repo.putSource({
+    id: "sorig",
+    url: "https://orig.example/feed.xml",
+    siteUrl: "https://orig.example",
+    title: "Original Source",
+    host: "orig.example",
+    folder: "news",
+    addedAt: now,
+    fetchedAt: now,
+    updatedAt: now,
+  });
+  await repo.replaceArticles("sorig", [
+    {
+      id: "sorig~a",
+      sourceId: "sorig",
+      title: "Cached original",
+      link: "https://orig.example/a",
+      publishedAt: now,
+      fetchedAt: now,
+      summary: "A summary",
+      body: [{ kind: "p" as const, text: "Cached original body." }],
+      minutes: 2,
+      layout: "standard" as const,
+      contentState: "full" as const,
+      extractionState: "success" as const,
+      contentFetchedAt: now,
+      contentCheckedAt: now,
+      ...extra,
     },
   ]);
   return repo;
@@ -782,8 +820,179 @@ describe("reading the full text on demand", () => {
       await waitFor(() => expect(reader().textContent).toContain("Full text was unavailable"));
       expect(reader().textContent).toContain("A short summary.");
       expect(reader().textContent).toContain("Continues at");
-      // failure is sticky: one attempt, not one per render
+      // one attempt, then the retry window throttles the next rather than
+      // locking the page out forever
       expect(calls.filter((url) => url.includes("/api/article"))).toHaveLength(1);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("does not touch a fresh original cache", async () => {
+    await seedCachedOriginal();
+    const calls: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({ ok: false }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    try {
+      await mount();
+      await waitFor(() => expect(reader().textContent).toContain("Cached original body."));
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(calls.some((url) => url.includes("/api/article"))).toBe(false);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("revalidates a stale original with a conditional request and keeps the body on 304", async () => {
+    const stale = Date.now() - ARTICLE_STALE_MS - 1000;
+    const repo = await seedCachedOriginal({
+      contentFetchedAt: stale,
+      contentCheckedAt: stale,
+      etag: '"v1"',
+    });
+    const calls: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({ ok: true, notModified: true }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    try {
+      await mount();
+      await waitFor(() => expect(calls.some((url) => url.includes("/api/article"))).toBe(true));
+      const url = calls.find((candidate) => candidate.includes("/api/article"))!;
+      // the stored ETag travels as a conditional request
+      expect(url).toContain("etag=%22v1%22");
+      await waitFor(() => expect(reader().textContent).toContain("Cached original body."));
+      await waitFor(async () => {
+        const saved = (await repo.getArticles("sorig")).find((a) => a.id === "sorig~a");
+        expect(saved?.contentCheckedAt).toBeGreaterThan(stale);
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("revalidates a stale original, writes storage, and leaves the open copy alone", async () => {
+    const stale = Date.now() - ARTICLE_STALE_MS - 1000;
+    const repo = await seedCachedOriginal({
+      contentFetchedAt: stale,
+      contentCheckedAt: stale,
+      etag: '"v1"',
+    });
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          article: {
+            title: "Cached original",
+            blocks: [{ kind: "p", text: "Rewritten body." }],
+            truncated: false,
+            etag: '"v2"',
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    try {
+      await mount();
+      await waitFor(async () => {
+        const saved = (await repo.getArticles("sorig")).find((a) => a.id === "sorig~a");
+        expect(saved?.body).toEqual([{ kind: "p", text: "Rewritten body." }]);
+      });
+      // the reader keeps the version it opened with; the new one shows next time
+      expect(reader().textContent).toContain("Cached original body.");
+      expect(reader().textContent).not.toContain("Rewritten body.");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("retries a failed extraction after the retry window", async () => {
+    const old = Date.now() - EXTRACTION_RETRY_MS - 1000;
+    await seedCachedOriginal({
+      contentFetchedAt: undefined,
+      contentCheckedAt: old,
+      extractionState: "failed",
+      contentState: "summary",
+      body: [{ kind: "p", text: "Feed fallback." }],
+    });
+    const calls: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          article: {
+            title: "Cached original",
+            blocks: [{ kind: "p", text: "Recovered full body." }],
+            truncated: false,
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+    try {
+      await mount();
+      await waitFor(() => expect(reader().textContent).toContain("Recovered full body."));
+      expect(calls.some((url) => url.includes("/api/article"))).toBe(true);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("does not call the extractor for a feed-native story", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "snative",
+      url: "https://native.example/feed.xml",
+      siteUrl: "https://native.example",
+      title: "Native Source",
+      host: "native.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    await repo.replaceArticles("snative", [
+      {
+        id: "snative~a",
+        sourceId: "snative",
+        title: "Feed-native piece",
+        publishedAt: now,
+        fetchedAt: now,
+        summary: "s",
+        body: [{ kind: "p", text: "Feed-native body." }],
+        minutes: 1,
+        layout: "compact",
+        contentState: "summary",
+        extractionState: "idle",
+      },
+    ]);
+
+    const calls: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({ ok: false }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    try {
+      await mount();
+      await waitFor(() => expect(reader().textContent).toContain("Feed-native body."));
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(calls.some((url) => url.includes("/api/article"))).toBe(false);
+      // no article URL means nowhere to continue
+      expect(reader().textContent).not.toContain("Continues at");
     } finally {
       globalThis.fetch = original;
     }

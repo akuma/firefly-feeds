@@ -297,14 +297,17 @@ export function ArticlePane() {
 
   /* ---------------------------------------------------------- toolbar */
   const canonical = r.originalUrl(s);
+  // Open original only exists when the feed gave an article URL: a feed-native
+  // entry has no original, and its source's homepage is not one.
+  const articleHref = r.articleUrl(s);
 
   const actions = (
     <div className="flex items-center gap-0.5">
       <IconButton
         icon={ExternalLink}
-        href={canonical}
+        href={articleHref}
         label={isSample ? "Sample story — no original" : "Open original (O)"}
-        disabled={!canonical}
+        disabled={!articleHref}
       />
       <IconButton
         icon={saved ? BookmarkCheck : Bookmark}
@@ -488,14 +491,14 @@ export function ArticlePane() {
             <span className="label text-ink4">
               {s.contentState === "full" ? "End of story" : "Excerpt"}
             </span>
-            {s.contentState !== "full" && (
+            {s.contentState !== "full" && articleHref && (
               <a
-                href={canonical}
+                href={articleHref}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mono mt-1 flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-ink3 uppercase transition-colors hover:text-spark"
               >
-                Continues at {hostOf(canonical ?? feed.host)}
+                Continues at {hostOf(articleHref)}
                 <ArrowUpRight size={10} strokeWidth={1.7} />
               </a>
             )}

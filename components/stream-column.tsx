@@ -261,7 +261,7 @@ function Meta({ s, className }: { s: Story; className?: string }) {
 function RowActions({ s }: { s: Story }) {
   const r = useReader();
   const pinned = r.state.saved[s.id] || r.state.later[s.id];
-  const canonical = r.originalUrl(s);
+  const articleHref = r.articleUrl(s);
   const isSample = Boolean(r.feedById(s.feedId)?.sample);
   return (
     <div
@@ -274,11 +274,11 @@ function RowActions({ s }: { s: Story }) {
     >
       <IconButton
         icon={ExternalLink}
-        href={canonical}
+        href={articleHref}
         label={isSample ? "Sample story — no original" : "Open original (O)"}
         size={22}
         iconSize={13}
-        disabled={!canonical}
+        disabled={!articleHref}
       />
       <IconButton
         icon={r.state.saved[s.id] ? BookmarkCheck : Bookmark}

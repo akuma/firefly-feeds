@@ -107,11 +107,80 @@ describe("readArticle", () => {
       return pages[String(input)] ?? new Response("", { status: 404 });
     }) as typeof fetch;
     try {
-      const article = await readArticle("https://example.com/a");
-      expect(article.blocks.length).toBeGreaterThan(0);
+      const result = await readArticle("https://example.com/a");
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.article.blocks.length).toBeGreaterThan(0);
       await expect(readArticle("https://example.com/json")).rejects.toThrow(/not a web page/i);
     } finally {
       globalThis.fetch = original;
     }
+  });
+});
+
+/** Runs `readArticle` against a fake fetch and returns the headers it sent. */
+async function capturedHeaders(
+  response: () => Response,
+  conditions?: Parameters<typeof readArticle>[1],
+): Promise<{ headers: Headers; result: Awaited<ReturnType<typeof readArticle>> }> {
+  const original = globalThis.fetch;
+  const seen: Headers[] = [];
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    seen.push(new Headers(init?.headers));
+    return response();
+  }) as typeof fetch;
+  try {
+    const result = await readArticle("https://example.com/a", conditions);
+    return { headers: seen[0], result };
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+describe("conditional GET", () => {
+  it("sends If-None-Match and treats 304 as not modified", async () => {
+    const { headers, result } = await capturedHeaders(
+      () => new Response(null, { status: 304, headers: { etag: '"abc"' } }),
+      { etag: '"abc"' },
+    );
+    expect(headers.get("if-none-match")).toBe('"abc"');
+    expect(headers.get("if-modified-since")).toBeNull();
+    expect(result.status).toBe("not-modified");
+  });
+
+  it("sends If-Modified-Since when there is no ETag", async () => {
+    const when = "Wed, 10 Sep 2025 00:00:00 GMT";
+    const { headers, result } = await capturedHeaders(() => new Response(null, { status: 304 }), {
+      lastModified: when,
+    });
+    expect(headers.get("if-modified-since")).toBe(when);
+    expect(headers.get("if-none-match")).toBeNull();
+    expect(result.status).toBe("not-modified");
+  });
+
+  it("prefers the ETag when both validators are known", async () => {
+    const { headers } = await capturedHeaders(() => new Response(null, { status: 304 }), {
+      etag: '"e"',
+      lastModified: "Wed, 10 Sep 2025 00:00:00 GMT",
+    });
+    expect(headers.get("if-none-match")).toBe('"e"');
+    expect(headers.get("if-modified-since")).toBeNull();
+  });
+
+  it("returns the validators from a 200", async () => {
+    const { result } = await capturedHeaders(
+      () =>
+        new Response(ARTICLE, {
+          headers: {
+            "content-type": "text/html",
+            etag: '"v2"',
+            "last-modified": "Wed, 10 Sep 2025 00:00:00 GMT",
+          },
+        }),
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.article.etag).toBe('"v2"');
+    expect(result.article.lastModified).toBe("Wed, 10 Sep 2025 00:00:00 GMT");
   });
 });

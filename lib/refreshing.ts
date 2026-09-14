@@ -9,6 +9,37 @@ import type { Block, ContentState, StoryLayout } from "./types";
 export const STALE_MS = 30 * 60_000;
 
 /**
+ * How long an extracted original body stands before it is revalidated.
+ * Source refresh and article refresh are different lifecycles: this one tracks
+ * whether the page the reader is looking at has changed, not whether the feed
+ * has new entries. A fixed first value, deliberately not adaptive.
+ */
+export const ARTICLE_STALE_MS = 6 * 60 * 60_000;
+
+/**
+ * How long a failed extraction waits before it may be tried again. A failure
+ * is often a timeout or a temporary CDN problem, so it must not lock the
+ * original page out forever — it only needs to stop the retry storm.
+ */
+export const EXTRACTION_RETRY_MS = 12 * 60 * 60_000;
+
+/**
+ * Whether opening this article should touch the network.
+ *
+ * Without an article URL there is nothing to fetch and the feed body is
+ * canonical. With one: a never-fetched page is fetched on open, a fresh cached
+ * page is not touched, a stale one is revalidated, and a recent failure waits
+ * out the retry window.
+ */
+export function needsArticleRefresh(record: ArticleRecord, now: number): boolean {
+  if (!record.link) return false;
+  const checkedAt = record.contentCheckedAt ?? 0;
+  if (record.contentFetchedAt) return now - checkedAt >= ARTICLE_STALE_MS;
+  if (record.extractionState === "failed") return now - checkedAt >= EXTRACTION_RETRY_MS;
+  return true;
+}
+
+/**
  * Sources whose last successful (or attempted) fetch is older than the staleness
  * window, oldest first. Refreshing in that order empties the stalest copy first.
  */
@@ -53,16 +84,24 @@ export function reconcileArticles(
     const recordId = `${sourceId}~${item.id}`;
     const prev = byId.get(recordId);
 
-    // A locally enriched copy is authoritative for the body: "success" keeps
-    // the extracted full text, and "failed" must not be asked again just
-    // because the feed was refreshed — unless the publisher now ships the full
-    // piece in the feed itself.
-    if (prev && prev.extractionState !== "idle") {
-      if (prev.extractionState === "success" || item.contentState !== "full") {
-        return { ...prev, fetchedAt: at };
-      }
+    // Once an original page has been fetched it is the authoritative body, so
+    // a source refresh may update the fallback metadata but must not throw the
+    // extracted text away (which would also re-trigger extraction and flash
+    // the article pane). Legacy records saved before the freshness fields
+    // existed carry `extractionState: "success"` and are preserved too.
+    if (prev && (prev.contentFetchedAt || prev.extractionState === "success")) {
+      return {
+        ...prev,
+        link: item.link ?? prev.link,
+        summary: item.summary || prev.summary,
+        fetchedAt: at,
+      };
     }
 
+    // A failure is remembered so the retry window can throttle it — unless the
+    // feed now ships the full piece itself, in which case the failure notice
+    // would contradict the body that is already there.
+    const failureSurvives = prev?.extractionState === "failed" && item.contentState !== "full";
     return {
       id: recordId,
       sourceId,
@@ -80,7 +119,8 @@ export function reconcileArticles(
       minutes: item.minutes,
       layout: item.layout,
       contentState: item.contentState,
-      extractionState: "idle",
+      extractionState: failureSurvives ? "failed" : "idle",
+      contentCheckedAt: failureSurvives ? prev?.contentCheckedAt : undefined,
     };
   });
 }

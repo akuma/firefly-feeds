@@ -6,17 +6,19 @@ import type { Block } from "./types";
 import { isSafeTargetUrl } from "./url-safety";
 
 /**
- * On-demand full-text extraction.
+ * Original-page extraction.
  *
- * A feed that carries only a summary leaves the reader with two bad options:
- * read the summary twice, or leave the app. This fetches the article the reader
- * actually opened, extracts its body, and returns it as the same `Block[]` the
- * reader already renders — so the reading surface is unchanged and no publisher
- * HTML reaches the DOM.
+ * When a feed gives a story an article URL, that page is the preferred body;
+ * the feed's own text is the instant fallback until the original arrives. This
+ * fetches the page the reader actually opened, extracts its body with
+ * Readability, and returns it as the same `Block[]` the reader already renders
+ * — so the reading surface is unchanged and no publisher HTML reaches the DOM.
  *
- * It runs only when a reader opens a story, never as a background crawl. It
- * does not defeat paywalls, logins or JavaScript challenges: a page that will
- * not hand over its text is a page we keep the feed's summary for.
+ * It runs one page at a time, when a reader opens a story, never as a
+ * background crawl. Conditional requests let a revalidation of an already
+ * cached page cost a 304 instead of a full download. It does not defeat
+ * paywalls, logins or JavaScript challenges: a page that will not hand over
+ * its text is a page we keep the feed's fallback for.
  */
 
 export type ExtractedArticle = {
@@ -29,7 +31,25 @@ export type ExtractedArticle = {
   truncated: boolean;
   /** The article's own lead image, when it has one. */
   image?: string;
+  /** Validators to send back on the next conditional GET. */
+  etag?: string;
+  lastModified?: string;
 };
+
+/** What a conditional request can send. Stored per article. */
+export type ArticleConditions = {
+  etag?: string;
+  lastModified?: string;
+};
+
+/**
+ * The result of asking for an article. `not-modified` means the publisher
+ * confirmed the cached copy is current, so there is nothing to parse or
+ * replace — only the checked-at time moves.
+ */
+export type ArticleResult =
+  | { status: "not-modified"; etag?: string; lastModified?: string }
+  | { status: "ok"; article: ExtractedArticle };
 
 const MAX_HTML_BYTES = 2_000_000;
 const MAX_REDIRECTS = 5;
@@ -45,9 +65,23 @@ const FETCH_TIMEOUT_MS = 12_000;
  */
 const MIN_ARTICLE_CHARS = 200;
 
-export async function readArticle(raw: string): Promise<ExtractedArticle> {
-  const { html, finalUrl } = await fetchArticleHtml(raw);
-  return extractArticle(html, finalUrl);
+export async function readArticle(
+  raw: string,
+  conditions?: ArticleConditions,
+): Promise<ArticleResult> {
+  const fetched = await fetchArticleHtml(raw, conditions);
+  if (fetched.notModified) {
+    return {
+      status: "not-modified",
+      etag: fetched.etag,
+      lastModified: fetched.lastModified,
+    };
+  }
+  const article = extractArticle(fetched.html, fetched.finalUrl);
+  return {
+    status: "ok",
+    article: { ...article, etag: fetched.etag, lastModified: fetched.lastModified },
+  };
 }
 
 export function extractArticle(html: string, url: string): ExtractedArticle {
@@ -94,7 +128,24 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
   };
 }
 
-async function fetchArticleHtml(start: string): Promise<{ html: string; finalUrl: string }> {
+type ArticleFetchResult =
+  | { notModified: true; etag?: string; lastModified?: string }
+  | { notModified: false; html: string; finalUrl: string; etag?: string; lastModified?: string };
+
+async function fetchArticleHtml(
+  start: string,
+  conditions?: ArticleConditions,
+): Promise<ArticleFetchResult> {
+  // Conditional GET, never a HEAD followed by a GET: one round trip either
+  // confirms the cache (`304`) or hands back the page.
+  const headers: Record<string, string> = {
+    "user-agent": USER_AGENT,
+    accept: "text/html,application/xhtml+xml;q=0.8,*/*;q=0.5",
+    "accept-language": "en",
+  };
+  if (conditions?.etag) headers["if-none-match"] = conditions.etag;
+  else if (conditions?.lastModified) headers["if-modified-since"] = conditions.lastModified;
+
   let current = start;
   /* oxlint-disable no-await-in-loop */
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -107,11 +158,7 @@ async function fetchArticleHtml(start: string): Promise<{ html: string; finalUrl
     try {
       res = await fetch(current, {
         redirect: "manual",
-        headers: {
-          "user-agent": USER_AGENT,
-          accept: "text/html,application/xhtml+xml;q=0.8,*/*;q=0.5",
-          "accept-language": "en",
-        },
+        headers,
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
     } catch (error) {
@@ -120,6 +167,14 @@ async function fetchArticleHtml(start: string): Promise<{ html: string; finalUrl
         timedOut ? "That page took too long to answer." : "Could not reach that page.",
         502,
       );
+    }
+
+    if (res.status === 304) {
+      return {
+        notModified: true,
+        etag: res.headers.get("etag") ?? conditions?.etag,
+        lastModified: res.headers.get("last-modified") ?? conditions?.lastModified,
+      };
     }
 
     if (res.status >= 300 && res.status < 400) {
@@ -138,7 +193,13 @@ async function fetchArticleHtml(start: string): Promise<{ html: string; finalUrl
     const type = (res.headers.get("content-type") ?? "").toLowerCase();
     if (!type.includes("html")) throw new FeedError("That address is not a web page.", 422);
 
-    return { html: await readCapped(res, MAX_HTML_BYTES), finalUrl: current };
+    return {
+      notModified: false,
+      html: await readCapped(res, MAX_HTML_BYTES),
+      finalUrl: current,
+      etag: res.headers.get("etag") ?? undefined,
+      lastModified: res.headers.get("last-modified") ?? undefined,
+    };
   }
   /* oxlint-enable no-await-in-loop */
 

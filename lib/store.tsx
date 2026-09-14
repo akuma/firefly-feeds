@@ -14,6 +14,7 @@ import type { Edition } from "./edition";
 import { readingTime } from "./reading";
 import {
   articlesUnchanged,
+  needsArticleRefresh,
   reconcileArticles,
   STALE_MS,
   staleSourceIds,
@@ -70,6 +71,8 @@ type Ctx = {
   feedById: (id: FeedId) => Feed | undefined;
   /** Canonical URL for a story: its own link, else its source's site. */
   originalUrl: (story: Story) => string | undefined;
+  /** The article's own URL, or nothing for a feed-native entry. */
+  articleUrl: (story: Story) => string | undefined;
   /** Canonical URL for whatever the reader currently has open. */
   currentUrl: () => string | undefined;
 
@@ -292,12 +295,22 @@ export function useReaderState(edition: Edition): Ctx {
     [articles, now, sample],
   );
 
+  /**
+   * The article's own URL — the one an original page can be fetched from, and
+   * the one Open original points at. Deliberately separate from the source's
+   * homepage: a feed-native entry has no original, and a homepage is not it.
+   */
+  const articleUrl = useCallback((target: Story) => target.link, []);
+
+  /**
+   * The best URL for source-level links: the article when there is one, else
+   * the publication's own site. Sample stories are invented, so they return
+   * nothing — a plausible homepage would imply the piece exists there.
+   */
   const originalUrl = useCallback(
     (target: Story) => {
       if (target.link) return target.link;
       const feed = feedIndex.get(target.feedId);
-      // Sample stories are invented, so there is no original to open. Falling
-      // back to a homepage would imply the piece exists there.
       if (feed?.sample) return undefined;
       if (feed?.siteUrl) return feed.siteUrl;
       if (feed?.host) return `https://${feed.host}`;
@@ -671,66 +684,114 @@ export function useReaderState(edition: Edition): Ctx {
   const currentStory = useMemo(() => stories.find((s) => s.id === activeId), [stories, activeId]);
 
   /*
-   * Full text on demand.
+   * Original page, on demand and stale-while-revalidate.
    *
-   * A feed that gave only a summary is fetched from the publisher the moment the
-   * reader opens that story — never as a background sweep of the subscriptions.
-   * The result replaces the cached body, so the second visit reads it locally.
-   * Failure is recorded and left alone: a page that will not hand over its text
-   * is not asked again every time the story is opened.
+   * With an article URL the original is the preferred body: opening a story
+   * shows whatever is cached immediately and, in the background, fetches or
+   * revalidates it. A first fetch is what the reader is waiting for, so it
+   * updates the open story; a revalidation only writes storage, because
+   * replacing the body underneath a reader would move their place. Without an
+   * article URL there is nothing to fetch and the feed body is canonical.
    */
   const extractingRef = useRef(new Set<string>());
 
-  const extract = useCallback(
-    async (target: Story) => {
-      const record = articles.find((a) => a.id === target.id);
-      const url = originalUrl(target);
-      if (!record || !url) return;
-      extractingRef.current.add(target.id);
-      setExtracting(target.id);
-      const persist = async (patch: Partial<ArticleRecord>) => {
-        const next: ArticleRecord = { ...record, ...patch };
-        await repo.putArticle(next);
-        setArticles((current) => current.map((a) => (a.id === next.id ? next : a)));
-      };
-      try {
-        const res = await fetch(`/api/article?url=${encodeURIComponent(url)}`);
-        const data = await res.json();
-        if (!data?.ok) throw new Error(data?.error ?? "failed");
-        const article = data.article as {
-          title?: string;
-          author?: string;
-          blocks: ArticleRecord["body"];
-          truncated?: boolean;
-          image?: string;
-        };
-        await persist({
-          title: article.title || record.title,
-          author: article.author || record.author,
-          body: article.blocks,
-          image: article.image ?? record.image,
-          // Only a body that was not cut by our own budget may call itself full.
-          contentState: article.truncated ? "truncated" : "full",
-          extractionState: "success",
-        });
-      } catch {
-        await persist({ extractionState: "failed" });
-      } finally {
-        extractingRef.current.delete(target.id);
-        setExtracting((current) => (current === target.id ? null : current));
+  const loadArticle = useCallback(async (record: ArticleRecord) => {
+    const url = record.link;
+    if (!url) return;
+    // A body that came from the original page is being revalidated; anything
+    // else (absent, or a feed fallback) is a first fetch.
+    const revalidation =
+      typeof record.contentFetchedAt === "number" || record.extractionState === "success";
+    extractingRef.current.add(record.id);
+    if (!revalidation) setExtracting(record.id);
+
+    const at = Date.now();
+    const params = new URLSearchParams({ url });
+    if (record.etag) params.set("etag", record.etag);
+    else if (record.lastModified) params.set("lastModified", record.lastModified);
+
+    try {
+      const res = await fetch(`/api/article?${params.toString()}`);
+      const data = await res.json();
+      if (!data?.ok) throw new Error(data?.error ?? "failed");
+
+      if (data.notModified) {
+        await repo.putArticle({ ...record, contentCheckedAt: at });
+        setArticles((current) =>
+          current.map((a) => (a.id === record.id ? { ...a, contentCheckedAt: at } : a)),
+        );
+        return;
       }
-    },
-    [articles, originalUrl],
-  );
+
+      const article = data.article as {
+        title?: string;
+        author?: string;
+        blocks: ArticleRecord["body"];
+        truncated?: boolean;
+        image?: string;
+        etag?: string;
+        lastModified?: string;
+      };
+      const next: ArticleRecord = {
+        ...record,
+        title: article.title || record.title,
+        author: article.author || record.author,
+        body: article.blocks,
+        image: article.image ?? record.image,
+        // Only a body that was not cut by our own budget may call itself full.
+        contentState: article.truncated ? "truncated" : "full",
+        extractionState: "success",
+        contentFetchedAt: at,
+        contentCheckedAt: at,
+        etag: article.etag ?? record.etag,
+        lastModified: article.lastModified ?? record.lastModified,
+      };
+      await repo.putArticle(next);
+      setArticles((current) =>
+        current.map((a) =>
+          a.id !== next.id
+            ? a
+            : revalidation
+              ? { ...a, contentCheckedAt: at, etag: next.etag, lastModified: next.lastModified }
+              : next,
+        ),
+      );
+    } catch {
+      // A failed revalidation keeps the cached body; a failed first fetch keeps
+      // the feed fallback. Either way the checked time moves, so the retry
+      // window — not a permanent lockout — decides when to try again.
+      await repo.putArticle({
+        ...record,
+        extractionState: revalidation ? record.extractionState : "failed",
+        contentCheckedAt: at,
+      });
+      setArticles((current) =>
+        current.map((a) =>
+          a.id === record.id
+            ? {
+                ...a,
+                extractionState: revalidation ? a.extractionState : "failed",
+                contentCheckedAt: at,
+              }
+            : a,
+        ),
+      );
+    } finally {
+      extractingRef.current.delete(record.id);
+      setExtracting((current) => (current === record.id ? null : current));
+    }
+  }, []);
 
   useEffect(() => {
     if (!ready) return;
-    const current = stories.find((s) => s.id === activeId);
-    if (!current) return;
-    if (current.contentState === "full" || current.extractionState !== "idle") return;
-    if (extractingRef.current.has(current.id)) return;
-    void extract(current);
-  }, [ready, activeId, stories, extract]);
+    const record = articles.find((a) => a.id === activeId);
+    if (!record || !record.link) return;
+    if (extractingRef.current.has(record.id)) return;
+    if (!needsArticleRefresh(record, Date.now())) return;
+    // Starting the fetch is the effect's job; the spinner is its visible state.
+    /* oxlint-disable-next-line react/set-state-in-effect */
+    void loadArticle(record);
+  }, [ready, activeId, articles, loadArticle]);
 
   /*
    * Selecting is not reading. Marking on selection quietly consumes anything
@@ -795,6 +856,7 @@ export function useReaderState(edition: Edition): Ctx {
     feeds,
     feedById,
     originalUrl,
+    articleUrl,
     currentUrl,
     sources,
     subscribe,

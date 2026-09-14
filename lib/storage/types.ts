@@ -53,6 +53,16 @@ export type ArticleRecord = {
   layout: StoryLayout;
   contentState: ContentState;
   extractionState: ExtractionState;
+  /**
+   * When the original page was last downloaded and its body replaced. Its
+   * presence is what makes the body authoritative over the feed's fallback.
+   */
+  contentFetchedAt?: number;
+  /** When the original page was last checked, successfully or not. */
+  contentCheckedAt?: number;
+  /** Validators from the original page's last response, for conditional GET. */
+  etag?: string;
+  lastModified?: string;
 };
 
 export type ReadingRecord = {
