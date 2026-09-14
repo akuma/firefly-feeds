@@ -230,11 +230,15 @@ function documentFor(html: string, url: string): Document {
   Object.defineProperty(doc, "defaultView", { value: view, configurable: true });
   try {
     doc.URL = url;
+    // Relative `src`/`href` resolve against the article, not the local host.
+    Object.defineProperty(doc, "baseURI", { value: url, configurable: true });
   } catch {
-    /* some DOM implementations expose URL as read-only */
+    /* some DOM implementations expose URL/baseURI as read-only */
   }
   return document as unknown as Document;
 }
+
+export { documentFor };
 
 /** The lead image from the page's own metadata, if it is worth showing. */
 function usableImage(raw: string | undefined, base: string): string | undefined {
@@ -295,6 +299,16 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
 type ArticleFetchResult =
   | { notModified: true; etag?: string; lastModified?: string }
   | { notModified: false; html: string; finalUrl: string; etag?: string; lastModified?: string };
+
+/**
+ * Fetches a page's HTML with the same safety rules as the reader, for the
+ * local extractor-comparison lab. Not used by the product path.
+ */
+export async function fetchPage(raw: string): Promise<{ html: string; finalUrl: string }> {
+  const result = await fetchArticleHtml(raw);
+  if (result.notModified) throw new FeedError("The page answered 304 unexpectedly.", 502);
+  return { html: result.html, finalUrl: result.finalUrl };
+}
 
 async function fetchArticleHtml(
   start: string,

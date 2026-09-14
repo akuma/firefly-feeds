@@ -243,6 +243,13 @@ loopback or private ranges, re-checked after every redirect. It is deliberately
 separate from the same-origin guard, because an article URL is normally a
 different origin from ours.
 
+### Comparing extractors
+
+`/lab/compare` (development only) fetches one page and runs both Mozilla
+Readability and Defuddle over the same HTML, side by side with a paragraph diff.
+It is how the Defuddle choice was made, and how a future one should be; the API
+route returns 404 in a production build.
+
 ## Suggested sources
 
 Six publications — BBC News, NPR, Smithsonian Magazine, NASA, Ars Technica and
