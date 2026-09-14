@@ -137,6 +137,41 @@ describe("htmlToBlocks", () => {
     expect(blocks[3]).toMatchObject({ items: ["One", "Two"] });
   });
 
+  it("keeps the links a paragraph carried", () => {
+    const { blocks } = htmlToBlocks(
+      '<p>See <a href="https://e.test/a">the piece</a> and <a href="/b">more</a>.</p>',
+      "https://e.test/",
+    );
+    const para = blocks.find((b) => b.kind === "p")!;
+    // the plain text still reads as one sentence…
+    expect(para.text).toBe("See the piece and more.");
+    // …and the links survive as inline runs, with relative URLs resolved
+    const links = (para.inline ?? []).filter((segment) => segment.href);
+    expect(links).toEqual([
+      { text: "the piece", href: "https://e.test/a" },
+      { text: "more", href: "https://e.test/b" },
+    ]);
+  });
+
+  it("keeps links in a list", () => {
+    const { blocks } = htmlToBlocks(
+      '<ul><li><a href="https://e.test/1">One</a></li><li><a href="https://e.test/2">Two</a></li></ul>',
+    );
+    const list = blocks.find((b) => b.kind === "list")!;
+    expect(list.items).toEqual(["One", "Two"]);
+    expect(list.inlineItems).toEqual([
+      [{ text: "One", href: "https://e.test/1" }],
+      [{ text: "Two", href: "https://e.test/2" }],
+    ]);
+  });
+
+  it("does not turn a javascript: link into a live href", () => {
+    const { blocks } = htmlToBlocks('<p>Click <a href="javascript:alert(1)">here</a>.</p>');
+    const para = blocks.find((b) => b.kind === "p")!;
+    expect(para.text).toContain("Click here.");
+    expect((para.inline ?? []).every((segment) => !segment.href)).toBe(true);
+  });
+
   it("keeps a two-character heading, which is a heading in CJK", () => {
     // a Latin-only minimum of three dropped 封面, 文章, 工具 and every other
     // two-character section title

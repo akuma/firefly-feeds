@@ -22,7 +22,7 @@ import { Media } from "./plate";
 import { FOLDERS } from "@/lib/sources";
 import { DWELL_MS, progressFor, readSignal } from "@/lib/reading";
 import { FONT_SIZES, useReader, type ReaderFont } from "@/lib/store";
-import type { Block } from "@/lib/types";
+import type { Block, Inline } from "@/lib/types";
 
 function hostOf(url: string): string {
   try {
@@ -140,6 +140,33 @@ function FontMenu({ onClose }: { onClose: () => void }) {
 
 /* ---------------------------------------------------------- block render */
 
+/**
+ * A run of text with the links the page had. Publisher links open in a new tab:
+ * the reader is a place to read, not a place to lose your position in.
+ */
+function Rich({ inline, text }: { inline?: Inline[]; text: string }) {
+  if (!inline || inline.length === 0) return <>{text}</>;
+  return (
+    <>
+      {inline.map((segment, i) =>
+        segment.href ? (
+          <a
+            key={i}
+            href={segment.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-spark underline decoration-spark/40 underline-offset-2 transition-colors hover:decoration-spark"
+          >
+            {segment.text}
+          </a>
+        ) : (
+          <span key={i}>{segment.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 function Blocks({ blocks }: { blocks: Block[] }) {
   const lede = blocks[0]?.kind === "p";
 
@@ -148,7 +175,11 @@ function Blocks({ blocks }: { blocks: Block[] }) {
       {blocks.map((b, i) => {
         switch (b.kind) {
           case "p":
-            return <p key={i}>{b.text}</p>;
+            return (
+              <p key={i}>
+                <Rich inline={b.inline} text={b.text} />
+              </p>
+            );
 
           case "h2":
             return (
@@ -156,14 +187,16 @@ function Blocks({ blocks }: { blocks: Block[] }) {
                 key={i}
                 className="relative before:absolute before:top-[0.7em] before:-left-5 before:h-px before:w-3 before:bg-spark before:content-['']"
               >
-                {b.text}
+                <Rich inline={b.inline} text={b.text} />
               </h2>
             );
 
           case "quote":
             return (
               <blockquote key={i} className="my-[2.2em] border-l-2 border-spark pl-5">
-                <p className="text-[1.16em] leading-[1.45] text-ink italic">“{b.text}”</p>
+                <p className="text-[1.16em] leading-[1.45] text-ink italic">
+                  “<Rich inline={b.inline} text={b.text} />”
+                </p>
                 {b.cite && (
                   <footer className="mono mt-3 text-[10px] tracking-[0.14em] text-ink4 uppercase">
                     — {b.cite}
@@ -176,7 +209,9 @@ function Blocks({ blocks }: { blocks: Block[] }) {
             return (
               <ul key={i}>
                 {b.items.map((it, j) => (
-                  <li key={j}>{it}</li>
+                  <li key={j}>
+                    <Rich inline={b.inlineItems?.[j]} text={it} />
+                  </li>
                 ))}
               </ul>
             );

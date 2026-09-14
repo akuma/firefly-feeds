@@ -1520,6 +1520,56 @@ describe("body images", () => {
   });
 });
 
+describe("links", () => {
+  it("renders a publisher link in a new tab", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "slinks",
+      url: "https://links.example/feed.xml",
+      siteUrl: "https://links.example",
+      title: "Links Source",
+      host: "links.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    await repo.replaceArticles("slinks", [
+      {
+        id: "slinks~a",
+        sourceId: "slinks",
+        title: "With links",
+        publishedAt: now,
+        fetchedAt: now,
+        summary: "s",
+        body: [
+          {
+            kind: "p",
+            text: "See the piece.",
+            inline: [
+              { text: "See " },
+              { text: "the piece", href: "https://e.test/a" },
+              { text: "." },
+            ],
+          },
+        ],
+        minutes: 1,
+        layout: "compact",
+        contentState: "full",
+        extractionState: "idle",
+      },
+    ]);
+
+    await mount();
+    const link = within(reader()).getByText("the piece").closest("a")!;
+    expect(link.getAttribute("href")).toBe("https://e.test/a");
+    // a publisher link must not navigate the reader away from what it is reading
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+  });
+});
+
 describe("video embeds", () => {
   it("renders an allowlisted provider in a sandboxed frame", async () => {
     const repo = await import("@/lib/storage/repository");

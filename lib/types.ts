@@ -40,10 +40,17 @@ export type Folder = {
   name: string;
 };
 
+/**
+ * A run of text, with a link when the page made it one. Blocks carry the plain
+ * `text` for measuring and searching, and an `inline` breakdown only when there
+ * is something to link.
+ */
+export type Inline = { text: string; href?: string };
+
 export type Block =
-  | { kind: "p"; text: string }
-  | { kind: "h2"; text: string }
-  | { kind: "quote"; text: string; cite?: string }
+  | { kind: "p"; text: string; inline?: Inline[] }
+  | { kind: "h2"; text: string; inline?: Inline[] }
+  | { kind: "quote"; text: string; cite?: string; inline?: Inline[] }
   /** `src` is set when the artwork came from the feed; otherwise a plate is generated. */
   | { kind: "figure"; caption: string; seed: number; src?: string }
   /**
@@ -51,7 +58,7 @@ export type Block =
    * are stored, never publisher markup, so the reader can render a safe embed.
    */
   | { kind: "video"; provider: "youtube" | "vimeo"; id: string; title?: string }
-  | { kind: "list"; items: string[] }
+  | { kind: "list"; items: string[]; inlineItems?: Inline[][] }
   | { kind: "note"; text: string }
   | { kind: "code"; text: string }
   | { kind: "rule" };

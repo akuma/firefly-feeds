@@ -1,5 +1,5 @@
 import { hashString } from "./hash";
-import type { Block } from "./types";
+import type { Block, Inline } from "./types";
 
 export { hashString };
 
@@ -297,6 +297,38 @@ export function htmlToBlocks(
     return without.replace(/^<img/i, `<img srcset="${value}"`);
   });
 
+  // -------------------------------------------------------------- links
+  // Every <a> becomes a token carrying its href, so the text handlers below
+  // keep the link while still flattening the markup. An anchor that wraps an
+  // image is left to the image handlers.
+  const anchors: Inline[] = [];
+  s = s.replace(/<a\b[^>]*>([\s\S]*?)<\/a\s*>/gi, (match, inner: string) => {
+    if (/<img\b/i.test(inner)) return match;
+    const label = text(inner);
+    if (!label) return "";
+    anchors.push({ text: label, href: resolveUrl(attr(match, "href"), baseUrl) });
+    return `\uE001${anchors.length - 1}\uE001`;
+  });
+
+  /** Splits a flattened string back into text runs and links. */
+  const readTokens = (value: string): { text: string; inline?: Inline[] } => {
+    if (!anchors.length || !value.includes("\uE001")) return { text: value };
+    const inline: Inline[] = [];
+    let last = 0;
+    for (const match of value.matchAll(/\uE001(\d+)\uE001/g)) {
+      const index = match.index ?? 0;
+      if (index > last) inline.push({ text: value.slice(last, index) });
+      const anchor = anchors[Number(match[1])];
+      if (anchor) inline.push(anchor);
+      last = index + match[0].length;
+    }
+    if (last < value.length) inline.push({ text: value.slice(last) });
+    return {
+      text: value.replace(/\uE001(\d+)\uE001/g, (_m, i: string) => anchors[Number(i)]?.text ?? ""),
+      inline: inline.some((segment) => segment.href) ? inline : undefined,
+    };
+  };
+
   // ---------------------------------------------------------- figures
   s = s.replace(/<figure\b[^>]*>([\s\S]*?)<\/figure\s*>/gi, (_m, inner: string) => {
     const img = /<img\b[^>]*>/i.exec(inner);
@@ -306,7 +338,9 @@ export function htmlToBlocks(
     // so let whatever is inside flow into the normal handlers below.
     if (!src) return inner;
     const caption =
-      text(inner.replace(/<img\b[^>]*>/gi, "")) || (img ? attr(img[0], "alt") : "") || "";
+      readTokens(text(inner.replace(/<img\b[^>]*>/gi, ""))).text ||
+      (img ? attr(img[0], "alt") : "") ||
+      "";
     return hold({ kind: "figure", src, caption, seed: hashString(src) });
   });
 
@@ -323,30 +357,46 @@ export function htmlToBlocks(
 
   // -------------------------------------------------------- structure
   s = s.replace(/<blockquote\b[^>]*>([\s\S]*?)<\/blockquote\s*>/gi, (_m, inner: string) => {
-    const body = text(inner.replace(/<\/?(cite|footer)\b[^>]*>/gi, " "));
+    const { text: body, inline } = readTokens(
+      text(inner.replace(/<\/?(cite|footer)\b[^>]*>/gi, " ")),
+    );
     if (body.length < 12) return "";
+    const cleaned = scrub(body);
+    const quote = cleaned.slice(0, 700);
     const cite = /<cite\b[^>]*>([\s\S]*?)<\/cite\s*>/i.exec(inner);
     return hold({
       kind: "quote",
-      text: scrub(body).slice(0, 700),
+      text: quote,
       cite: cite ? text(cite[1]).slice(0, 120) : undefined,
+      inline: cleaned === body && quote === cleaned ? inline : undefined,
     });
   });
 
   s = s.replace(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]\s*>/gi, (_m, inner: string) => {
-    const body = text(inner);
+    const { text: body, inline } = readTokens(text(inner));
+    const cleaned = scrub(body);
     // Two characters is a heading in CJK: 封面, 文章, 工具 are all real section
     // titles, and a Latin-only minimum of three silently dropped every one.
-    if (body.length < 2 || body.length > 180) return "";
-    return hold({ kind: "h2", text: scrub(body) });
+    if (cleaned.length < 2 || cleaned.length > 180) return "";
+    return hold({ kind: "h2", text: cleaned, inline: cleaned === body ? inline : undefined });
   });
 
   s = s.replace(/<(ul|ol)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi, (_m, _tag: string, inner: string) => {
-    const items = [...inner.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li\s*>/gi)]
-      .map((x) => scrub(text(x[1])))
-      .filter((x) => x.length > 1 && x.length < 400);
-    if (items.length < 2) return "";
-    return hold({ kind: "list", items: items.slice(0, 12) });
+    const parsed = [...inner.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li\s*>/gi)]
+      .map((entry) => {
+        const { text: raw, inline } = readTokens(text(entry[1]));
+        const cleaned = scrub(raw);
+        return { text: cleaned, inline: cleaned === raw ? inline : undefined };
+      })
+      .filter((entry) => entry.text.length > 1 && entry.text.length < 400)
+      .slice(0, 12);
+    if (parsed.length < 2) return "";
+    const inlineItems = parsed.map((entry) => entry.inline ?? []);
+    return hold({
+      kind: "list",
+      items: parsed.map((entry) => entry.text),
+      inlineItems: inlineItems.some((entry) => entry.length) ? inlineItems : undefined,
+    });
   });
 
   s = s.replace(/<pre\b[^>]*>([\s\S]*?)<\/pre\s*>/gi, (_m, inner: string) => {
@@ -394,8 +444,10 @@ export function htmlToBlocks(
       const body = scrub(piece.replace(/\s+/g, " ").trim());
       if (body.length < 2) continue;
       if (body.length > 2400) {
-        // split runaway paragraphs at sentence boundaries
-        const sentences = body.match(/[^.!?]+[.!?]+["'”’)]?\s*/g) ?? [body];
+        // A runaway paragraph is split, which would break the inline mapping,
+        // so its links are flattened first.
+        const readable = readTokens(body).text;
+        const sentences = readable.match(/[^.!?]+[.!?]+["'”’)]?\s*/g) ?? [readable];
         let buf = "";
         for (const sentence of sentences) {
           if ((buf + sentence).length > 900) {
@@ -407,7 +459,8 @@ export function htmlToBlocks(
         }
         if (buf.trim()) blocks.push({ kind: "p", text: buf.trim() });
       } else {
-        blocks.push({ kind: "p", text: body });
+        const { text: para, inline } = readTokens(body);
+        blocks.push({ kind: "p", text: para, inline });
       }
       spent += body.length;
       if (budgetReached()) break;

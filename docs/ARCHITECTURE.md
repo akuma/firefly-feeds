@@ -147,18 +147,27 @@ Feed HTML is translated into the reader's own model rather than sanitised and
 injected:
 
 ```ts
+type Inline = { text: string; href?: string };
+
 type Block =
-  | { kind: "p" | "h2" | "note" | "code"; text: string }
-  | { kind: "quote"; text: string; cite?: string }
-  | { kind: "list"; items: string[] }
+  | { kind: "p"; text: string; inline?: Inline[] }
+  | { kind: "h2"; text: string; inline?: Inline[] }
+  | { kind: "quote"; text: string; cite?: string; inline?: Inline[] }
+  | { kind: "list"; items: string[]; inlineItems?: Inline[][] }
   | { kind: "figure"; caption: string; seed: number; src?: string }
-  | { kind: "video"; provider: "youtube" | "vimeo"; id: string; title?: string };
+  | { kind: "video"; provider: "youtube" | "vimeo"; id: string; title?: string }
+  | { kind: "note" | "code"; text: string };
 ```
 
 Three things follow from this. There is no `dangerouslySetInnerHTML` and no
 sanitiser dependency. Fetched stories inherit exactly the same typography as
 everything else, instead of smuggling in a publisher's stylesheet. And the block
 model is what `lib/reading.ts` can measure.
+
+**Links are kept.** A paragraph, heading or list item stores its plain `text`
+for measuring and searching, plus an `inline` breakdown only when the page made
+part of it a link. Publisher links open in a new tab, so a reader following a
+reference never loses their place in the piece.
 
 Feed bodies are capped at **60 blocks / 8,000 characters**, and 20 entries per
 source. Bodies extracted from the original page get their own, much higher
