@@ -36,13 +36,26 @@ type ApiResponse = { ok: true; feed: ApiFeed; items: ApiItem[] } | { ok: false; 
 
 /**
  * Four publications to try, shown while the dialog is idle. Pressing one runs a
- * lookup, so each carries the host to show and the feed address to fetch.
+ * lookup, so each carries the host to show, the feed address to fetch, and the
+ * folder it belongs in — the same filing a suggestion from the navigation gets.
  */
-const QUICK_PICKS: { host: string; feedUrl: string }[] = [
-  { host: "nytimes.com", feedUrl: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml" },
-  { host: "smithsonianmag.com", feedUrl: "https://www.smithsonianmag.com/rss/latest_articles/" },
-  { host: "quantamagazine.org", feedUrl: "https://www.quantamagazine.org/feed/" },
-  { host: "aeon.co", feedUrl: "https://aeon.co/feed.rss" },
+const QUICK_PICKS: { host: string; feedUrl: string; folder: FolderId }[] = [
+  {
+    host: "nytimes.com",
+    feedUrl: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    folder: "news",
+  },
+  {
+    host: "smithsonianmag.com",
+    feedUrl: "https://www.smithsonianmag.com/rss/latest_articles/",
+    folder: "culture",
+  },
+  {
+    host: "quantamagazine.org",
+    feedUrl: "https://www.quantamagazine.org/feed/",
+    folder: "science",
+  },
+  { host: "aeon.co", feedUrl: "https://aeon.co/feed.rss", folder: "culture" },
 ];
 
 function shortDate(ms?: number): string {
@@ -135,7 +148,9 @@ export function AddSource() {
         folder: folder ?? undefined,
         items: data.items,
       });
-      r.setAddOpen(false);
+      // Close through the same path as Esc, so the queued suggestion does not
+      // survive to pre-fill the next time the dialog opens.
+      close();
     } catch {
       setError("Could not save that subscription.");
       setStatus("error");
@@ -216,7 +231,11 @@ export function AddSource() {
                 <button
                   key={pick.feedUrl}
                   type="button"
-                  onClick={() => void look(pick.feedUrl)}
+                  onClick={() => {
+                    // a quick pick knows where it belongs, like a suggestion does
+                    setFolder(pick.folder);
+                    void look(pick.feedUrl);
+                  }}
                   className="text-ink3 underline decoration-rule decoration-1 underline-offset-4 transition-colors hover:text-spark"
                 >
                   {pick.host}

@@ -540,6 +540,97 @@ describe("subscribing", () => {
       globalThis.fetch = original;
     }
   });
+
+  it("files a quick-picked feed under its topic", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          feed: {
+            id: "xsmithquick",
+            title: "Smithsonian Magazine",
+            host: "smithsonianmag.com",
+            siteUrl: "https://www.smithsonianmag.com",
+            feedUrl: "https://www.smithsonianmag.com/rss/latest_articles/",
+            description: "",
+            kind: "rss",
+            count: 1,
+          },
+          items: [
+            { id: "a", title: "An entry", summary: "s", body: [], minutes: 1, layout: "compact" },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+
+    try {
+      const { user } = await mount();
+      await user.click(within(nav()).getByTitle("Add a feed or site"));
+      const panel = await screen.findByRole("dialog", { name: "Add source" });
+      // the dialog's own quick picks carry their folder, like a suggestion does
+      await user.click(within(panel).getByText("smithsonianmag.com"));
+      await within(panel).findByLabelText("Feed name");
+      await user.click(within(panel).getByRole("button", { name: /Subscribe/ }));
+      await waitFor(async () => {
+        const saved = await repo.getSource("xsmithquick");
+        expect(saved?.folder).toBe("culture");
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("opens blank after a suggestion has been subscribed", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          feed: {
+            id: "xnpr",
+            title: "NPR",
+            host: "npr.org",
+            siteUrl: "https://www.npr.org",
+            feedUrl: "https://feeds.npr.org/1001/rss.xml",
+            description: "",
+            kind: "rss",
+            count: 1,
+          },
+          items: [
+            { id: "a", title: "An entry", summary: "s", body: [], minutes: 1, layout: "compact" },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+
+    try {
+      const { user } = await mount();
+      // subscribe from a suggested source, which queues its feed address
+      await user.click(within(nav()).getByText("NPR"));
+      const panel = await screen.findByRole("dialog", { name: "Add source" });
+      await waitFor(() =>
+        expect(
+          within(panel).getByDisplayValue("https://feeds.npr.org/1001/rss.xml"),
+        ).toBeInTheDocument(),
+      );
+      await user.click(within(panel).getByRole("button", { name: /Subscribe/ }));
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: "Add source" })).not.toBeInTheDocument(),
+      );
+
+      // the plain + button must start empty, not inherit the last suggestion
+      await user.click(within(nav()).getByTitle("Add a feed or site"));
+      const reopened = await screen.findByRole("dialog", { name: "Add source" });
+      const input = within(reopened).getByPlaceholderText(
+        "https://example.com/feed.xml",
+      ) as HTMLInputElement;
+      expect(input.value).toBe("");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
 });
 
 describe("editing a source", () => {
