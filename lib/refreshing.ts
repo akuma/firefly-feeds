@@ -48,14 +48,9 @@ export function reconcileArticles(
   at: number,
 ): ArticleRecord[] {
   const byId = new Map(existing.map((a) => [a.id, a]));
-  // Bridges the id scheme across the old position-seeded hash: a record that
-  // already owns this link keeps its id, so read/saved state is not orphaned.
-  const byLink = new Map(existing.filter((a) => a.link).map((a) => [a.link!, a]));
 
   return incoming.map((item) => {
-    const preferredId = `${sourceId}~${item.id}`;
-    const bridged = item.link ? byLink.get(item.link) : undefined;
-    const recordId = bridged && !byId.has(preferredId) ? bridged.id : preferredId;
+    const recordId = `${sourceId}~${item.id}`;
     const prev = byId.get(recordId);
 
     // A locally enriched copy is authoritative for the body: "success" keeps

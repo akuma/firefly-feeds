@@ -58,6 +58,10 @@ const rssItem = (title: string, link: string) =>
   `<item><title>${title}</title><link>${link}</link><description>x</description></item>`;
 const rssDoc = (items: string) =>
   `<?xml version="1.0"?><rss version="2.0"><channel><title>X</title><link>https://x.test</link><description>d</description>${items}</channel></rss>`;
+const rssWith = (item: string) =>
+  `<rss version="2.0"><channel><title>X</title><link>https://x.test</link><description>d</description>${item}</channel></rss>`;
+const atomWith = (entry: string) =>
+  `<feed xmlns="http://www.w3.org/2005/Atom"><title>X</title>${entry}</feed>`;
 
 describe("normalizeInputUrl", () => {
   it("adds https to a bare host", () => {
@@ -148,6 +152,87 @@ describe("parseFeedXml", () => {
     const a = parseFeedXml(RSS, "https://example.com/feed");
     const b = parseFeedXml(RSS, "https://example.com/feed");
     expect(a.items.map((i) => i.id)).toEqual(b.items.map((i) => i.id));
+  });
+
+  describe("article identity", () => {
+    it("prefers the RSS guid over the link", () => {
+      const idFor = (link: string) =>
+        parseFeedXml(
+          rssWith(
+            `<item><title>A</title><guid isPermaLink="false">urn:uuid:stable</guid><link>${link}</link><description>x</description></item>`,
+          ),
+          "https://x.test/feed",
+        ).items[0].id;
+      // the publisher's id survives a URL change
+      expect(idFor("https://x.test/a")).toBe(idFor("https://x.test/moved"));
+    });
+
+    it("prefers the Atom entry id over the link", () => {
+      const idFor = (link: string) =>
+        parseFeedXml(
+          atomWith(
+            `<entry><title>A</title><id>tag:x.test,2025:stable</id><link href="${link}"/><updated>2025-09-10T12:00:00Z</updated><content type="html">&lt;p&gt;x&lt;/p&gt;</content></entry>`,
+          ),
+          "https://x.test/feed.xml",
+        ).items[0].id;
+      expect(idFor("https://x.test/a")).toBe(idFor("https://x.test/moved"));
+    });
+
+    it("falls back to the link when the publisher offers no id", () => {
+      const feed = parseFeedXml(
+        rssWith(
+          `<item><title>A</title><link>https://x.test/a</link><description>x</description></item>`,
+        ),
+        "https://x.test/feed",
+      );
+      const again = parseFeedXml(
+        rssWith(
+          `<item><title>A renamed</title><link>https://x.test/a</link><description>new body</description></item>`,
+        ),
+        "https://x.test/feed",
+      );
+      expect(feed.items[0].id).toBe(again.items[0].id);
+    });
+
+    it("uses title and published time when there is neither id nor link", () => {
+      const idFor = (title: string, date: string, body: string) =>
+        parseFeedXml(
+          rssWith(
+            `<item><title>${title}</title><pubDate>${date}</pubDate><description>${body}</description></item>`,
+          ),
+          "https://x.test/feed",
+        ).items[0].id;
+      const base = idFor("A", "Thu, 11 Sep 2025 09:00:00 GMT", "first");
+      // a renamed body does not move the identity
+      expect(idFor("A", "Thu, 11 Sep 2025 09:00:00 GMT", "second")).toBe(base);
+      // but a different entry does
+      expect(idFor("B", "Thu, 11 Sep 2025 09:00:00 GMT", "first")).not.toBe(base);
+    });
+
+    it("keeps an item that has a publisher id but no article URL", () => {
+      const feed = parseFeedXml(
+        rssWith(
+          `<item><title>A</title><guid>urn:uuid:no-url</guid><description>x</description></item>`,
+        ),
+        "https://x.test/feed",
+      );
+      expect(feed.items[0].link).toBeUndefined();
+      expect(feed.items[0].id).toBeTruthy();
+    });
+
+    it("never derives identity from the entry's position", () => {
+      const one = parseFeedXml(
+        rssWith(rssItem("Only", "https://x.test/only")),
+        "https://x.test/feed",
+      ).items[0].id;
+      const second = parseFeedXml(
+        rssWith(
+          rssItem("Inserted", "https://x.test/inserted") + rssItem("Only", "https://x.test/only"),
+        ),
+        "https://x.test/feed",
+      ).items.find((i) => i.link === "https://x.test/only")!.id;
+      expect(second).toBe(one);
+    });
   });
 
   it("tells a full body from a summary by which field it came from", () => {

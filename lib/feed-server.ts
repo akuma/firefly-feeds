@@ -310,7 +310,6 @@ function pickImage(
 function normalizeItem(
   raw: Record<string, unknown>,
   baseUrl: string,
-  index: number,
   channelAuthor: string,
 ): ParsedItem | null {
   const title = htmlToText(firstText(raw.title)).slice(0, 300);
@@ -358,13 +357,23 @@ function normalizeItem(
   const image = pickImage(raw, contentHtml, baseUrl);
 
   /*
-   * Identity must not depend on the entry's position: a feed that inserts a
-   * new entry shifts every later index, which used to hand the same stories
-   * brand-new ids on every refresh — the whole list remounted and the locally
-   * fetched full text lost its owner. The publisher's guid wins, then its
-   * link; position is only the last resort for a feed that offers neither.
+   * Identity answers "is this the same article?", which is a different question
+   * from "where do I fetch the original?" — that is `link`, stored separately.
+   * Publisher-provided ids win: Atom's <id>, RSS's <guid> and RDF's rdf:about
+   * survive a URL change. Then the link, then the title and published time,
+   * then the content itself. Position is deliberately absent: a feed that
+   * inserts a new entry would otherwise renumber every later item and orphan
+   * its reading state.
    */
-  const identity = firstText(raw.guid) || link || title || `item-${index}`;
+  const publisherId = firstText(raw.guid) || firstText(raw.id) || firstAttr(raw, "@_rdf:about");
+  const titled = title ? `${title} ${publishedMs ?? ""}`.trim() : "";
+  const contentKey = htmlToText(contentHtml).replace(/\s+/g, " ").trim().slice(0, 400);
+  const identity =
+    publisherId ||
+    link ||
+    titled ||
+    contentKey ||
+    `content-${hashString(contentHtml).toString(36)}`;
 
   return {
     id: hashString(identity).toString(36),
@@ -425,9 +434,9 @@ export function parseFeedXml(xml: string, feedUrl: string): ParsedFeed {
     htmlToText(firstText(channel.title)) || new URL(feedUrl).hostname.replace(/^www\./, "");
 
   const items: ParsedItem[] = [];
-  for (const [index, raw] of rawItems.slice(0, 40).entries()) {
+  for (const raw of rawItems.slice(0, 40)) {
     if (!raw || typeof raw !== "object") continue;
-    const item = normalizeItem(raw as Record<string, unknown>, siteUrl, index, channelAuthor);
+    const item = normalizeItem(raw as Record<string, unknown>, siteUrl, channelAuthor);
     if (item) items.push(item);
   }
 

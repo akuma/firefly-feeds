@@ -147,18 +147,6 @@ describe("reconcileArticles", () => {
     expect(next[0].contentState).toBe("full");
   });
 
-  it("bridges a cached record across the id change via its link", () => {
-    // the old id was hash(link|index); the new one is hash(guid-or-link)
-    const existing = [cached("src~oldhash", { link: "https://e.test/a" })];
-    const next = reconcileArticles(
-      "src",
-      [incoming("newhash", { link: "https://e.test/a" })],
-      existing,
-      9000,
-    );
-    expect(next[0].id).toBe("src~oldhash");
-  });
-
   it("includes genuinely new entries", () => {
     const next = reconcileArticles("src", [incoming("a"), incoming("b")], [], 9000);
     expect(next.map((a) => a.id)).toEqual(["src~a", "src~b"]);
