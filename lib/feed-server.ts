@@ -27,6 +27,8 @@ export type ParsedItem = {
   image?: string;
   /** True when `image` is the feed's declared cover, shown above the body. */
   hasCover?: boolean;
+  /** Caption and credit the feed printed for the cover, when it gave one. */
+  imageCaption?: string;
   contentState: ContentState;
 };
 
@@ -313,6 +315,14 @@ function pickFeedImage(item: Record<string, unknown>, baseUrl: string): string |
   return undefined;
 }
 
+/** The caption (and credit) the feed gave for its own image. */
+function pickFeedCaption(item: Record<string, unknown>): string | undefined {
+  const parts = [firstText(item["media:description"]), firstText(item["media:credit"])].filter(
+    (part) => part.length > 0,
+  );
+  return parts.length ? parts.join(" — ") : undefined;
+}
+
 function normalizeItem(
   raw: Record<string, unknown>,
   baseUrl: string,
@@ -366,6 +376,7 @@ function normalizeItem(
   const declared = pickFeedImage(raw, baseUrl);
   const hasCover = Boolean(declared) && !bodyLeadsWithMedia(body);
   const image = declared ?? firstFigureSrc(body);
+  const imageCaption = pickFeedCaption(raw);
   const cleanBody = hasCover ? stripCoverCopy(body, declared) : body;
 
   /*
@@ -397,6 +408,7 @@ function normalizeItem(
     body: cleanBody,
     image,
     hasCover: hasCover || undefined,
+    imageCaption,
     contentState,
   };
 }

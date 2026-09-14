@@ -51,6 +51,8 @@ export type ArticleRecord = {
   image?: string;
   /** True when `image` is the page's declared cover, shown above the body. */
   hasCover?: boolean;
+  /** Caption printed under the cover, when the source gave one. */
+  imageCaption?: string;
   /** True when the page is a video that has to be watched at the source. */
   videoPage?: boolean;
   minutes: number;

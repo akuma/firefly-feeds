@@ -169,15 +169,18 @@ function Rich({ inline, text }: { inline?: Inline[]; text: string }) {
 function Blocks({ blocks }: { blocks: Block[] }) {
   const first = blocks[0];
   const lede = first?.kind === "p";
+  // The opening paragraph is the first one, wherever it falls: an article that
+  // leads with its hero image still opens on that paragraph.
+  const opener = blocks.find((block) => block.kind === "p");
   /*
    * A drop cap only works on a Latin-script opening paragraph with enough text
    * to wrap around it — the sample edition's one-line openers are not that, and
    * a float on one would break the measure.
    */
   const dropCap =
-    first?.kind === "p" &&
-    first.text.length >= 120 &&
-    /[A-Za-z]/.test(first.text.replace(/^[\p{P}\p{S}]+/u, "").charAt(0));
+    opener?.kind === "p" &&
+    opener.text.length >= 120 &&
+    /[A-Za-z]/.test(opener.text.replace(/^[\p{P}\p{S}]+/u, "").charAt(0));
 
   return (
     <div className={clsx("reading", lede && "lede", dropCap && "dropcap")}>
@@ -595,10 +598,16 @@ export function ArticlePane() {
                   </a>
                 )}
               </div>
-              {isSample && (
+              {isSample ? (
                 <figcaption className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                   Sample edition
                 </figcaption>
+              ) : (
+                s.imageCaption && (
+                  <figcaption className="mono mt-3 max-w-[62ch] text-[10px] leading-[1.75] tracking-[0.04em] text-ink4">
+                    {s.imageCaption}
+                  </figcaption>
+                )
               )}
             </figure>
           )}

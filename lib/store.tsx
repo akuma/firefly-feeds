@@ -775,6 +775,7 @@ export function useReaderState(edition: Edition): Ctx {
         truncated?: boolean;
         image?: string;
         hasCover?: boolean;
+        imageCaption?: string;
         videoPage?: boolean;
         etag?: string;
         lastModified?: string;
@@ -786,6 +787,7 @@ export function useReaderState(edition: Edition): Ctx {
         body: article.blocks,
         image: article.image ?? record.image,
         hasCover: article.hasCover ?? record.hasCover,
+        imageCaption: article.imageCaption ?? record.imageCaption,
         videoPage: article.videoPage ?? record.videoPage,
         // Only a body that was not cut by our own budget may call itself full.
         contentState: article.truncated ? "truncated" : "full",

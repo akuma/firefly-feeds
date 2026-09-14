@@ -265,6 +265,15 @@ describe("parseFeedXml", () => {
       // the cover is shown above the body, so the body's copy of it is dropped
       expect(feed.items[0].body.filter((b) => b.kind === "figure")).toHaveLength(0);
     });
+
+    it("carries the feed's own caption for the cover", () => {
+      const feed = parseFeedXml(
+        `<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>T</title><link>https://x.test</link><description>d</description><item><title>A</title><link>https://x.test/a</link><description><![CDATA[<p>Text</p>]]></description><media:content url="https://x.test/hero.jpg" medium="image"/><media:credit>Jane Doe</media:credit><media:description>A caption.</media:description></item></channel></rss>`,
+        "https://x.test/feed",
+      );
+      expect(feed.items[0].image).toBe("https://x.test/hero.jpg");
+      expect(feed.items[0].imageCaption).toBe("A caption. — Jane Doe");
+    });
   });
 
   it("downgrades a content body that ends in a read-more stub", () => {

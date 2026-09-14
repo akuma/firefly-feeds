@@ -78,6 +78,8 @@ export type IncomingItem = {
   image?: string;
   /** True when `image` is the feed's declared cover, shown above the body. */
   hasCover?: boolean;
+  /** Caption and credit the feed printed for the cover, when it gave one. */
+  imageCaption?: string;
   minutes: number;
   layout: StoryLayout;
   contentState: ContentState;
@@ -112,6 +114,8 @@ export function reconcileArticles(
         ...prev,
         link: item.link ?? prev.link,
         summary: item.summary || prev.summary,
+        // the feed's caption for the cover is still current
+        imageCaption: item.imageCaption ?? prev.imageCaption,
         fetchedAt: at,
       };
     }
@@ -135,6 +139,7 @@ export function reconcileArticles(
       body: item.body,
       image: item.image,
       hasCover: item.hasCover,
+      imageCaption: item.imageCaption,
       minutes: item.minutes,
       layout: item.layout,
       contentState: item.contentState,

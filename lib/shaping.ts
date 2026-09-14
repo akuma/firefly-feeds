@@ -49,6 +49,7 @@ export function storyFromArticle(article: ArticleRecord, now: number): Story {
      */
     image: article.image,
     hasCover: article.hasCover,
+    imageCaption: article.imageCaption,
     videoPage: article.videoPage,
     byline: article.author,
     body: article.body,

@@ -42,7 +42,7 @@ function colophon(): { unread: number } {
 }
 
 /** A source whose one article has a text-first body with a picture in it. */
-async function seedBody(opts: { image?: string; hasCover?: boolean }) {
+async function seedBody(opts: { image?: string; hasCover?: boolean; imageCaption?: string }) {
   const repo = await import("@/lib/storage/repository");
   const now = Date.now();
   await repo.putSource({
@@ -76,6 +76,7 @@ async function seedBody(opts: { image?: string; hasCover?: boolean }) {
       ],
       image: opts.image,
       hasCover: opts.hasCover,
+      imageCaption: opts.imageCaption,
       minutes: 2,
       layout: "standard",
       contentState: "full",
@@ -88,7 +89,7 @@ async function seedBody(opts: { image?: string; hasCover?: boolean }) {
 }
 
 /** A source whose one article opens with the given paragraph. */
-async function seedOpener(text: string) {
+async function seedOpener(text: string, withFigure = false) {
   const repo = await import("@/lib/storage/repository");
   const now = Date.now();
   await repo.putSource({
@@ -110,7 +111,19 @@ async function seedOpener(text: string) {
       publishedAt: now,
       fetchedAt: now,
       summary: "s",
-      body: [{ kind: "p", text }],
+      body: [
+        ...(withFigure
+          ? [
+              {
+                kind: "figure" as const,
+                src: "https://cdn.test/hero.jpg",
+                caption: "A caption.",
+                seed: 1,
+              },
+            ]
+          : []),
+        { kind: "p" as const, text },
+      ],
       minutes: 1,
       layout: "compact",
       contentState: "full",
@@ -1541,6 +1554,16 @@ describe("body images", () => {
     expect(reader().querySelector('img[src*="inset.jpg"]')).not.toBeNull();
   });
 
+  it("shows the caption the feed gave for the cover", async () => {
+    await seedBody({
+      image: "https://cdn.test/cover.jpg",
+      hasCover: true,
+      imageCaption: "A caption under the cover. — Jane Doe",
+    });
+    await mount();
+    expect(within(reader()).getByText("A caption under the cover. — Jane Doe")).toBeInTheDocument();
+  });
+
   it("does not lift a body picture to the top when there is no declared cover", async () => {
     // a cover picked from the body is a stream thumbnail only
     await seedBody({ image: "https://cdn.test/cover.jpg", hasCover: undefined });
@@ -1609,6 +1632,18 @@ describe("drop cap", () => {
     );
     await mount();
     expect(reader().querySelector(".reading")?.classList.contains("dropcap")).toBe(true);
+  });
+
+  it("applies the cap to the first paragraph after a leading picture", async () => {
+    await seedOpener(
+      "For a while, the personal website seemed to disappear entirely, and then, slowly, one domain at a time, it came back, carried by writers who wanted a place of their own.",
+      true,
+    );
+    await mount();
+    const reading = reader().querySelector(".reading");
+    expect(reading?.classList.contains("dropcap")).toBe(true);
+    // the article still leads with its picture; the cap is on the paragraph
+    expect(reading?.firstElementChild?.tagName).toBe("FIGURE");
   });
 
   it("does not mark a short opener", async () => {
