@@ -142,7 +142,7 @@ function scrub(s: string): string {
 const JUNK_IMAGE_TAG =
   /avatar|author|profile|logo|icon|emoji|sprite|pixel|spacer|tracking|share|social|badge|gravatar/i;
 const JUNK_IMAGE_URL =
-  /feedburner|feeds\.wordpress|pixel|spacer|1x1|doubleclick|gravatar|\bavatar\b|\bauthor\b|\bprofile\b|\bheadshot\b|\bbyline\b|\bcontributor\b|emoji|sprite|\blogo\b|\bicon\b|badge|tracking/i;
+  /feedburner|feeds\.wordpress|pixel|spacer|\b1x1\b|doubleclick|gravatar|\bavatar\b|\bauthor\b|\bprofile\b|\bheadshot\b|\bbyline\b|\bcontributor\b|emoji|sprite|\blogo\b|\bicon\b|badge|tracking/i;
 const SHARE_ALT = /^(share|tweet|facebook|linkedin|whatsapp|email|print)$/i;
 
 /** Whether the tag itself marks the image as publisher furniture. */
@@ -437,6 +437,25 @@ export function htmlToBlocks(
   return { blocks: deduped, truncated };
 }
 
+/**
+ * A stable identity for a picture.
+ *
+ * Resize proxies embed the original URL behind a prefix
+ * (`…/fit-in/1600x0/filters:…/https://cdn/photo.jpg`) and many CDNs add sizing
+ * query params, so the same photograph arrives under several URLs. Comparing
+ * identity — the innermost URL, query stripped — recognises those as one image,
+ * while two genuinely different pictures stay different.
+ */
+export function imageIdentity(url: string): string {
+  let value = url.trim().toLowerCase();
+  // A thumbnail service that wraps another URL hides the real one at the end.
+  const nested = Math.max(value.lastIndexOf("http://"), value.lastIndexOf("https://"));
+  if (nested > 0) value = value.slice(nested);
+  const query = value.indexOf("?");
+  if (query !== -1) value = value.slice(0, query);
+  return value.replace(/[/#]+$/, "");
+}
+
 /** The first body figure's image, if the body carries one. */
 export function firstFigureSrc(blocks: readonly Block[]): string | undefined {
   const figure = blocks.find((block) => block.kind === "figure" && block.src);
@@ -447,12 +466,17 @@ export function firstFigureSrc(blocks: readonly Block[]): string | undefined {
  * Removes the first body figure that is the lead image.
  *
  * The reader renders `Article.image` above the body, so leaving the same
- * picture in the body prints it twice. Only an exact resolved-URL match is
- * removed: a genuinely different picture later in the piece survives.
+ * picture in the body prints it twice. Matching is by image identity rather
+ * than exact URL, because the hero and the body copy are usually the same
+ * photograph at two different resize sizes. A genuinely different picture
+ * later in the piece survives.
  */
 export function stripLeadFigure(blocks: Block[], image?: string): Block[] {
   if (!image) return blocks;
-  const index = blocks.findIndex((block) => block.kind === "figure" && block.src === image);
+  const target = imageIdentity(image);
+  const index = blocks.findIndex(
+    (block) => block.kind === "figure" && block.src && imageIdentity(block.src) === target,
+  );
   if (index === -1) return blocks;
   return blocks.filter((_, i) => i !== index);
 }

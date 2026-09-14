@@ -215,7 +215,10 @@ Images are filtered before they become figures: tracking pixels, logos,
 author avatars and byline headshots are dropped, whether the signal is in the
 `class`/`alt` or only in a thumbnail size baked into the URL. A `<figure>` with
 no usable image is not dropped — its inner markup flows on, so a pull quote or
-code sample wrapped in one is not lost.
+code sample wrapped in one is not lost. The lead is the page's own metadata
+image when it has one, otherwise the first body figure; a body copy of that same
+photograph at a different resize size is recognised by the URL buried inside the
+thumbnail URL and removed, so the hero is never printed twice.
 
 A page's own video is read from standard metadata (schema.org `VideoObject`,
 Open Graph/Twitter player meta, or a real `<iframe>`) and stored as

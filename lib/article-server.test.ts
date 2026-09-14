@@ -62,6 +62,43 @@ describe("extractArticle", () => {
     ).toBe(true);
   });
 
+  it("keeps a metadata hero whose URL contains crop coordinates", () => {
+    // the og:image was mistaken for a 1x1 pixel because “1751x1143” contains it
+    const hero =
+      "https://thumb.test/fit-in/1600x0/filters:focal(1751x1143:1752x1144)/https://cdn.test/heat.jpg";
+    const page = `<!doctype html><html><head>
+      <meta property="og:image" content="${hero}">
+      <title>Heat</title>
+    </head><body><article><h1>Heat</h1>
+      <img src="https://cdn.test/chart.png" width="800" height="600" alt="Chart">
+      ${paragraph("Body text that is long enough to be a real article.")}
+    </article></body></html>`;
+    const article = extractArticle(page, "https://example.com/heat");
+    expect(article.image).toBe(hero);
+    // the hero is not in the body, so the chart stays
+    expect(
+      article.blocks.some((b) => b.kind === "figure" && b.src === "https://cdn.test/chart.png"),
+    ).toBe(true);
+  });
+
+  it("does not repeat the metadata hero when the body has the same photo at another size", () => {
+    const page = `<!doctype html><html><head>
+      <meta property="og:image" content="https://thumb.test/fit-in/1600x0/https://cdn.test/photo.jpg">
+      <title>Resized hero</title>
+    </head><body><article><h1>Resized hero</h1>
+      <img src="https://thumb.test/600x400/https://cdn.test/photo.jpg" width="800" height="600" alt="Hero">
+      ${paragraph("Body text that is long enough to be a real article.")}
+      <img src="https://cdn.test/other.jpg" width="800" height="600" alt="Other">
+    </article></body></html>`;
+    const article = extractArticle(page, "https://example.com/a");
+    expect(article.image).toBe("https://thumb.test/fit-in/1600x0/https://cdn.test/photo.jpg");
+    const figures = article.blocks
+      .filter((b) => b.kind === "figure")
+      .map((b) => (b as Extract<typeof b, { kind: "figure" }>).src);
+    // the body's smaller copy of the hero is dropped, the other picture stays
+    expect(figures).toEqual(["https://cdn.test/other.jpg"]);
+  });
+
   it("does not cut a real article at the feed budget", () => {
     const body = Array.from(
       { length: 20 },
