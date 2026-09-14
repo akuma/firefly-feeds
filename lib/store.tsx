@@ -701,6 +701,7 @@ export function useReaderState(edition: Edition): Ctx {
           title?: string;
           author?: string;
           blocks: ArticleRecord["body"];
+          truncated?: boolean;
           image?: string;
         };
         await persist({
@@ -708,7 +709,8 @@ export function useReaderState(edition: Edition): Ctx {
           author: article.author || record.author,
           body: article.blocks,
           image: article.image ?? record.image,
-          contentState: "full",
+          // Only a body that was not cut by our own budget may call itself full.
+          contentState: article.truncated ? "truncated" : "full",
           extractionState: "success",
         });
       } catch {

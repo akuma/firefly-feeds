@@ -148,11 +148,29 @@ function isMeaningfulImage(tag: string): boolean {
 }
 
 /** Bodies are cached in the browser, so they need a ceiling. */
-const DEFAULT_BUDGET = { blocks: 60, chars: 8_000 };
+export type BodyBudget = { blocks: number; chars: number };
+
+/**
+ * The ceiling for a body that came from a feed. Feed bodies are a stream
+ * summary and an instant fallback, so they stay modest.
+ */
+export const FEED_BODY_BUDGET: BodyBudget = { blocks: 60, chars: 8_000 };
+
+/**
+ * The ceiling for a body extracted from the original page. These are the
+ * articles the reader actually chose, so the budget is far higher: the feed
+ * budget would cut a real feature at roughly 8,000 characters and then report
+ * it as complete.
+ */
+export const ARTICLE_BODY_BUDGET: BodyBudget = { blocks: 200, chars: 50_000 };
 
 export type Extraction = { blocks: Block[]; truncated: boolean };
 
-export function htmlToBlocks(input: string, baseUrl?: string, budget = DEFAULT_BUDGET): Extraction {
+export function htmlToBlocks(
+  input: string,
+  baseUrl?: string,
+  budget: BodyBudget = FEED_BODY_BUDGET,
+): Extraction {
   if (!input) return { blocks: [], truncated: false };
 
   let s = input

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ARTICLE_BODY_BUDGET,
   decodeEntities,
   hashString,
   htmlToBlocks,
@@ -180,6 +181,17 @@ describe("htmlToBlocks", () => {
     expect(truncated).toBe(true);
     expect(blocks.length).toBeLessThanOrEqual(60);
     expect(JSON.stringify(blocks).length).toBeLessThan(12_000);
+  });
+
+  it("keeps the feed budget by default but allows the article budget to be asked for", () => {
+    // 120 paragraphs of ~300 characters: well past the feed ceiling, inside the
+    // article ceiling. The original page must not be cut at the feed budget.
+    const html = Array.from({ length: 120 }, (_, i) => `<p>${"word ".repeat(60)}${i}</p>`).join("");
+    const feed = htmlToBlocks(html);
+    const article = htmlToBlocks(html, undefined, ARTICLE_BODY_BUDGET);
+    expect(feed.truncated).toBe(true);
+    expect(article.truncated).toBe(false);
+    expect(article.blocks.length).toBeGreaterThan(feed.blocks.length);
   });
 
   it("does not claim truncation for a body that fits", () => {

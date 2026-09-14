@@ -1,7 +1,7 @@
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import { FeedError, readCapped, USER_AGENT } from "./feed-server";
-import { htmlToBlocks } from "./feed-html";
+import { ARTICLE_BODY_BUDGET, htmlToBlocks } from "./feed-html";
 import type { Block } from "./types";
 import { isSafeTargetUrl } from "./url-safety";
 
@@ -25,6 +25,8 @@ export type ExtractedArticle = {
   publishedTime?: string;
   siteName?: string;
   blocks: Block[];
+  /** True when our own article budget cut the body short. */
+  truncated: boolean;
   /** The article's own lead image, when it has one. */
   image?: string;
 };
@@ -70,7 +72,7 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     throw new FeedError("Could not read the article on that page.", 422);
   }
 
-  const { blocks } = htmlToBlocks(parsed.content, url);
+  const { blocks, truncated } = htmlToBlocks(parsed.content, url, ARTICLE_BODY_BUDGET);
   const text = (parsed.textContent ?? "").replace(/\s+/g, " ").trim();
   if (blocks.length === 0 || text.length < MIN_ARTICLE_CHARS) {
     throw new FeedError("That page did not contain a readable article.", 422);
@@ -84,6 +86,7 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     publishedTime: parsed.publishedTime?.trim() || undefined,
     siteName: parsed.siteName?.trim() || undefined,
     blocks,
+    truncated,
     image: figure?.kind === "figure" ? figure.src : undefined,
   };
 }

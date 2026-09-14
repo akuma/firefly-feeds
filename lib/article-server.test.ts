@@ -37,6 +37,30 @@ describe("extractArticle", () => {
     const nav = `<!doctype html><html><body><nav><a href="/">Home</a></nav><p>Hi</p></body></html>`;
     expect(() => extractArticle(nav, "https://example.com/")).toThrow(FeedError);
   });
+
+  it("does not cut a real article at the feed budget", () => {
+    const body = Array.from(
+      { length: 20 },
+      (_, i) => `<p>Paragraph ${i}. ${"Long sentence here. ".repeat(30)}</p>`,
+    ).join("");
+    const page = `<!doctype html><html><head><title>Long</title></head><body><article><h1>Long</h1>${body}</article></body></html>`;
+    const article = extractArticle(page, "https://example.com/long");
+    // the old pipeline reused the 8,000-character feed budget here and then
+    // reported the cut body as complete
+    expect(article.truncated).toBe(false);
+    expect(JSON.stringify(article.blocks).length).toBeGreaterThan(8_000);
+  });
+
+  it("reports truncation when even the article budget is exceeded", () => {
+    const body = Array.from(
+      { length: 100 },
+      (_, i) => `<p>Paragraph ${i}. ${"Long sentence here. ".repeat(30)}</p>`,
+    ).join("");
+    const page = `<!doctype html><html><head><title>Huge</title></head><body><article><h1>Huge</h1>${body}</article></body></html>`;
+    const article = extractArticle(page, "https://example.com/huge");
+    expect(article.truncated).toBe(true);
+    expect(article.blocks.length).toBeLessThanOrEqual(200);
+  });
 });
 
 describe("readArticle", () => {
