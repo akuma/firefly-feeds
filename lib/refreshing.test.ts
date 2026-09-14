@@ -230,13 +230,26 @@ describe("needsArticleRefresh", () => {
     ).toBe(true);
   });
 
-  it("does not let a version bump defeat the retry window", () => {
+  it("rebuilds an older extractor even after a recent failure", () => {
     expect(
       needsArticleRefresh(
         record({
           extractionState: "failed",
           contentCheckedAt: NOW - 1000,
           extractorVersion: EXTRACTOR_VERSION - 1,
+        }),
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  it("waits out the retry window once the failure carries the current version", () => {
+    expect(
+      needsArticleRefresh(
+        record({
+          extractionState: "failed",
+          contentCheckedAt: NOW - 1000,
+          extractorVersion: EXTRACTOR_VERSION,
         }),
         NOW,
       ),
@@ -258,7 +271,14 @@ describe("needsArticleRefresh", () => {
 
   it("does not retry a failure inside the retry window", () => {
     expect(
-      needsArticleRefresh(record({ extractionState: "failed", contentCheckedAt: NOW - 1000 }), NOW),
+      needsArticleRefresh(
+        record({
+          extractionState: "failed",
+          contentCheckedAt: NOW - 1000,
+          extractorVersion: EXTRACTOR_VERSION,
+        }),
+        NOW,
+      ),
     ).toBe(false);
   });
 

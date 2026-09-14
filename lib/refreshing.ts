@@ -43,12 +43,14 @@ export const EXTRACTOR_VERSION = 6;
 export function needsArticleRefresh(record: ArticleRecord, now: number): boolean {
   if (!record.link) return false;
   const checkedAt = record.contentCheckedAt ?? 0;
-  // A recent failure is respected even when the extractor changed, or the
-  // version bump would defeat the retry window.
+  // A body from an older extractor is rebuilt once regardless of age or a
+  // recent failure: the extractor itself changed, so the old verdict is stale.
+  // The rebuild stamps the current version, so a page that still fails falls
+  // back to the retry window rather than looping.
+  if (record.extractorVersion !== EXTRACTOR_VERSION) return true;
   if (record.extractionState === "failed" && now - checkedAt < EXTRACTION_RETRY_MS) {
     return false;
   }
-  if (record.extractorVersion !== EXTRACTOR_VERSION) return true;
   if (record.contentFetchedAt) return now - checkedAt >= ARTICLE_STALE_MS;
   return true;
 }

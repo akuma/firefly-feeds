@@ -784,6 +784,8 @@ export function useReaderState(edition: Edition): Ctx {
         ...record,
         extractionState: hasOriginal ? record.extractionState : "failed",
         contentCheckedAt: at,
+        // Stamp the attempt so a version change does not retrigger every render.
+        extractorVersion: EXTRACTOR_VERSION,
       });
       setArticles((current) =>
         current.map((a) =>
@@ -792,6 +794,7 @@ export function useReaderState(edition: Edition): Ctx {
                 ...a,
                 extractionState: hasOriginal ? a.extractionState : "failed",
                 contentCheckedAt: at,
+                extractorVersion: EXTRACTOR_VERSION,
               }
             : a,
         ),
