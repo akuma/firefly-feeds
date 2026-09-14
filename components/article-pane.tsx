@@ -295,13 +295,18 @@ export function ArticlePane() {
   /* oxlint-enable react/exhaustive-effect-dependencies */
 
   const creditRead = r.markRead;
+  // `progress` is the scroll signal this runs on; `readSignal` re-reads the
+  // committed geometry itself, so the value is not used in the body.
+  /* oxlint-disable react/exhaustive-effect-dependencies */
   useEffect(() => {
-    // mid-story is the common case while scrolling, and never evidence of much
-    if (progress > 0 && progress < 1) return;
     if (!s || credited.current.has(s.id)) return;
     const el = scrollRef.current;
     if (!el) return;
 
+    // `readSignal` owns the geometry, including the tolerance for landing a few
+    // pixels short of the end. Gating on `progress === 1` first would defeat
+    // that tolerance, leaving a long story unread after the reader had in fact
+    // reached the bottom.
     const signal = readSignal(el);
     if (signal === "none") return;
     if (signal === "now") {
@@ -315,6 +320,7 @@ export function ArticlePane() {
     }, DWELL_MS);
     return () => window.clearTimeout(timer);
   }, [progress, s, creditRead]);
+  /* oxlint-enable react/exhaustive-effect-dependencies */
 
   if (!r.ready) {
     return (
@@ -461,6 +467,7 @@ export function ArticlePane() {
       {/* ------------------------------------------------------ article */}
       <div
         ref={scrollRef}
+        data-t="reader-scroll"
         className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain"
       >
         <article

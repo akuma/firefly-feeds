@@ -244,6 +244,20 @@ describe("reading state", () => {
     await waitFor(() => expect(colophon().unread).toBe(before - 1), { timeout: 4000 });
   });
 
+  it("credits a long story scrolled to the end, even a few pixels short", async () => {
+    await mount();
+    const before = colophon().unread;
+    const pane = document.querySelector<HTMLElement>("[data-t='reader-scroll']")!;
+    // jsdom has no layout, so a long article reaching its end is faked. The
+    // position is inside the end tolerance but progress is not exactly 1.
+    Object.defineProperty(pane, "scrollHeight", { value: 5000, configurable: true });
+    Object.defineProperty(pane, "clientHeight", { value: 900, configurable: true });
+    Object.defineProperty(pane, "scrollTop", { value: 4090, configurable: true });
+    pane.dispatchEvent(new Event("scroll"));
+    // the dwell branch would take two seconds; this must credit immediately
+    await waitFor(() => expect(colophon().unread).toBe(before - 1), { timeout: 900 });
+  });
+
   it("still marks read when asked, and unread again", async () => {
     const { user } = await mount();
     const before = colophon().unread;
