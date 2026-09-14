@@ -698,10 +698,11 @@ export function useReaderState(edition: Edition): Ctx {
   const loadArticle = useCallback(async (record: ArticleRecord) => {
     const url = record.link;
     if (!url) return;
-    // A body that came from the original page is being revalidated; anything
-    // else (absent, or a feed fallback) is a first fetch.
-    const revalidation =
-      typeof record.contentFetchedAt === "number" || record.extractionState === "success";
+    // A body that carries a fetched-at time is a cached original and gets
+    // revalidated. A legacy record that only has `extractionState: "success"`
+    // (from before the freshness fields existed) has an unknown body, so it is
+    // fetched as if for the first time and may update the open copy.
+    const revalidation = typeof record.contentFetchedAt === "number";
     extractingRef.current.add(record.id);
     if (!revalidation) setExtracting(record.id);
 

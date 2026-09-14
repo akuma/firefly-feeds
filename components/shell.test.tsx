@@ -1084,6 +1084,38 @@ describe("reading the full text on demand", () => {
     }
   });
 
+  it("repairs a legacy extracted body on first open, even though it was marked success", async () => {
+    await seedCachedOriginal({
+      contentFetchedAt: undefined,
+      contentCheckedAt: undefined,
+      body: [{ kind: "p", text: "Old truncated body." }],
+      contentState: "full",
+      extractionState: "success",
+    });
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          article: {
+            title: "Cached original",
+            blocks: [{ kind: "p", text: "Full repaired body." }],
+            truncated: false,
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    try {
+      await mount();
+      // the old body was cut by the feed budget but marked full; it must be
+      // replaced in the open copy, not silently kept
+      await waitFor(() => expect(reader().textContent).toContain("Full repaired body."));
+      expect(reader().textContent).not.toContain("Old truncated body.");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("keeps the old original body when a revalidation fails", async () => {
     const stale = Date.now() - ARTICLE_STALE_MS - 1000;
     const repo = await seedCachedOriginal({
