@@ -134,17 +134,101 @@ function scrub(s: string): string {
     .trim();
 }
 
-/** Remove images that are really tracking pixels, spacers, or share badges. */
-function isMeaningfulImage(tag: string): boolean {
+/**
+ * Publisher furniture that is never the article's own picture. Matched against
+ * the tag's class, id and alt rather than the URL alone, because a tracking
+ * pixel usually still has a meaningful filename.
+ */
+const JUNK_IMAGE_TAG =
+  /avatar|author|profile|logo|icon|emoji|sprite|pixel|spacer|tracking|share|social|badge|gravatar/i;
+const JUNK_IMAGE_URL =
+  /feedburner|feeds\.wordpress|pixel|spacer|1x1|doubleclick|gravatar|\bavatar\b|\bauthor\b|\bprofile\b|emoji|sprite|\blogo\b|\bicon\b|badge|tracking/i;
+const SHARE_ALT = /^(share|tweet|facebook|linkedin|whatsapp|email|print)$/i;
+
+/** Whether the tag itself marks the image as publisher furniture. */
+function isJunkImageTag(tag: string): boolean {
   const w = Number(attr(tag, "width") ?? 0);
   const h = Number(attr(tag, "height") ?? 0);
-  if ((w && w <= 64) || (h && h <= 64)) return false;
-  const src = attr(tag, "src") ?? "";
-  if (/feedburner|feeds\.wordpress|pixel|spacer|1x1|doubleclick|gravatar|avatar/i.test(src))
-    return false;
-  const alt = (attr(tag, "alt") ?? "").trim();
-  if (/^(share|tweet|facebook|linkedin|whatsapp|email|print)$/i.test(alt)) return false;
-  return true;
+  if ((w && w <= 64) || (h && h <= 64)) return true;
+  const meta = [attr(tag, "class"), attr(tag, "id"), attr(tag, "alt")].filter(Boolean).join(" ");
+  if (JUNK_IMAGE_TAG.test(meta)) return true;
+  return SHARE_ALT.test((attr(tag, "alt") ?? "").trim());
+}
+
+function isJunkImageUrl(url: string): boolean {
+  return JUNK_IMAGE_URL.test(url);
+}
+
+type ImageCandidate = { url: string; width?: number };
+
+/** A `srcset` value, including width and pixel-density descriptors. */
+function parseSrcset(value: string): ImageCandidate[] {
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const [url, ...descriptors] = part.split(/\s+/);
+      let width: number | undefined;
+      for (const descriptor of descriptors) {
+        if (/^\d+w$/.test(descriptor)) width = Number.parseInt(descriptor, 10);
+        else if (/^[\d.]+x$/.test(descriptor)) {
+          const density = Number.parseFloat(descriptor);
+          if (Number.isFinite(density)) width = density * 1000;
+        }
+      }
+      return { url, width };
+    })
+    .filter((candidate) => candidate.url.length > 0);
+}
+
+/** The reading width a srcset candidate is chosen against. */
+const PREFERRED_IMAGE_WIDTH = 1200;
+
+/**
+ * Picks the candidate worth rendering in the reader: the smallest one that
+ * still reaches a readable width, or the largest when even that is only a
+ * thumbnail. A density descriptor is treated as a width so `1x`/`2x` sort the
+ * same way.
+ */
+function pickBestImage<T extends ImageCandidate>(candidates: T[]): T | undefined {
+  if (!candidates.length) return undefined;
+  const scored = candidates.filter((candidate) => candidate.width !== undefined);
+  if (!scored.length) return candidates[0];
+  const largeEnough = scored.filter((candidate) => (candidate.width ?? 0) >= PREFERRED_IMAGE_WIDTH);
+  const pool = largeEnough.length ? largeEnough : scored;
+  return pool.toSorted((a, b) => {
+    const delta = (a.width ?? 0) - (b.width ?? 0);
+    return largeEnough.length ? delta : -delta;
+  })[0];
+}
+
+const IMAGE_SRCSET_ATTRS = ["data-srcset", "srcset"];
+const IMAGE_SRC_ATTRS = ["data-src", "data-original", "data-lazy-src", "data-actualsrc", "src"];
+
+/**
+ * The best image URL an `<img>` (or a `<picture>` already reduced to one)
+ * offers, resolved against the page. Lazy-loading attributes are read before
+ * `src`, because a common pattern leaves a placeholder there.
+ */
+export function bestImageUrl(tag: string, base?: string): string | undefined {
+  if (isJunkImageTag(tag)) return undefined;
+  const candidates: ImageCandidate[] = [];
+  for (const name of IMAGE_SRCSET_ATTRS) {
+    const value = attr(tag, name);
+    if (value) candidates.push(...parseSrcset(value));
+  }
+  for (const name of IMAGE_SRC_ATTRS) {
+    const value = attr(tag, name);
+    if (value) candidates.push({ url: value });
+  }
+  const usable = candidates
+    .map((candidate) => ({ ...candidate, resolved: resolveUrl(candidate.url, base) }))
+    .filter(
+      (candidate): candidate is ImageCandidate & { resolved: string } =>
+        typeof candidate.resolved === "string" && !isJunkImageUrl(candidate.resolved),
+    );
+  return pickBestImage(usable)?.resolved;
 }
 
 /** Bodies are cached in the browser, so they need a ceiling. */
@@ -179,7 +263,7 @@ export function htmlToBlocks(
       /<(script|style|head|noscript|iframe|svg|canvas|form|button|select|textarea|video|audio)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
       "",
     )
-    .replace(/<(script|style|iframe|input|link|meta|source|track)\b[^>]*\/?>/gi, "");
+    .replace(/<(script|style|iframe|input|link|meta|track)\b[^>]*\/?>/gi, "");
 
   const vault: Block[] = [];
   const hold = (block: Block) => {
@@ -187,19 +271,33 @@ export function htmlToBlocks(
     return `\uE000${vault.length - 1}\uE000`;
   };
 
+  // ------------------------------------------------------------ picture
+  // A <picture> whose <source> holds the srcset is invisible to the <img>
+  // handlers below, so reduce it to the <img> it wraps and carry the source's
+  // candidates across.
+  s = s.replace(/<picture\b[^>]*>([\s\S]*?)<\/picture\s*>/gi, (_m, inner: string) => {
+    const img = /<img\b[^>]*>/i.exec(inner)?.[0] ?? "<img>";
+    const srcsets = [...inner.matchAll(/<source\b[^>]*>/gi)]
+      .map((source) => attr(source[0], "srcset") ?? "")
+      .filter(Boolean);
+    if (!srcsets.length) return img;
+    const without = img.replace(/\s+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i, "");
+    const value = srcsets.join(", ").replace(/"/g, "&quot;");
+    return without.replace(/^<img/i, `<img srcset="${value}"`);
+  });
+
   // ---------------------------------------------------------- figures
   s = s.replace(/<figure\b[^>]*>([\s\S]*?)<\/figure\s*>/gi, (_m, inner: string) => {
     const img = /<img\b[^>]*>/i.exec(inner);
-    if (!img || !isMeaningfulImage(img[0])) return "";
-    const src = resolveUrl(attr(img[0], "src"), baseUrl);
+    const src = img ? bestImageUrl(img[0], baseUrl) : undefined;
     if (!src) return "";
-    const caption = text(inner.replace(/<img\b[^>]*>/gi, "")) || attr(img[0], "alt") || "";
+    const caption =
+      text(inner.replace(/<img\b[^>]*>/gi, "")) || (img ? attr(img[0], "alt") : "") || "";
     return hold({ kind: "figure", src, caption, seed: hashString(src) });
   });
 
   s = s.replace(/<img\b[^>]*>/gi, (tag: string) => {
-    if (!isMeaningfulImage(tag)) return "";
-    const src = resolveUrl(attr(tag, "src"), baseUrl);
+    const src = bestImageUrl(tag, baseUrl);
     if (!src) return "";
     return hold({
       kind: "figure",
@@ -301,8 +399,16 @@ export function htmlToBlocks(
     if (budgetReached()) break;
   }
 
-  // collapse identical neighbours (a common double-render in feed templates)
+  // collapse identical neighbours (a common double-render in feed templates),
+  // and drop a body image whose resolved URL already appeared — the same photo
+  // printed twice is never the article's intent. First occurrence wins, so the
+  // document's own order is preserved.
+  const seenImages = new Set<string>();
   const deduped = blocks.filter((b, i) => {
+    if (b.kind === "figure" && b.src) {
+      if (seenImages.has(b.src)) return false;
+      seenImages.add(b.src);
+    }
     const prev = blocks[i - 1];
     if (!prev || prev.kind !== b.kind) return true;
     if (b.kind === "p" && prev.kind === "p") return prev.text !== b.text;
@@ -315,6 +421,26 @@ export function htmlToBlocks(
   }
 
   return { blocks: deduped, truncated };
+}
+
+/** The first body figure's image, if the body carries one. */
+export function firstFigureSrc(blocks: readonly Block[]): string | undefined {
+  const figure = blocks.find((block) => block.kind === "figure" && block.src);
+  return figure?.kind === "figure" ? figure.src : undefined;
+}
+
+/**
+ * Removes the first body figure that is the lead image.
+ *
+ * The reader renders `Article.image` above the body, so leaving the same
+ * picture in the body prints it twice. Only an exact resolved-URL match is
+ * removed: a genuinely different picture later in the piece survives.
+ */
+export function stripLeadFigure(blocks: Block[], image?: string): Block[] {
+  if (!image) return blocks;
+  const index = blocks.findIndex((block) => block.kind === "figure" && block.src === image);
+  if (index === -1) return blocks;
+  return blocks.filter((_, i) => i !== index);
 }
 
 /**

@@ -38,6 +38,14 @@ describe("extractArticle", () => {
     expect(() => extractArticle(nav, "https://example.com/")).toThrow(FeedError);
   });
 
+  it("keeps the lead image out of the body", () => {
+    const article = extractArticle(ARTICLE, "https://example.com/a-piece");
+    expect(article.image).toBe("https://example.com/lead.jpg");
+    // ArticlePane renders the image above the body; a second copy reads as a
+    // different picture, or as padding
+    expect(article.blocks.some((b) => b.kind === "figure" && b.src === article.image)).toBe(false);
+  });
+
   it("does not cut a real article at the feed budget", () => {
     const body = Array.from(
       { length: 20 },

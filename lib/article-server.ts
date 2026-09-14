@@ -1,7 +1,7 @@
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import { FeedError, readCapped, USER_AGENT } from "./feed-server";
-import { ARTICLE_BODY_BUDGET, htmlToBlocks } from "./feed-html";
+import { ARTICLE_BODY_BUDGET, firstFigureSrc, htmlToBlocks, stripLeadFigure } from "./feed-html";
 import type { Block } from "./types";
 import { isSafeTargetUrl } from "./url-safety";
 
@@ -78,16 +78,19 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     throw new FeedError("That page did not contain a readable article.", 422);
   }
 
-  const figure = blocks.find((b) => b.kind === "figure" && b.src);
+  const image = firstFigureSrc(blocks);
+  // The reader shows `image` above the body, so the same figure must not
+  // appear a second time inside it.
+  const body = stripLeadFigure(blocks, image);
 
   return {
     title: parsed.title?.trim() || undefined,
     author: parsed.byline?.trim() || undefined,
     publishedTime: parsed.publishedTime?.trim() || undefined,
     siteName: parsed.siteName?.trim() || undefined,
-    blocks,
+    blocks: body,
     truncated,
-    image: figure?.kind === "figure" ? figure.src : undefined,
+    image,
   };
 }
 

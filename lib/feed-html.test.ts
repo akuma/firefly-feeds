@@ -8,6 +8,7 @@ import {
   htmlToText,
   isSafeUrl,
   sharedOpening,
+  stripLeadFigure,
 } from "./feed-html";
 
 describe("decodeEntities", () => {
@@ -216,5 +217,83 @@ describe("htmlToBlocks", () => {
     for (const block of blocks) {
       if (block.kind === "p") expect(block.text.length).toBeLessThan(1000);
     }
+  });
+});
+
+const figureSrcs = (blocks: ReturnType<typeof htmlToBlocks>["blocks"]) =>
+  blocks.flatMap((block) => (block.kind === "figure" && block.src ? [block.src] : []));
+
+describe("images", () => {
+  it("picks a readable resolution from srcset rather than the smallest thumbnail", () => {
+    const { blocks } = htmlToBlocks(
+      `<img srcset="https://e.test/small.jpg 320w, https://e.test/mid.jpg 800w, https://e.test/large.jpg 1600w" src="https://e.test/fallback.jpg" alt="x">`,
+    );
+    expect(figureSrcs(blocks)).toEqual(["https://e.test/large.jpg"]);
+  });
+
+  it("takes the largest when every srcset candidate is still a thumbnail", () => {
+    const { blocks } = htmlToBlocks(
+      `<img srcset="https://e.test/a.jpg 200w, https://e.test/b.jpg 640w" alt="x">`,
+    );
+    expect(figureSrcs(blocks)).toEqual(["https://e.test/b.jpg"]);
+  });
+
+  it("recognises lazy-loading attributes ahead of a placeholder src", () => {
+    const { blocks } = htmlToBlocks(
+      `<img src="data:image/gif;base64,R0lGOD" data-src="https://e.test/real.jpg" alt="A photo">`,
+    );
+    expect(figureSrcs(blocks)).toEqual(["https://e.test/real.jpg"]);
+  });
+
+  it("recognises data-srcset", () => {
+    const { blocks } = htmlToBlocks(
+      `<img data-srcset="https://e.test/a.jpg 400w, https://e.test/b.jpg 1400w" data-src="https://e.test/c.jpg" alt="x">`,
+    );
+    expect(figureSrcs(blocks)).toEqual(["https://e.test/b.jpg"]);
+  });
+
+  it("recognises a picture element's source", () => {
+    const { blocks } = htmlToBlocks(
+      `<picture><source srcset="https://e.test/hero.webp 1200w" type="image/webp"><img src="https://e.test/hero.jpg" alt="Hero"></picture>`,
+    );
+    expect(figureSrcs(blocks)).toEqual(["https://e.test/hero.webp"]);
+  });
+
+  it("discards logos, author portraits and profile pictures", () => {
+    const { blocks } = htmlToBlocks(`
+      <img src="https://e.test/logo.png" width="600" height="200" alt="Site logo">
+      <img src="https://e.test/pic.jpg" class="author-avatar" width="600" height="600">
+      <img src="https://e.test/profile.jpg" width="600" height="600" alt="Portrait">
+      <p>Real content.</p>
+    `);
+    expect(figureSrcs(blocks)).toEqual([]);
+  });
+
+  it("keeps document order and drops a repeated resolved URL", () => {
+    const { blocks } = htmlToBlocks(`
+      <img src="https://e.test/a.jpg" width="600" height="400" alt="first">
+      <img src="https://e.test/b.jpg" width="600" height="400" alt="second">
+      <img src="https://e.test/a.jpg" width="600" height="400" alt="again">
+      <img src="https://e.test/c.jpg" width="600" height="400" alt="third">
+    `);
+    // first occurrence wins; the order is untouched
+    expect(figureSrcs(blocks)).toEqual([
+      "https://e.test/a.jpg",
+      "https://e.test/b.jpg",
+      "https://e.test/c.jpg",
+    ]);
+  });
+
+  it("removes only the lead figure from the body", () => {
+    const blocks = [
+      { kind: "figure" as const, src: "https://e.test/a.jpg", caption: "", seed: 1 },
+      { kind: "p" as const, text: "Text" },
+      { kind: "figure" as const, src: "https://e.test/b.jpg", caption: "", seed: 2 },
+    ];
+    expect(figureSrcs(stripLeadFigure(blocks, "https://e.test/a.jpg"))).toEqual([
+      "https://e.test/b.jpg",
+    ]);
+    // a lead that never appeared in the body removes nothing
+    expect(stripLeadFigure(blocks, "https://e.test/c.jpg")).toHaveLength(3);
   });
 });

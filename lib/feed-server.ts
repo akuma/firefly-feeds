@@ -1,6 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
 import {
   blocksToText,
+  firstFigureSrc,
   hashString,
   hasReadMoreCue,
   htmlToBlocks,
@@ -8,6 +9,7 @@ import {
   htmlToText,
   resolveUrl,
   sharedOpening,
+  stripLeadFigure,
 } from "./feed-html";
 import type { Block, ContentState, Story, StoryLayout } from "./types";
 
@@ -277,11 +279,14 @@ function parseDate(value: unknown): number | undefined {
   return Number.isFinite(ms) ? ms : undefined;
 }
 
-function pickImage(
-  item: Record<string, unknown>,
-  html: string,
-  baseUrl: string,
-): string | undefined {
+/**
+ * The lead image the feed declares in its own metadata.
+ *
+ * Deliberately does not fall back to the body: a body image is chosen from the
+ * parsed blocks (filtered, ordered, de-duplicated) rather than by grabbing the
+ * first `<img>` in the source, which is how a logo ends up as a lead image.
+ */
+function pickFeedImage(item: Record<string, unknown>, baseUrl: string): string | undefined {
   const candidates: string[] = [
     firstAttr(item["media:content"], "@_url"),
     firstAttr(item["media:thumbnail"], "@_url"),
@@ -302,9 +307,7 @@ function pickImage(
     const resolved = resolveUrl(candidate, baseUrl);
     if (resolved) return resolved;
   }
-  // last resort: the first real image in the body
-  const match = /<img\b[^>]*>/i.exec(html);
-  return resolveUrl(match ? attr(match[0], "src") : undefined, baseUrl);
+  return undefined;
 }
 
 function normalizeItem(
@@ -354,7 +357,10 @@ function normalizeItem(
     contentState = "summary";
   }
   if (truncated) contentState = "truncated";
-  const image = pickImage(raw, contentHtml, baseUrl);
+  // The feed's own lead image wins; otherwise the first body figure is the
+  // lead. Either way the body must not print it a second time.
+  const image = pickFeedImage(raw, baseUrl) ?? firstFigureSrc(body);
+  const cleanBody = stripLeadFigure(body, image);
 
   /*
    * Identity answers "is this the same article?", which is a different question
@@ -382,7 +388,7 @@ function normalizeItem(
     author: author ? htmlToText(author).slice(0, 120) : undefined,
     publishedMs,
     summary: summary || htmlToText(contentHtml).slice(0, 220),
-    body,
+    body: cleanBody,
     image,
     contentState,
   };
