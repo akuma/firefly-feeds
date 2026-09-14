@@ -167,10 +167,20 @@ function Rich({ inline, text }: { inline?: Inline[]; text: string }) {
 }
 
 function Blocks({ blocks }: { blocks: Block[] }) {
-  const lede = blocks[0]?.kind === "p";
+  const first = blocks[0];
+  const lede = first?.kind === "p";
+  /*
+   * A drop cap only works on a Latin-script opening paragraph with enough text
+   * to wrap around it — the sample edition's one-line openers are not that, and
+   * a float on one would break the measure.
+   */
+  const dropCap =
+    first?.kind === "p" &&
+    first.text.length >= 120 &&
+    /[A-Za-z]/.test(first.text.replace(/^[\p{P}\p{S}]+/u, "").charAt(0));
 
   return (
-    <div className={clsx("reading", lede && "lede")}>
+    <div className={clsx("reading", lede && "lede", dropCap && "dropcap")}>
       {blocks.map((b, i) => {
         switch (b.kind) {
           case "p":

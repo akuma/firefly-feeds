@@ -87,6 +87,38 @@ async function seedBody(opts: { image?: string; hasCover?: boolean }) {
   ]);
 }
 
+/** A source whose one article opens with the given paragraph. */
+async function seedOpener(text: string) {
+  const repo = await import("@/lib/storage/repository");
+  const now = Date.now();
+  await repo.putSource({
+    id: "sdrop",
+    url: "https://drop.example/feed.xml",
+    siteUrl: "https://drop.example",
+    title: "Drop Source",
+    host: "drop.example",
+    folder: "news",
+    addedAt: now,
+    fetchedAt: now,
+    updatedAt: now,
+  });
+  await repo.replaceArticles("sdrop", [
+    {
+      id: "sdrop~a",
+      sourceId: "sdrop",
+      title: "An essay",
+      publishedAt: now,
+      fetchedAt: now,
+      summary: "s",
+      body: [{ kind: "p", text }],
+      minutes: 1,
+      layout: "compact",
+      contentState: "full",
+      extractionState: "idle",
+    },
+  ]);
+}
+
 async function mount() {
   const user = userEvent.setup();
   const result = render(<Shell edition={editionFor(new Date("2026-09-11T09:00:00Z"))} />);
@@ -1567,6 +1599,30 @@ describe("links", () => {
     // a publisher link must not navigate the reader away from what it is reading
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toContain("noopener");
+  });
+});
+
+describe("drop cap", () => {
+  it("marks an English opener long enough to wrap the cap", async () => {
+    await seedOpener(
+      "For a while, the personal website seemed to disappear entirely, and then, slowly, one domain at a time, it came back, carried by writers who wanted a place of their own.",
+    );
+    await mount();
+    expect(reader().querySelector(".reading")?.classList.contains("dropcap")).toBe(true);
+  });
+
+  it("does not mark a short opener", async () => {
+    await seedOpener("For a while, it disappeared.");
+    await mount();
+    expect(reader().querySelector(".reading")?.classList.contains("dropcap")).toBe(false);
+  });
+
+  it("does not mark a CJK opener", async () => {
+    await seedOpener(
+      "这里记录每周值得分享的科技内容，周五发布。本杂志开源，欢迎投稿。另有《谁在招人》服务，发布程序员招聘信息。合作请邮件联系，感谢大家的支持与关注。",
+    );
+    await mount();
+    expect(reader().querySelector(".reading")?.classList.contains("dropcap")).toBe(false);
   });
 });
 
