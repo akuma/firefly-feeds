@@ -416,8 +416,10 @@ export function ArticlePane() {
   const later = r.state.later[s.id];
   const read = r.state.read[s.id];
 
-  const idx = r.filtered.findIndex((x) => x.id === s.id);
-  const next = idx >= 0 ? r.filtered[idx + 1] : undefined;
+  // The next story in the column's reading order. It comes from the store
+  // rather than `filtered` because the open story may already have dropped out
+  // of the Unread filter, and "Next up" should still point where `j` goes.
+  const next = r.upNext;
   const pct = Math.round(progress * 100);
 
   /* ---------------------------------------------------------- toolbar */

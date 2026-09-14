@@ -315,6 +315,14 @@ recent entries fit the reading pane. The rule is a pure function so it can be
 unit-tested at every branch — jsdom has no layout and cannot exercise it through
 the DOM.
 
+**The Unread filter is the default, and it does not move the reader.** Crediting
+the open story removes it from the column, but the pane stays on the page:
+dropping to the next story under someone who is still reading it is the jump the
+filter would otherwise cause. `j`/`k` and the "Next up" link anchor on the column
+the filter was applied to (`listed` in `lib/store.tsx`), so a step continues from
+the story on screen instead of restarting at the top. Changing the view, a search
+or a collection still carries the reader to the new column.
+
 ## Sample content
 
 `lib/sample/` holds the only fabricated content in the project, and it is fenced

@@ -115,6 +115,8 @@ type Ctx = {
   streamFilter: "all" | "unread";
   setStreamFilter: (f: "all" | "unread") => void;
   filtered: Story[];
+  /** The story `j` and "Next up" would open from the one on screen. */
+  upNext: Story | undefined;
 
   selectedId: string;
   select: (id: string) => void;
@@ -179,7 +181,7 @@ export function useReaderState(edition: Edition): Ctx {
 
   const [view, setViewRaw] = useState<ViewId>("today");
   const [query, setQuery] = useState("");
-  const [streamFilter, setStreamFilter] = useState<"all" | "unread">("all");
+  const [streamFilter, setStreamFilter] = useState<"all" | "unread">("unread");
   const [selectedId, setSelectedId] = useState("quiet-return");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [immersive, setImmersive] = useState(false);
@@ -605,7 +607,15 @@ export function useReaderState(edition: Edition): Ctx {
 
   /* ------------------------------------------------------------- filter */
 
-  const filtered = useMemo(() => {
+  /*
+   * The column, before and after the Unread filter.
+   *
+   * `listed` is what the current view, search and collections admit; `filtered`
+   * is what the column actually shows. The reader needs both: marking the open
+   * story read removes it from the Unread column, and the pane still has to know
+   * the story belongs to the view so it is not yanked to the next one.
+   */
+  const { filtered, listed } = useMemo(() => {
     const q = query.trim().toLowerCase();
     let list = stories;
     if (q) {
@@ -628,10 +638,9 @@ export function useReaderState(edition: Edition): Ctx {
       const id = view.slice(5) as FeedId;
       list = list.filter((s) => s.feedId === id);
     }
-    if (streamFilter === "unread") {
-      list = list.filter((s) => !state.read[s.id]);
-    }
-    return list.toSorted((a, b) => a.minutesAgo - b.minutesAgo);
+    const column = list.toSorted((a, b) => a.minutesAgo - b.minutesAgo);
+    const visible = streamFilter === "unread" ? column.filter((s) => !state.read[s.id]) : column;
+    return { filtered: visible, listed: column };
   }, [stories, view, query, state.saved, state.later, state.read, streamFilter, feedIndex]);
 
   const story = useCallback((id: string) => stories.find((s) => s.id === id), [stories]);
@@ -708,8 +717,17 @@ export function useReaderState(edition: Edition): Ctx {
    */
   const activeId = useMemo(() => {
     if (filtered.some((candidate) => candidate.id === selectedId)) return selectedId;
+    /*
+     * A story leaves the column for two different reasons. A changed column —
+     * another view, a search, a collection toggle — carries the reader with it.
+     * Being marked read under the Unread filter does not: the reader is still on
+     * the page, and moving them to another story is the jump this avoids.
+     * `listed` is the column minus the Unread filter, so membership there tells
+     * the two apart.
+     */
+    if (listed.some((candidate) => candidate.id === selectedId)) return selectedId;
     return filtered[0]?.id ?? selectedId;
-  }, [filtered, selectedId]);
+  }, [filtered, listed, selectedId]);
 
   const currentStory = useMemo(() => stories.find((s) => s.id === activeId), [stories, activeId]);
 
@@ -868,16 +886,42 @@ export function useReaderState(edition: Edition): Ctx {
    */
   const select = useCallback((id: string) => setSelectedId(id), []);
 
+  /*
+   * The story a step lands on, in the order the column reads.
+   *
+   * `filtered` is what is visible, but the open story can have dropped out of
+   * it — read, under the Unread filter — while `listed` is the column before
+   * that filter. Anchoring on `listed` lets a step continue from where the
+   * reader actually is instead of restarting at the top.
+   */
+  const neighbour = useCallback(
+    (dir: 1 | -1, fromId: string): Story | undefined => {
+      const list = filtered;
+      if (!list.length) return undefined;
+      const idx = list.findIndex((candidate) => candidate.id === fromId);
+      if (idx !== -1) return list[idx + dir];
+      const positions = new Map(listed.map((candidate, i) => [candidate.id, i]));
+      const anchor = positions.get(fromId);
+      if (anchor === undefined) return dir === 1 ? list[0] : list[list.length - 1];
+      const inOrder = list.filter((candidate) => {
+        const at = positions.get(candidate.id) ?? 0;
+        return dir === 1 ? at > anchor : at < anchor;
+      });
+      return dir === 1 ? inOrder[0] : inOrder[inOrder.length - 1];
+    },
+    [filtered, listed],
+  );
+
   const step = useCallback(
     (dir: 1 | -1) => {
-      const list = filtered;
-      if (!list.length) return;
-      const idx = list.findIndex((candidate) => candidate.id === activeId);
-      const next = idx === -1 ? 0 : Math.min(list.length - 1, Math.max(0, idx + dir));
-      select(list[next].id);
+      const target = neighbour(dir, activeId);
+      if (target) select(target.id);
     },
-    [filtered, activeId, select],
+    [neighbour, activeId, select],
   );
+
+  /** What "Next up" and `j` would open from the story on screen. */
+  const upNext = useMemo(() => neighbour(1, activeId), [neighbour, activeId]);
 
   /* ---------------------------------------------------------- appearance */
 
@@ -948,6 +992,7 @@ export function useReaderState(edition: Edition): Ctx {
     streamFilter,
     setStreamFilter,
     filtered,
+    upNext,
     selectedId: activeId,
     select,
     step,

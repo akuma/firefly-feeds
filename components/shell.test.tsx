@@ -369,6 +369,53 @@ describe("reading state", () => {
     await waitFor(() => expect(colophon().unread).toBe(before));
   });
 
+  it("keeps the open story when the Unread filter drops it", async () => {
+    const { user } = await mount();
+    // Unread is the default, so crediting a story removes it from the column;
+    // the reader must stay on the page rather than jump to the next story.
+    await user.click(rows()[4]);
+    const title = () => reader().querySelector("[data-t='reader-title']")?.textContent;
+    const opened = title();
+    const following = rows()[5].querySelector("h2")?.textContent ?? "";
+    const before = rows().length;
+    const unread = colophon().unread;
+
+    const pane = document.querySelector<HTMLElement>("[data-t='reader-scroll']")!;
+    Object.defineProperty(pane, "scrollHeight", { value: 5000, configurable: true });
+    Object.defineProperty(pane, "clientHeight", { value: 900, configurable: true });
+    Object.defineProperty(pane, "scrollTop", { value: 4090, configurable: true });
+    pane.dispatchEvent(new Event("scroll"));
+
+    await waitFor(() => expect(colophon().unread).toBe(unread - 1));
+    // the page did not move, and the column is one story shorter…
+    expect(title()).toBe(opened);
+    expect(rows().length).toBe(before - 1);
+    // …and Next up still points at the story that follows the one on screen
+    expect(within(reader()).getByText("Next up")).toBeInTheDocument();
+    expect(within(reader()).getByText(following)).toBeInTheDocument();
+  });
+
+  it("steps onward from a story the Unread filter dropped", async () => {
+    const { user } = await mount();
+    await user.click(rows()[4]);
+    const title = () => reader().querySelector("[data-t='reader-title']")?.textContent;
+    const opened = title();
+    const preceding = rows()[3].querySelector("h2")?.textContent ?? "";
+    const following = rows()[5].querySelector("h2")?.textContent ?? "";
+    const before = rows().length;
+
+    await user.keyboard("m"); // read: leaves the Unread column
+    await waitFor(() => expect(rows().length).toBe(before - 1));
+    expect(title()).toBe(opened);
+
+    // the step continues from the page on screen, not the top of the list
+    await user.keyboard("j");
+    await waitFor(() => expect(title()).toBe(following));
+
+    await user.keyboard("k");
+    await waitFor(() => expect(title()).toBe(preceding));
+  });
+
   it("keeps a saved story in the Saved column", async () => {
     const { user } = await mount();
     await user.click(within(stream()).getAllByLabelText(/^Save/)[0]);
