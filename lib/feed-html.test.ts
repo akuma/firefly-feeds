@@ -205,6 +205,23 @@ describe("htmlToBlocks", () => {
     expect(blocks).toHaveLength(1);
   });
 
+  it("keeps a figure with no image, so a pull quote inside it is not lost", () => {
+    const { blocks } = htmlToBlocks(
+      `<figure class="wp-block-pullquote"><blockquote><p>A quoted line worth keeping intact.</p><cite>Someone</cite></blockquote></figure>`,
+    );
+    const quote = blocks.find((b) => b.kind === "quote");
+    expect(quote).toBeDefined();
+    expect(JSON.stringify(quote)).toContain("A quoted line worth keeping intact");
+  });
+
+  it("keeps a figure whose only image is publisher furniture", () => {
+    const { blocks } = htmlToBlocks(
+      `<figure><img src="https://e.test/logo.png" width="600" height="200" alt="Site logo"></figure><p>Body.</p>`,
+    );
+    expect(blocks.some((b) => b.kind === "figure")).toBe(false);
+    expect(blocks.some((b) => b.kind === "p")).toBe(true);
+  });
+
   it("ignores empty input and self-closing-only markup", () => {
     expect(htmlToBlocks("").blocks).toEqual([]);
     expect(htmlToBlocks("<hr><br>").blocks).toEqual([]);

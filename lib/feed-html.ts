@@ -290,7 +290,10 @@ export function htmlToBlocks(
   s = s.replace(/<figure\b[^>]*>([\s\S]*?)<\/figure\s*>/gi, (_m, inner: string) => {
     const img = /<img\b[^>]*>/i.exec(inner);
     const src = img ? bestImageUrl(img[0], baseUrl) : undefined;
-    if (!src) return "";
+    // A figure with no usable image is not empty: it may wrap a pull quote, a
+    // code sample or a caption. Dropping it would silently delete real content,
+    // so let whatever is inside flow into the normal handlers below.
+    if (!src) return inner;
     const caption =
       text(inner.replace(/<img\b[^>]*>/gi, "")) || (img ? attr(img[0], "alt") : "") || "";
     return hold({ kind: "figure", src, caption, seed: hashString(src) });
