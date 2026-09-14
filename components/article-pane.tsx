@@ -282,6 +282,27 @@ function Blocks({ blocks }: { blocks: Block[] }) {
   );
 }
 
+/**
+ * A placeholder for the body while the original is fetched. Its bars are the
+ * height of reading lines, so the pane keeps its shape instead of growing from
+ * a one-line summary the moment the article arrives.
+ */
+function BodySkeleton() {
+  const widths = [100, 95, 88, 98, 72, 92, 100, 64];
+  return (
+    <div aria-busy="true" aria-label="Reading the full article" className="animate-pulse">
+      {widths.map((width, i) => (
+        <div
+          key={i}
+          aria-hidden
+          className="mb-[0.92em] h-[0.62em] bg-rule opacity-50"
+          style={{ width: `${width}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- pane */
 
 export function ArticlePane() {
@@ -627,12 +648,11 @@ export function ArticlePane() {
           )}
 
           <div className="mt-9" data-t="reader-body">
-            {r.extracting === s.id && (
-              <div className="mono mb-6 text-[10px] tracking-[0.14em] text-ink4 uppercase">
-                Reading the full article…
-              </div>
+            {r.extracting === s.id && s.contentState !== "full" ? (
+              <BodySkeleton />
+            ) : (
+              <Blocks blocks={s.body} />
             )}
-            <Blocks blocks={s.body} />
           </div>
 
           {/* ------------------------------------------------------ closer */}

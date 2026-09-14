@@ -132,6 +132,15 @@ async function seedOpener(text: string, withFigure = false) {
   ]);
 }
 
+/** A promise whose resolution the test controls, for gating a fetch. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
 async function mount() {
   const user = userEvent.setup();
   const result = render(<Shell edition={editionFor(new Date("2026-09-11T09:00:00Z"))} />);
@@ -1658,6 +1667,47 @@ describe("drop cap", () => {
     );
     await mount();
     expect(reader().querySelector(".reading")?.classList.contains("dropcap")).toBe(false);
+  });
+});
+
+describe("body skeleton", () => {
+  it("holds the body's shape while the full article is fetched", async () => {
+    await seedSummary();
+    const article = deferred<Response>();
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (String(input).includes("/api/article")) return article.promise;
+      return new Response(JSON.stringify({ ok: true, items: [] }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      await mount();
+      // the body area holds a skeleton rather than the short fallback
+      await waitFor(() =>
+        expect(document.querySelector("[data-t='reader-body'] [aria-busy='true']")).toBeTruthy(),
+      );
+      expect(reader().textContent).not.toContain("A short summary.");
+
+      article.resolve(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            article: {
+              title: "Summarised piece",
+              blocks: [{ kind: "p", text: "The full extracted body." }],
+              truncated: false,
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+      await waitFor(() => expect(reader().textContent).toContain("The full extracted body."));
+      expect(document.querySelector("[data-t='reader-body'] [aria-busy='true']")).toBeNull();
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });
 
