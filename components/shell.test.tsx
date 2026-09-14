@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { editionFor } from "@/lib/edition";
-import { ARTICLE_STALE_MS, EXTRACTION_RETRY_MS } from "@/lib/refreshing";
+import { ARTICLE_STALE_MS, EXTRACTOR_VERSION, EXTRACTION_RETRY_MS } from "@/lib/refreshing";
 import { Shell } from "./shell";
 
 /**
@@ -141,6 +141,7 @@ async function seedCachedOriginal(extra: Record<string, unknown> = {}) {
       extractionState: "success" as const,
       contentFetchedAt: now,
       contentCheckedAt: now,
+      extractorVersion: EXTRACTOR_VERSION,
       ...extra,
     },
   ]);
@@ -1079,6 +1080,121 @@ describe("reading the full text on demand", () => {
       });
       // a cut body says so rather than closing with “End of story”
       expect(reader().textContent).toContain("Excerpt");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("re-fetches and shows a body produced by an older extractor", async () => {
+    await seedCachedOriginal({
+      extractorVersion: undefined,
+      body: [{ kind: "p", text: "Old extractor body." }],
+    });
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          article: {
+            title: "Cached original",
+            blocks: [{ kind: "video", provider: "youtube", id: "3ezPMAoxSbw" }],
+            truncated: false,
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    try {
+      await mount();
+      // the body was fresh by timestamp, but made by the previous rules, so it
+      // must be replaced and the new block (a video) rendered
+      await waitFor(() =>
+        expect(reader().querySelector("iframe")?.getAttribute("src")).toContain("3ezPMAoxSbw"),
+      );
+      expect(reader().textContent).not.toContain("Old extractor body.");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("shows a revalidated body the next time the article is opened", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    const stale = now - ARTICLE_STALE_MS - 1000;
+    await repo.putSource({
+      id: "stwo",
+      url: "https://two.example/feed.xml",
+      siteUrl: "https://two.example",
+      title: "Two Source",
+      host: "two.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    await repo.replaceArticles("stwo", [
+      {
+        id: "stwo~a",
+        sourceId: "stwo",
+        title: "Stale original",
+        link: "https://two.example/a",
+        publishedAt: now - 120_000,
+        fetchedAt: stale,
+        summary: "s",
+        body: [{ kind: "p", text: "Old cached body." }],
+        minutes: 2,
+        layout: "standard",
+        contentState: "full",
+        extractionState: "success",
+        contentFetchedAt: stale,
+        contentCheckedAt: stale,
+        extractorVersion: EXTRACTOR_VERSION,
+      },
+      {
+        id: "stwo~b",
+        sourceId: "stwo",
+        title: "Other piece",
+        publishedAt: now,
+        fetchedAt: now,
+        summary: "s",
+        body: [{ kind: "p", text: "Other body." }],
+        minutes: 1,
+        layout: "compact",
+        contentState: "full",
+        extractionState: "idle",
+      },
+    ]);
+
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const body = String(input).includes("/api/article")
+        ? {
+            ok: true,
+            article: {
+              title: "Stale original",
+              blocks: [{ kind: "p", text: "Revalidated body." }],
+              truncated: false,
+            },
+          }
+        : { ok: true, items: [] };
+      return new Response(JSON.stringify(body), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    try {
+      const { user } = await mount();
+      // the newer entry opens first; j moves to the stale one
+      await user.keyboard("j");
+      await waitFor(async () => {
+        const saved = (await repo.getArticles("stwo")).find((a) => a.id === "stwo~a");
+        expect(saved?.body).toEqual([{ kind: "p", text: "Revalidated body." }]);
+      });
+      // the open copy is not disturbed mid-read…
+      expect(reader().textContent).toContain("Old cached body.");
+      // …but reopening it shows the newer body
+      await user.keyboard("k");
+      await waitFor(() => expect(reader().textContent).toContain("Other body."));
+      await user.keyboard("j");
+      await waitFor(() => expect(reader().textContent).toContain("Revalidated body."));
     } finally {
       globalThis.fetch = original;
     }

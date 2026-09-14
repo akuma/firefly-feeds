@@ -24,6 +24,15 @@ export const ARTICLE_STALE_MS = 6 * 60 * 60_000;
 export const EXTRACTION_RETRY_MS = 12 * 60 * 60_000;
 
 /**
+ * Bumped whenever the extractor's output changes meaningfully (a new block
+ * type, different image rules). A cached body carries the version that made
+ * it, and an older one is re-fetched regardless of age — otherwise a reader
+ * keeps seeing the previous extractor's output until the article happens to
+ * go stale.
+ */
+export const EXTRACTOR_VERSION = 1;
+
+/**
  * Whether opening this article should touch the network.
  *
  * Without an article URL there is nothing to fetch and the feed body is
@@ -34,8 +43,13 @@ export const EXTRACTION_RETRY_MS = 12 * 60 * 60_000;
 export function needsArticleRefresh(record: ArticleRecord, now: number): boolean {
   if (!record.link) return false;
   const checkedAt = record.contentCheckedAt ?? 0;
+  // A recent failure is respected even when the extractor changed, or the
+  // version bump would defeat the retry window.
+  if (record.extractionState === "failed" && now - checkedAt < EXTRACTION_RETRY_MS) {
+    return false;
+  }
+  if (record.extractorVersion !== EXTRACTOR_VERSION) return true;
   if (record.contentFetchedAt) return now - checkedAt >= ARTICLE_STALE_MS;
-  if (record.extractionState === "failed") return now - checkedAt >= EXTRACTION_RETRY_MS;
   return true;
 }
 

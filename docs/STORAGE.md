@@ -98,9 +98,10 @@ coordination, and a feed that renumbers its entries does not renumber ours. The
 article's URL is a separate field, used only to fetch the original.
 
 Cached bodies also carry when the original page was last fetched and last
-checked, plus its `etag` and `lastModified`. These are additive optional fields:
-an older record simply reads as “never checked” and is fetched on open, so the
-evolution needs no migration and never clears a store.
+checked, its `etag` and `lastModified`, and the `extractorVersion` that produced
+the body. These are additive optional fields: an older record simply reads as
+“never checked / older extractor” and is fetched on open, so the evolution needs
+no migration and never clears a store.
 
 The repository exposes the two primitives a sync client needs:
 

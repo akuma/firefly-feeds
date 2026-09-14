@@ -195,6 +195,12 @@ URL does. Opening a story never waits on the network:
 | fetched and fresh (`ARTICLE_STALE_MS`) | use the cached original; no request                      |
 | fetched but stale                      | show the cached original, revalidate silently            |
 
+A cached body also records the extractor generation that produced it
+(`EXTRACTOR_VERSION`). A body from an older generation is re-fetched regardless
+of its age, so an extractor change reaches caches that would otherwise look
+fresh. A revalidated body is written to storage and shown the next time the
+article is opened, never swapped in under a reader mid-scroll.
+
 **Without an article URL**, the feed content is canonical: no original to
 fetch, no article-level revalidation, and no “Open original”.
 

@@ -63,6 +63,8 @@ export type ArticleRecord = {
   /** Validators from the original page's last response, for conditional GET. */
   etag?: string;
   lastModified?: string;
+  /** The extractor generation that produced `body`. See EXTRACTOR_VERSION. */
+  extractorVersion?: number;
 };
 
 export type ReadingRecord = {

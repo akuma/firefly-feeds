@@ -14,6 +14,7 @@ import type { Edition } from "./edition";
 import { readingTime } from "./reading";
 import {
   articlesUnchanged,
+  EXTRACTOR_VERSION,
   needsArticleRefresh,
   reconcileArticles,
   STALE_MS,
@@ -694,15 +695,20 @@ export function useReaderState(edition: Edition): Ctx {
    * article URL there is nothing to fetch and the feed body is canonical.
    */
   const extractingRef = useRef(new Set<string>());
+  // A body that was revalidated while the reader was elsewhere. The article is
+  // not disturbed mid-read; the newer body is swapped in the next time it is
+  // opened, which is the whole point of revalidating in the background.
+  const pendingBodies = useRef(new Map<string, ArticleRecord>());
 
   const loadArticle = useCallback(async (record: ArticleRecord) => {
     const url = record.link;
     if (!url) return;
-    // A body that carries a fetched-at time is a cached original and gets
-    // revalidated. A legacy record that only has `extractionState: "success"`
-    // (from before the freshness fields existed) has an unknown body, so it is
-    // fetched as if for the first time and may update the open copy.
-    const revalidation = typeof record.contentFetchedAt === "number";
+    // A fresh body from the current extractor is revalidated. Anything else —
+    // never fetched, produced by an older extractor, or a legacy record with
+    // no version at all — is fetched as if for the first time, so the open
+    // copy is allowed to change.
+    const revalidation =
+      typeof record.contentFetchedAt === "number" && record.extractorVersion === EXTRACTOR_VERSION;
     extractingRef.current.add(record.id);
     if (!revalidation) setExtracting(record.id);
 
@@ -746,24 +752,28 @@ export function useReaderState(edition: Edition): Ctx {
         contentCheckedAt: at,
         etag: article.etag ?? record.etag,
         lastModified: article.lastModified ?? record.lastModified,
+        extractorVersion: EXTRACTOR_VERSION,
       };
       await repo.putArticle(next);
-      setArticles((current) =>
-        current.map((a) =>
-          a.id !== next.id
-            ? a
-            : revalidation
+      if (revalidation) {
+        pendingBodies.current.set(next.id, next);
+        setArticles((current) =>
+          current.map((a) =>
+            a.id === next.id
               ? { ...a, contentCheckedAt: at, etag: next.etag, lastModified: next.lastModified }
-              : next,
-        ),
-      );
+              : a,
+          ),
+        );
+      } else {
+        setArticles((current) => current.map((a) => (a.id === next.id ? next : a)));
+      }
     } catch {
-      // A failed revalidation keeps the cached body; a failed first fetch keeps
-      // the feed fallback. Either way the checked time moves, so the retry
-      // window — not a permanent lockout — decides when to try again.
+      // A failure keeps whatever body is already there. The checked time moves,
+      // so the retry window — not a permanent lockout — decides the next try.
+      const hasOriginal = typeof record.contentFetchedAt === "number";
       await repo.putArticle({
         ...record,
-        extractionState: revalidation ? record.extractionState : "failed",
+        extractionState: hasOriginal ? record.extractionState : "failed",
         contentCheckedAt: at,
       });
       setArticles((current) =>
@@ -771,7 +781,7 @@ export function useReaderState(edition: Edition): Ctx {
           a.id === record.id
             ? {
                 ...a,
-                extractionState: revalidation ? a.extractionState : "failed",
+                extractionState: hasOriginal ? a.extractionState : "failed",
                 contentCheckedAt: at,
               }
             : a,
@@ -793,6 +803,15 @@ export function useReaderState(edition: Edition): Ctx {
     /* oxlint-disable-next-line react/set-state-in-effect */
     void loadArticle(record);
   }, [ready, activeId, articles, loadArticle]);
+
+  useEffect(() => {
+    const pending = pendingBodies.current.get(activeId);
+    if (!pending) return;
+    pendingBodies.current.delete(activeId);
+    // Applying a background revalidation when the article is opened again.
+    /* oxlint-disable-next-line react/set-state-in-effect */
+    setArticles((current) => current.map((a) => (a.id === pending.id ? pending : a)));
+  }, [activeId]);
 
   /*
    * Selecting is not reading. Marking on selection quietly consumes anything

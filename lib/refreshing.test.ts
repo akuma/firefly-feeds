@@ -3,6 +3,7 @@ import {
   ARTICLE_STALE_MS,
   articlesUnchanged,
   EXTRACTION_RETRY_MS,
+  EXTRACTOR_VERSION,
   needsArticleRefresh,
   reconcileArticles,
   STALE_MS,
@@ -209,7 +210,34 @@ describe("needsArticleRefresh", () => {
   it("leaves a fresh original body alone", () => {
     expect(
       needsArticleRefresh(
+        record({
+          contentFetchedAt: NOW - 1000,
+          contentCheckedAt: NOW - 1000,
+          extractorVersion: EXTRACTOR_VERSION,
+        }),
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("re-fetches a body made by an older extractor", () => {
+    // a fresh timestamp does not help if the body came from the previous rules
+    expect(
+      needsArticleRefresh(
         record({ contentFetchedAt: NOW - 1000, contentCheckedAt: NOW - 1000 }),
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not let a version bump defeat the retry window", () => {
+    expect(
+      needsArticleRefresh(
+        record({
+          extractionState: "failed",
+          contentCheckedAt: NOW - 1000,
+          extractorVersion: EXTRACTOR_VERSION - 1,
+        }),
         NOW,
       ),
     ).toBe(false);
@@ -221,6 +249,7 @@ describe("needsArticleRefresh", () => {
         record({
           contentFetchedAt: NOW - ARTICLE_STALE_MS,
           contentCheckedAt: NOW - ARTICLE_STALE_MS,
+          extractorVersion: EXTRACTOR_VERSION,
         }),
         NOW,
       ),
