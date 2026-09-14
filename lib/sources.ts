@@ -33,8 +33,8 @@ export type SuggestedSource = {
  * Six sources you can subscribe to, spread across news, science, technology,
  * culture and long-form writing.
  *
- * Nothing here is promoted and nothing is a partnership: they are public
- * broadcasters, a museum, an agency, and two independent publications, listed
+ * Nothing here is promoted and nothing is a partnership: a newspaper, public
+ * radio, a museum, a space agency and two independent publications, listed
  * because together they read like a general-interest edition rather than a
  * technology feed. Each URL was checked to resolve.
  *
@@ -43,13 +43,13 @@ export type SuggestedSource = {
  */
 export const SUGGESTED_SOURCES: SuggestedSource[] = [
   {
-    id: "sbbc",
-    name: "BBC News",
-    host: "bbc.co.uk",
+    id: "snyt",
+    name: "The New York Times",
+    host: "nytimes.com",
     folder: "news",
-    siteUrl: "https://www.bbc.co.uk/news",
-    feedUrl: "https://feeds.bbci.co.uk/news/rss.xml",
-    blurb: "World news from the public broadcaster.",
+    siteUrl: "https://www.nytimes.com/section/world",
+    feedUrl: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    blurb: "World reporting from The New York Times.",
   },
   {
     id: "snpr",
@@ -66,7 +66,7 @@ export const SUGGESTED_SOURCES: SuggestedSource[] = [
     host: "smithsonianmag.com",
     folder: "culture",
     siteUrl: "https://www.smithsonianmag.com",
-    feedUrl: "https://www.smithsonianmag.com/rss/articles/",
+    feedUrl: "https://www.smithsonianmag.com/rss/latest_articles/",
     blurb: "History, science and culture from the Smithsonian.",
   },
   {

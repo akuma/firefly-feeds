@@ -39,8 +39,8 @@ type ApiResponse = { ok: true; feed: ApiFeed; items: ApiItem[] } | { ok: false; 
  * lookup, so each carries the host to show and the feed address to fetch.
  */
 const QUICK_PICKS: { host: string; feedUrl: string }[] = [
-  { host: "bbc.co.uk", feedUrl: "https://feeds.bbci.co.uk/news/rss.xml" },
-  { host: "smithsonianmag.com", feedUrl: "https://www.smithsonianmag.com/rss/articles/" },
+  { host: "nytimes.com", feedUrl: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml" },
+  { host: "smithsonianmag.com", feedUrl: "https://www.smithsonianmag.com/rss/latest_articles/" },
   { host: "quantamagazine.org", feedUrl: "https://www.quantamagazine.org/feed/" },
   { host: "aeon.co", feedUrl: "https://aeon.co/feed.rss" },
 ];

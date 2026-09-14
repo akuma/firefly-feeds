@@ -255,12 +255,12 @@ route returns 404 in a production build.
 
 ## Suggested sources
 
-Six publications — BBC News, NPR, Smithsonian Magazine, NASA, Ars Technica and
-Aeon — offered in the navigation while the reader has subscribed to nothing.
-They span news, science, technology, culture and long-form writing, because a
-list of six technology feeds is not a general-interest edition.
+Six publications — The New York Times, NPR, Smithsonian Magazine, NASA, Ars
+Technica and Aeon — offered in the navigation while the reader has subscribed
+to nothing. They span news, science, technology, culture and long-form writing,
+because a list of six technology feeds is not a general-interest edition.
 
-They are public broadcasters, a museum, an agency and two independent
+They are a newspaper, public radio, a museum, an agency and two independent
 publications. **Nothing is promoted, sponsored or partnered**, the descriptions
 are plain, and being listed subscribes you to nothing: every one is a button the
 reader has to press. `lib/shaping.test.ts` asserts the spread, the count, and
