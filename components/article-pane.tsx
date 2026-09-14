@@ -3,7 +3,6 @@
 import {
   ArrowLeft,
   ArrowUpRight,
-  ExternalLink,
   Bookmark,
   BookmarkCheck,
   Check,
@@ -11,8 +10,10 @@ import {
   Maximize2,
   Minimize2,
   Moon,
+  Play,
   Sun,
   Type,
+  ExternalLink,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clsx } from "./clsx";
@@ -511,13 +512,31 @@ export function ArticlePane() {
 
           {hasArt(s) && (
             <figure className="mt-8">
-              <Media
-                seed={s.plate ?? 0}
-                src={s.image}
-                alt={s.title}
-                big
-                className="aspect-[16/9] w-full"
-              />
+              <div className="relative">
+                <Media
+                  seed={s.plate ?? 0}
+                  src={s.image}
+                  alt={s.title}
+                  big
+                  className="aspect-[16/9] w-full"
+                />
+                {s.videoPage && articleHref && (
+                  <a
+                    href={articleHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Watch on ${hostOf(articleHref)}`}
+                    className="absolute inset-0 flex items-center justify-center bg-black/25 transition-colors hover:bg-black/40"
+                  >
+                    <span className="flex items-center gap-2 bg-ink px-4 py-2.5 text-canvas">
+                      <Play size={13} strokeWidth={2} fill="currentColor" />
+                      <span className="mono text-[10px] tracking-[0.14em] uppercase">
+                        Watch on {hostOf(articleHref)}
+                      </span>
+                    </span>
+                  </a>
+                )}
+              </div>
               {isSample ? (
                 <figcaption className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                   Sample edition
@@ -530,6 +549,20 @@ export function ArticlePane() {
                 )
               )}
             </figure>
+          )}
+
+          {!hasArt(s) && s.videoPage && articleHref && (
+            <a
+              href={articleHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-8 flex items-center justify-center gap-2 border border-rule py-4 text-ink3 transition-colors hover:text-spark"
+            >
+              <Play size={13} strokeWidth={2} fill="currentColor" />
+              <span className="mono text-[10px] tracking-[0.14em] uppercase">
+                Watch on {hostOf(articleHref)}
+              </span>
+            </a>
           )}
 
           <div className="mt-9" data-t="reader-body">

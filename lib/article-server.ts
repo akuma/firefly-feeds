@@ -44,6 +44,11 @@ export type ExtractedArticle = {
   image?: string;
   /** The caption the page printed under that lead image, when it had one. */
   imageCaption?: string;
+  /**
+   * The page declares itself a video (`og:type` `video.*`) but offers no
+   * embeddable player, so the reader can only link out to watch it.
+   */
+  videoPage?: boolean;
   /** Validators to send back on the next conditional GET. */
   etag?: string;
   lastModified?: string;
@@ -158,6 +163,12 @@ function metaContent(html: string, property: string): string | undefined {
   return content ? decodeEntities(content) : undefined;
 }
 
+/** Whether the page declares itself a video rather than an article. */
+function declaresVideo(html: string): boolean {
+  const type = metaContent(html, "og:type");
+  return typeof type === "string" && /^video\b/i.test(type.trim());
+}
+
 /**
  * The page's own video, from standard metadata rather than publisher markup.
  * schema.org `VideoObject` first, then Open Graph/Twitter player meta, then a
@@ -267,6 +278,9 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
   // Read the page's own video before extraction: a video page has almost no
   // prose, and content extraction often returns null or a handful of credits.
   const video = findVideoEmbed(html);
+  // A page that calls itself a video but gives no embeddable player can only
+  // be watched at the source. `og:type` is the standard signal for that.
+  const videoPage = !video && declaresVideo(html);
 
   let parsed: DefuddleResponse | null = null;
   try {
@@ -282,18 +296,24 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     // A video is the article here; a page with nothing but a player is still
     // readable rather than a failure.
     if (video) return { blocks: [{ kind: "video", ...video }], truncated: false };
+    if (videoPage) return { blocks: [], truncated: false, videoPage: true };
     throw new FeedError("Could not read the article on that page.", 422);
   }
 
   const { blocks, truncated } = htmlToBlocks(content, url, ARTICLE_BODY_BUDGET);
   const text = htmlToText(content);
-  if (!video && (blocks.length === 0 || text.length < MIN_ARTICLE_CHARS)) {
+  if (!video && !videoPage && (blocks.length === 0 || text.length < MIN_ARTICLE_CHARS)) {
     throw new FeedError("That page did not contain a readable article.", 422);
   }
 
-  // The page's own metadata names the piece's main image, which is a better
-  // lead than whichever figure happens to come first in the body.
-  const image = usableImage(parsed?.image, url) ?? firstFigureSrc(blocks);
+  // A video page's frame is its metadata image; the body markup around it is
+  // mostly related-clip furniture. An ordinary article's hero, by contrast, is
+  // its first body figure, and preferring that keeps the picture and its
+  // caption together and never prints a metadata crop above a body copy of the
+  // same artwork.
+  const image = videoPage
+    ? (usableImage(parsed?.image, url) ?? firstFigureSrc(blocks))
+    : (firstFigureSrc(blocks) ?? usableImage(parsed?.image, url));
   // The reader shows `image` above the body, so the same figure must not
   // appear a second time inside it — but its caption belongs to the lead.
   const imageCaption = image ? captionForImage(blocks, image) : undefined;
@@ -311,6 +331,7 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
     truncated,
     image,
     imageCaption,
+    videoPage: videoPage || undefined,
   };
 }
 

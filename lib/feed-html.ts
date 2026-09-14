@@ -142,7 +142,7 @@ function scrub(s: string): string {
 const JUNK_IMAGE_TAG =
   /avatar|author|profile|logo|icon|emoji|sprite|pixel|spacer|tracking|share|social|badge|gravatar/i;
 const JUNK_IMAGE_URL =
-  /feedburner|feeds\.wordpress|pixel|spacer|\b1x1\b|doubleclick|gravatar|\bavatar\b|\bauthor\b|\bprofile\b|\bheadshot\b|\bbyline\b|\bcontributor\b|emoji|sprite|\blogo\b|\bicon\b|badge|tracking/i;
+  /feedburner|feeds\.wordpress|pixel|spacer|\b1x1\b|doubleclick|gravatar|\bavatar\b|\bauthor\b|\bprofile\b|\bheadshot\b|\bbyline\b|\bcontributor\b|placeholder|emoji|sprite|\blogo\b|\bicon\b|badge|tracking/i;
 const SHARE_ALT = /^(share|tweet|facebook|linkedin|whatsapp|email|print)$/i;
 
 /** Whether the tag itself marks the image as publisher furniture. */

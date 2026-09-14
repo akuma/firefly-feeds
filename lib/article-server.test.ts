@@ -46,7 +46,7 @@ describe("extractArticle", () => {
     expect(article.blocks.some((b) => b.kind === "figure" && b.src === article.image)).toBe(false);
   });
 
-  it("prefers the page's own metadata image over the first body figure", () => {
+  it("uses the body's first figure as the lead, not the metadata image", () => {
     const page = `<!doctype html><html><head>
       <meta property="og:image" content="https://example.com/hero.jpg">
       <title>With a hero</title>
@@ -55,33 +55,29 @@ describe("extractArticle", () => {
       ${paragraph("Body text that is long enough to be a real article.")}
     </article></body></html>`;
     const article = extractArticle(page, "https://example.com/a");
-    expect(article.image).toBe("https://example.com/hero.jpg");
-    // a metadata hero that is not in the body leaves the body image alone
+    expect(article.image).toBe("https://example.com/inline.jpg");
+    // the lead came out of the body, so it is not printed there a second time
     expect(
       article.blocks.some((b) => b.kind === "figure" && b.src === "https://example.com/inline.jpg"),
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it("keeps a metadata hero whose URL contains crop coordinates", () => {
-    // the og:image was mistaken for a 1x1 pixel because “1751x1143” contains it
+  it("falls back to the metadata image when the body has no figures", () => {
+    // the og:image was once mistaken for a 1x1 pixel because “1751x1143”
+    // contains that substring; it must survive as a fallback
     const hero =
       "https://thumb.test/fit-in/1600x0/filters:focal(1751x1143:1752x1144)/https://cdn.test/heat.jpg";
     const page = `<!doctype html><html><head>
       <meta property="og:image" content="${hero}">
       <title>Heat</title>
     </head><body><article><h1>Heat</h1>
-      <img src="https://cdn.test/chart.png" width="800" height="600" alt="Chart">
       ${paragraph("Body text that is long enough to be a real article.")}
     </article></body></html>`;
     const article = extractArticle(page, "https://example.com/heat");
     expect(article.image).toBe(hero);
-    // the hero is not in the body, so the chart stays
-    expect(
-      article.blocks.some((b) => b.kind === "figure" && b.src === "https://cdn.test/chart.png"),
-    ).toBe(true);
   });
 
-  it("does not repeat the metadata hero when the body has the same photo at another size", () => {
+  it("ignores a metadata variant of the body's lead, so it is not shown twice", () => {
     const page = `<!doctype html><html><head>
       <meta property="og:image" content="https://thumb.test/fit-in/1600x0/https://cdn.test/photo.jpg">
       <title>Resized hero</title>
@@ -91,15 +87,15 @@ describe("extractArticle", () => {
       <img src="https://cdn.test/other.jpg" width="800" height="600" alt="Other">
     </article></body></html>`;
     const article = extractArticle(page, "https://example.com/a");
-    expect(article.image).toBe("https://thumb.test/fit-in/1600x0/https://cdn.test/photo.jpg");
+    // the body's own copy is the lead, so the metadata crop is never added
+    expect(article.image).toBe("https://thumb.test/600x400/https://cdn.test/photo.jpg");
     const figures = article.blocks
       .filter((b) => b.kind === "figure")
       .map((b) => (b as Extract<typeof b, { kind: "figure" }>).src);
-    // the body's smaller copy of the hero is dropped, the other picture stays
     expect(figures).toEqual(["https://cdn.test/other.jpg"]);
   });
 
-  it("carries the lead image's caption from the body figure it replaces", () => {
+  it("keeps the lead image's own caption", () => {
     const page = `<!doctype html><html><head>
       <meta property="og:image" content="https://thumb.test/fit-in/1600x0/https://cdn.test/photo.jpg">
       <title>Captioned hero</title>
@@ -108,9 +104,28 @@ describe("extractArticle", () => {
       ${paragraph("Body text that is long enough to be a real article.")}
     </article></body></html>`;
     const article = extractArticle(page, "https://example.com/a");
+    expect(article.image).toBe("https://thumb.test/600x400/https://cdn.test/photo.jpg");
     expect(article.imageCaption).toBe("A hedgehog at dusk. Jane Doe");
     // the figure itself is gone; its caption now belongs to the lead
     expect(article.blocks.some((b) => b.kind === "figure")).toBe(false);
+  });
+
+  it("flags a page that declares itself a video but has no embeddable player", () => {
+    const page = `<!doctype html><html><head>
+      <meta property="og:type" content="video.other">
+      <meta property="og:image" content="https://cdn.test/frame.jpg">
+      <title>A BBC video</title>
+    </head><body><article><h1>A BBC video</h1>
+      ${paragraph("A short description of the video.")}
+    </article></body></html>`;
+    const article = extractArticle(page, "https://example.com/v");
+    expect(article.videoPage).toBe(true);
+    expect(article.image).toBe("https://cdn.test/frame.jpg");
+  });
+
+  it("does not flag an ordinary article as a video page", () => {
+    const page = `<!doctype html><html><head><meta property="og:type" content="article"><title>A</title></head><body><article><h1>A</h1>${paragraph("Body text that is long enough to be a real article.")}</article></body></html>`;
+    expect(extractArticle(page, "https://example.com/a").videoPage).toBeUndefined();
   });
 
   it("does not cut a real article at the feed budget", () => {
