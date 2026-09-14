@@ -997,6 +997,121 @@ describe("reading the full text on demand", () => {
       globalThis.fetch = original;
     }
   });
+
+  it("tries the original even when the feed body looks full", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "sfullbody",
+      url: "https://fullbody.example/feed.xml",
+      siteUrl: "https://fullbody.example",
+      title: "Full Body Source",
+      host: "fullbody.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    await repo.replaceArticles("sfullbody", [
+      {
+        id: "sfullbody~a",
+        sourceId: "sfullbody",
+        title: "Feed says full",
+        link: "https://fullbody.example/a",
+        publishedAt: now,
+        fetchedAt: now,
+        summary: "s",
+        body: [{ kind: "p", text: "Feed says this is the whole piece." }],
+        minutes: 1,
+        layout: "standard",
+        contentState: "full",
+        extractionState: "idle",
+      },
+    ]);
+
+    const calls: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          article: {
+            title: "Feed says full",
+            blocks: [{ kind: "p", text: "Original wins." }],
+            truncated: false,
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+    try {
+      await mount();
+      await waitFor(() => expect(reader().textContent).toContain("Original wins."));
+      // the feed's own classification no longer decides whether to fetch
+      expect(calls.some((url) => url.includes("/api/article"))).toBe(true);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("stores a cut original as truncated, never full", async () => {
+    const repo = await seedSummary();
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          article: {
+            title: "Summarised piece",
+            blocks: [{ kind: "p", text: "A long original that was cut." }],
+            truncated: true,
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    try {
+      await mount();
+      await waitFor(() => expect(reader().textContent).toContain("A long original that was cut."));
+      await waitFor(async () => {
+        const saved = (await repo.getArticles("sfull")).find((a) => a.id === "sfull~a");
+        expect(saved?.contentState).toBe("truncated");
+      });
+      // a cut body says so rather than closing with “End of story”
+      expect(reader().textContent).toContain("Excerpt");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("keeps the old original body when a revalidation fails", async () => {
+    const stale = Date.now() - ARTICLE_STALE_MS - 1000;
+    const repo = await seedCachedOriginal({
+      contentFetchedAt: stale,
+      contentCheckedAt: stale,
+      etag: '"v1"',
+    });
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ ok: false, error: "nope" }), {
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+    try {
+      await mount();
+      await waitFor(async () => {
+        const saved = (await repo.getArticles("sorig")).find((a) => a.id === "sorig~a");
+        expect(saved?.contentCheckedAt).toBeGreaterThan(stale);
+      });
+      const saved = (await repo.getArticles("sorig")).find((a) => a.id === "sorig~a");
+      // the cache survives a failed check, and the reader is not told off
+      expect(saved?.body).toEqual([{ kind: "p", text: "Cached original body." }]);
+      expect(saved?.extractionState).toBe("success");
+      expect(reader().textContent).toContain("Cached original body.");
+      expect(reader().textContent).not.toContain("Full text was unavailable");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
 });
 
 describe("the wordmark", () => {
