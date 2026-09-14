@@ -91,9 +91,16 @@ holds article content.
 
 Every mutable record carries `updatedAt`, and deletions are **tombstones**
 (`deletedAt`) rather than removals, so a delete can propagate. Ids derive from
-stable inputs — `sourceId` from `hash(feedUrl)`, an article from
-`${sourceId}~${itemId}` — so two devices agree on identity without
-coordination.
+stable inputs — `sourceId` from `hash(feedUrl)`, and `itemId` from the
+publisher's own id (Atom `<id>`, RSS `<guid>`), then the article URL, then the
+title and published time — so two devices agree on identity without
+coordination, and a feed that renumbers its entries does not renumber ours. The
+article's URL is a separate field, used only to fetch the original.
+
+Cached bodies also carry when the original page was last fetched and last
+checked, plus its `etag` and `lastModified`. These are additive optional fields:
+an older record simply reads as “never checked” and is fetched on open, so the
+evolution needs no migration and never clears a store.
 
 The repository exposes the two primitives a sync client needs:
 
@@ -123,6 +130,7 @@ store — all three are needed, because the module memoises its connection and t
 database outlives the module graph. Reuse it rather than writing new setup.
 
 The suite covers seeding, cache eviction with the `keep` exemption, tombstones,
-and the last-write-wins and tie-break rules. It does not cover migration yet,
-because there is none; any future migration belongs here, tested against a store
-that already holds data.
+and the last-write-wins and tie-break rules. Schema changes so far have been
+additive optional fields, which need no migration — `lib/refreshing.ts` treats a
+missing freshness field as “never checked”. A future change that moves or
+renames data belongs here, tested against a store that already holds it.

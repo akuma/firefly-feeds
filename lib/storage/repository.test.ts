@@ -121,6 +121,17 @@ describe("article cache", () => {
     await repo.replaceArticles("s2", [article("s2~a", "s2")]);
     expect((await repo.getArticles("s1")).map((a) => a.id)).toEqual(["s1~a"]);
   });
+
+  it("reads a legacy record that predates the content freshness fields", async () => {
+    const repo = await freshRepository();
+    await repo.putSource(source("s1"));
+    // the shape written before contentFetchedAt / contentCheckedAt / etag
+    await repo.replaceArticles("s1", [article("s1~a", "s1")]);
+    const [saved] = await repo.getArticles("s1");
+    expect(saved.contentFetchedAt).toBeUndefined();
+    expect(saved.contentCheckedAt).toBeUndefined();
+    expect(saved.body).toEqual([]);
+  });
 });
 
 /* --------------------------------------------------------------- sources */

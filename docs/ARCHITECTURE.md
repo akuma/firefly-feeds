@@ -104,14 +104,17 @@ A refresh **reconciles, it does not rebuild** (`reconcileArticles` in
 `lib/refreshing.ts`), so pressing refresh on an unchanged feed changes nothing
 visible:
 
-- Entry identity never includes the entry's position. The id is a hash of the
-  publisher's guid, then its link; a feed that inserts a new entry used to shift
-  every later index and hand the same stories new ids, which remounted the whole
-  list and orphaned their reading state. A link match bridges already-cached
-  records across the old id scheme, so the upgrade itself loses no read state.
-- A body fetched on demand is kept: a successful extraction stays `full`, and a
-  failed one stays failed instead of being re-armed to `idle` on every refresh
-  (the one exception is a feed that starts shipping the full piece itself).
+- Entry identity never includes the entry's position. The identifier is the
+  publisher's own stable id (Atom `<id>`, RSS `<guid>`, RDF `rdf:about`), then
+  the article URL, then the title and published time, then the content itself.
+  A feed that inserts a new entry used to shift every later index and hand the
+  same stories new ids, which remounted the whole list and orphaned their
+  reading state. The article URL is stored separately, so identity — “is this
+  the same article?” — never depends on where the page is fetched from.
+- A body fetched from the original page is kept: a source refresh may update
+  the fallback metadata but will not throw the extracted text away. A failure is
+  remembered with the time it happened so the retry window can throttle it, and
+  is cleared if the feed starts shipping the full piece itself.
 - Entries with no published date keep their first-seen timestamp rather than
   inheriting the fetch time, which used to make them jump up the list.
 - When the reconciled feed is identical to the cache — compared field by field,
@@ -156,9 +159,11 @@ sanitiser dependency. Fetched stories inherit exactly the same typography as
 everything else, instead of smuggling in a publisher's stylesheet. And the block
 model is what `lib/reading.ts` can measure.
 
-Bodies are capped at **60 blocks / 8,000 characters**, and 20 entries per
-source. A body that was cut says so — _Excerpt · Continues at …_ — rather than
-pretending to be the whole piece.
+Feed bodies are capped at **60 blocks / 8,000 characters**, and 20 entries per
+source. Bodies extracted from the original page get their own, much higher
+budget — **200 blocks / 50,000 characters** — so a real feature is not cut at
+the feed ceiling. A body cut by our own budget is stored as `truncated` and says
+so — _Excerpt · Continues at …_ — rather than pretending to be complete.
 
 Two things feeds do that a naive pipeline gets wrong:
 
@@ -172,31 +177,45 @@ Two things feeds do that a naive pipeline gets wrong:
   about 400 a minute and space-delimited words at about 225, and handles both in
   one body.
 
-## Full text, on demand
+## The original page, and the feed as fallback
 
-A feed that carries only a summary leaves the reader two bad options: read the
-summary twice, or leave. When a story's body is not the publisher's full text,
-the article itself is fetched **the moment the reader opens that story** — never
-as a background sweep of the subscriptions.
+The content model has two cases, and they turn on the article URL, not on what
+the feed happened to include.
 
-Whether a body is full is decided by which feed field it came from, not its
-length. `<content:encoded>` / `<content>` is the publisher handing over the
-piece (`full`); `<description>` / `<summary>` alone is their summary
-(`summary`). A body our own budget cut is `truncated`, and a `content` body that
-ends in a “Read more” stub is downgraded to `summary`. Only `summary` and
-`truncated` are fetched.
+**With an article URL**, the original page is the preferred and authoritative
+body. The feed's own text is shown immediately and used as the fallback while
+the original is fetched, or if it never arrives. Whether the feed field was
+`<content:encoded>` or `<description>` no longer decides whether to fetch — the
+URL does. Opening a story never waits on the network:
+
+| Cached state                           | On open                                                  |
+| -------------------------------------- | -------------------------------------------------------- |
+| never fetched                          | show the feed body, fetch the original in the background |
+| fetched and fresh (`ARTICLE_STALE_MS`) | use the cached original; no request                      |
+| fetched but stale                      | show the cached original, revalidate silently            |
+
+**Without an article URL**, the feed content is canonical: no original to
+fetch, no article-level revalidation, and no “Open original”.
 
 `GET /api/article?url=…` runs `fetch → linkedom → Readability` on the server and
 returns the same `Block[]` model, so the reading surface is unchanged and no
 publisher HTML reaches the DOM. `linkedom` rather than `jsdom`: the deployment
-is a Worker, and jsdom does not run there. The result replaces the cached body
-and the state becomes `full`, so the second visit reads locally.
+is a Worker, and jsdom does not run there.
 
-Failure is recorded (`extractionState: "failed"`) and never retried — a page
-that will not hand over its text is not asked again on every visit. The feed's
-own text stays, and the reader keeps the link to the original. It does not
-defeat paywalls, logins or JavaScript challenges: a page that will not offer its
-text is a page we keep the summary for.
+A stale page is revalidated with a **conditional GET** — `If-None-Match` when an
+ETag is stored, else `If-Modified-Since` — never a HEAD followed by a GET. A
+`304` moves only the checked-at time; a `200` re-parses the page and replaces the
+whole body, keeping the article id and the reader's read/saved/later state. A
+revalidation writes storage but does not swap the body out from under the open
+article, because that would move the reader's place — the new version appears the
+next time the piece is opened.
+
+A failure is recorded with the time it happened, and is not permanent: after
+`EXTRACTION_RETRY_MS` the original may be tried again, because a failure is
+often a timeout or a temporary CDN problem. While it lasts, the feed's text
+stays and the reader keeps the link to the original. It does not defeat
+paywalls, logins or JavaScript challenges: a page that will not offer its text
+is a page we keep the feed's text for.
 
 `lib/url-safety.ts` is the target's safety contract — http/https only, no
 loopback or private ranges, re-checked after every redirect. It is deliberately
@@ -275,7 +294,8 @@ blurb or a pull quote. `lib/shaping.test.ts` asserts this and names the offender
 app/
   layout.tsx           font preloads and the pre-paint theme script
   page.tsx             resolves the edition date, renders the shell
-  api/feed/route.ts    feed intake — the only server-side network access
+  api/feed/route.ts    feed intake — one of the two server-side network routes
+  api/article/route.ts original-page extraction and revalidation
 components/
   shell.tsx            the responsive three-column frame and mobile chrome
   nav-rail.tsx         navigation, sources, colophon
@@ -302,6 +322,5 @@ lib/
 - **`lib/store.tsx` is the only state container.** Components read it through
   `useReader()`. No second context, no reducer, no store library.
 - **Nothing above `lib/storage/` may import `idb` or mention IndexedDB.**
-- **`app/api/feed/route.ts` is the only place that talks to the network on the
-  server.**
+- **`app/api/**` is the only place that talks to the network on the server.**
 - **Feed bodies are never injected as HTML.**
