@@ -26,6 +26,8 @@ export async function GET(request: Request) {
   const input = params.get("url") ?? "";
   const etag = params.get("etag") ?? undefined;
   const lastModified = params.get("lastModified") ?? undefined;
+  // The source's own title, so a page's “Article - Site” title can be trimmed.
+  const site = params.get("site") ?? undefined;
 
   if (fromAnotherSite(request)) {
     return Response.json(
@@ -46,7 +48,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await readArticle(input, { etag, lastModified });
+    const result = await readArticle(input, { etag, lastModified, site });
     if (result.status === "not-modified") {
       return Response.json(
         { ok: true, notModified: true, etag: result.etag, lastModified: result.lastModified },

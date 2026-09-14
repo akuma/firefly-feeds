@@ -222,6 +222,31 @@ const VIDEO_PAGE = `<!doctype html>
   </body>
 </html>`;
 
+describe("titles", () => {
+  const page = (title: string) =>
+    `<!doctype html><html><head><title>${title}</title></head><body><article><h1>An Essay</h1>${paragraph("Body text that is long enough to be a real article.")}</article></body></html>`;
+
+  it("strips a site name the page appended to the headline", () => {
+    expect(
+      extractArticle(page("An Essay - Example Weekly"), "https://example.com/a", "Example Weekly")
+        .title,
+    ).toBe("An Essay");
+  });
+
+  it("strips a site name the page prefixed", () => {
+    expect(
+      extractArticle(page("Example Weekly: An Essay"), "https://example.com/a", "Example Weekly")
+        .title,
+    ).toBe("An Essay");
+  });
+
+  it("leaves a title alone when the source name is not part of it", () => {
+    expect(extractArticle(page("An Essay"), "https://example.com/a", "Example Weekly").title).toBe(
+      "An Essay",
+    );
+  });
+});
+
 describe("video embeds", () => {
   it("turns a schema.org VideoObject into a playable video block", () => {
     const article = extractArticle(VIDEO_PAGE, "https://example.com/videos/x");

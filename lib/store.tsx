@@ -750,6 +750,10 @@ export function useReaderState(edition: Edition): Ctx {
       if (record.etag) params.set("etag", record.etag);
       else if (record.lastModified) params.set("lastModified", record.lastModified);
     }
+    // The source's own title, so the page can trim a site name it glued to the
+    // headline (“Article - Site”).
+    const sourceTitle = sourcesRef.current.find((s) => s.id === record.sourceId)?.title;
+    if (sourceTitle) params.set("site", sourceTitle);
 
     try {
       const res = await fetch(`/api/article?${params.toString()}`);

@@ -58,10 +58,15 @@ export type ExtractedArticle = {
   lastModified?: string;
 };
 
-/** What a conditional request can send. Stored per article. */
+/** What a conditional request can send, plus a title hint. */
 export type ArticleConditions = {
   etag?: string;
   lastModified?: string;
+  /**
+   * The source's own title. Many pages append their site name to `<title>`
+   * (“Article - Site”), and this is what to strip it by.
+   */
+  site?: string;
 };
 
 /**
@@ -228,7 +233,7 @@ export async function readArticle(
       lastModified: fetched.lastModified,
     };
   }
-  const article = extractArticle(fetched.html, fetched.finalUrl);
+  const article = extractArticle(fetched.html, fetched.finalUrl, conditions?.site);
   return {
     status: "ok",
     article: { ...article, etag: fetched.etag, lastModified: fetched.lastModified },
@@ -275,7 +280,33 @@ function usableImage(raw: string | undefined, base: string): string | undefined 
   return resolved;
 }
 
-export function extractArticle(html: string, url: string): ExtractedArticle {
+/** Separators pages put between a headline and their own name. */
+const TITLE_SEPARATOR = "[-\\u2013\\u2014|\u00b7:]";
+
+/**
+ * A headline with the site name a page glued to it removed.
+ *
+ * Defuddle strips this itself when it can, but plenty of pages keep
+ * “Article - Site” in `<title>` and expose no site name. Each candidate name is
+ * tried at both ends, so the source's own title works as the hint.
+ */
+function cleanTitle(raw: string | undefined, ...names: (string | undefined)[]): string | undefined {
+  let title = raw?.replace(/\s+/g, " ").trim();
+  if (!title) return undefined;
+  for (const name of names) {
+    const site = name?.replace(/\s+/g, " ").trim();
+    if (!site || site.toLowerCase() === title.toLowerCase()) continue;
+    const escaped = site.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const next = title
+      .replace(new RegExp(`^\\s*${escaped}\\s*${TITLE_SEPARATOR}\\s*`, "i"), "")
+      .replace(new RegExp(`\\s*${TITLE_SEPARATOR}\\s*${escaped}\\s*$`, "i"), "")
+      .trim();
+    if (next) title = next;
+  }
+  return title || undefined;
+}
+
+export function extractArticle(html: string, url: string, siteHint?: string): ExtractedArticle {
   // Read the page's own video before extraction: a video page has almost no
   // prose, and content extraction often returns null or a handful of credits.
   const video = findVideoEmbed(html);
@@ -319,7 +350,7 @@ export function extractArticle(html: string, url: string): ExtractedArticle {
   const body = hasCover ? stripCoverCopy(bodyBlocks, metaCover) : bodyBlocks;
 
   return {
-    title: parsed?.title?.trim() || undefined,
+    title: cleanTitle(parsed?.title, parsed?.site, siteHint),
     author: parsed?.author?.trim() || undefined,
     publishedTime: parsed?.published?.trim() || undefined,
     siteName: parsed?.site?.trim() || undefined,
