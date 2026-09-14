@@ -155,7 +155,7 @@ function Rich({ inline, text }: { inline?: Inline[]; text: string }) {
             href={segment.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-spark underline decoration-spark/40 underline-offset-2 transition-colors hover:decoration-spark"
+            className="text-spark transition-opacity hover:opacity-80"
           >
             {segment.text}
           </a>
@@ -183,10 +183,7 @@ function Blocks({ blocks }: { blocks: Block[] }) {
 
           case "h2":
             return (
-              <h2
-                key={i}
-                className="relative before:absolute before:top-[0.7em] before:-left-5 before:h-px before:w-3 before:bg-spark before:content-['']"
-              >
+              <h2 key={i}>
                 <Rich inline={b.inline} text={b.text} />
               </h2>
             );
