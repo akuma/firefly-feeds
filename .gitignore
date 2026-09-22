@@ -7,5 +7,6 @@ next-env.d.ts
 node_modules
 tsconfig.tsbuildinfo
 coverage
+.worktrees/
 .wrangler/
 .dev.vars
