@@ -39,20 +39,30 @@ kebab-case of the package: `firefly-feeds`. A localStorage key is a flat
 namespace shared with anything else on the origin, so it takes the dotted,
 versioned form: `firefly.feeds.v1`.
 
-## Three stores, three lifetimes
+## Five stores, five lifetimes
 
 The mistake a reader's storage usually makes is keeping these in one record.
 
-| Store      | Holds                            | Size                          | Synced?                                       |
-| ---------- | -------------------------------- | ----------------------------- | --------------------------------------------- |
-| `sources`  | the subscription registry        | tiny, durable, low write rate | **yes**                                       |
-| `reading`  | read / saved / later per article | tiny, high write rate         | **yes** — and the most valuable thing you own |
-| `articles` | cached bodies                    | large, disposable             | **never**                                     |
-| `meta`     | the seeding flag                 | —                             | no                                            |
+| Store             | Holds                            | Size                          | Synced?                                       |
+| ----------------- | -------------------------------- | ----------------------------- | --------------------------------------------- |
+| `sources`         | the subscription registry        | tiny, durable, low write rate | **yes**                                       |
+| `reading`         | read / saved / later per article | tiny, high write rate         | **yes** — and the most valuable thing you own |
+| `articles`        | cached bodies                    | large, disposable             | **never**                                     |
+| `topics`          | the reader's article topics      | tiny, durable                 | **yes**                                       |
+| `classifications` | one topic per story              | small, low write rate         | **yes**                                       |
+| `meta`            | the seeding flag                 | —                             | no                                            |
 
 Cached prose is re-fetchable; your reading state is not. Keeping them apart means
 a future sync uploads a few kilobytes of state rather than megabytes of somebody
 else's writing, and a new device re-fetches instead of downloading a corpus.
+
+**Article classification is user state, not cache.** A topic the classifier
+guessed and a topic the reader corrected both belong to the reader, and the
+correction is worth carrying to another device — so they live in `topics` and
+`classifications`, never on the disposable `articles` record. That also means a
+source refresh, which rewrites the article cache wholesale, can never touch
+them. Removing a topic or a classification is a tombstone, like every other
+mutable record, so the removal can replicate.
 
 **`articles` is a cache with an eviction rule: anything saved or queued is
 exempt** (`replaceArticles(sourceId, items, keep)`). Pruning can never remove
@@ -106,13 +116,14 @@ no migration and never clears a store.
 The repository exposes the two primitives a sync client needs:
 
 ```ts
-changesSince(watermark)   → { sources, reading }   // everything mutated since
+changesSince(watermark)   → { sources, reading, topics, classifications } // since
 mergeChangeset(changeset) → void                   // last write wins, ties → deletion
 ```
 
 They are unused by the interface today and are not dead code — they are the
 contract. `articles` is absent from both by design, because cached bodies are
-re-fetchable rather than user data.
+re-fetchable rather than user data. `topics` and `classifications` are present
+for the same reason `reading` is: they are the reader's own, not a cache.
 
 Conflict resolution is deliberately **last-write-wins on a single timestamp**:
 correct enough for read flags, and honest about not being a CRDT.

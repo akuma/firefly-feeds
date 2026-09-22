@@ -16,6 +16,14 @@
         "period": 60,
       },
     },
+    {
+      "name": "JEV_CLASSIFY",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 60,
+        "period": 60,
+      },
+    },
   ],
   "routes": [
     {

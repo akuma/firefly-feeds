@@ -1,6 +1,12 @@
 import { deleteDB } from "idb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ArticleRecord, ReadingRecord, SourceRecord } from "./types";
+import type {
+  ArticleClassification,
+  ArticleRecord,
+  ArticleTopic,
+  ReadingRecord,
+  SourceRecord,
+} from "./types";
 
 const FEED_URL = "https://example.com/feed.xml";
 
@@ -242,5 +248,138 @@ describe("clearAll", () => {
     expect(snapshot.sources).toEqual([]);
     expect(snapshot.articles).toEqual([]);
     expect(snapshot.reading).toEqual([]);
+  });
+});
+
+/* ---------------------------------------------------- classification */
+
+const topic = (id: string, updatedAt = 1): ArticleTopic => ({
+  id,
+  slug: id,
+  label: id,
+  updatedAt,
+});
+
+const classification = (itemId: string, updatedAt = 1): ArticleClassification => ({
+  itemId,
+  topicIds: ["news"],
+  primaryTopicId: "news",
+  confidence: 0.9,
+  status: "auto",
+  provider: "jev",
+  contentFingerprint: "fp",
+  updatedAt,
+});
+
+describe("classification state", () => {
+  it("keeps topics and classifications out of the disposable article cache", async () => {
+    const repo = await freshRepository();
+    await repo.putTopic(topic("news"));
+    await repo.putClassification(classification("s1~a"));
+
+    const snapshot = await repo.loadAll();
+    expect(snapshot.topics.map((t) => t.id)).toEqual(["news"]);
+    expect(snapshot.classifications.map((c) => c.itemId)).toEqual(["s1~a"]);
+    // the body cache is untouched — classification is user state, not cache
+    expect(snapshot.articles).toEqual([]);
+  });
+
+  it("tombstones a removed topic and hides it from reads", async () => {
+    const repo = await freshRepository();
+    await repo.putTopic(topic("news"));
+    await repo.removeTopic("news");
+    expect((await repo.loadAll()).topics).toEqual([]);
+  });
+
+  it("reports topic and classification changes after a watermark", async () => {
+    const repo = await freshRepository();
+    await repo.putTopic(topic("news", Date.now() - 10_000));
+    const watermark = (await repo.changesSince(0)).watermark;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const now = Date.now();
+    await repo.putTopic(topic("technology", now));
+    await repo.putClassification(classification("s1~a", now));
+
+    const changes = await repo.changesSince(watermark);
+    expect(changes.topics?.map((t) => t.id)).toEqual(["technology"]);
+    expect(changes.classifications?.map((c) => c.itemId)).toEqual(["s1~a"]);
+  });
+
+  it("resolves classification conflicts last-write-wins", async () => {
+    const repo = await freshRepository();
+    await repo.putClassification({ ...classification("s1~a", 2_000), status: "auto" });
+
+    await repo.mergeChangeset({
+      watermark: 0,
+      sources: [],
+      reading: [],
+      classifications: [{ ...classification("s1~a", 1_000), status: "confirmed" }],
+    });
+    expect((await repo.loadAll()).classifications[0].status).toBe("auto");
+
+    await repo.mergeChangeset({
+      watermark: 0,
+      sources: [],
+      reading: [],
+      classifications: [{ ...classification("s1~a", 3_000), status: "confirmed" }],
+    });
+    expect((await repo.loadAll()).classifications[0].status).toBe("confirmed");
+  });
+
+  it("clears classification state with everything else", async () => {
+    const repo = await freshRepository();
+    await repo.putTopic(topic("news"));
+    await repo.putClassification(classification("s1~a"));
+    await repo.clearAll();
+    const snapshot = await repo.loadAll();
+    expect(snapshot.topics).toEqual([]);
+    expect(snapshot.classifications).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------ upgrade */
+
+describe("upgrading an existing database", () => {
+  it("adds the classification stores without clearing what is already there", async () => {
+    const { openDB } = await import("idb");
+    if (previous) {
+      await previous.close();
+      previous = undefined;
+    }
+    vi.resetModules();
+    await deleteDB("firefly-feeds").catch(() => {});
+
+    // The database as version 1 shipped it: no topics, no classifications.
+    const legacy = await openDB<import("./db").FireflyDB>("firefly-feeds", 1, {
+      upgrade(instance) {
+        const sources = instance.createObjectStore("sources", { keyPath: "id" });
+        sources.createIndex("by-folder", "folder");
+        sources.createIndex("by-added", "addedAt");
+        const articles = instance.createObjectStore("articles", { keyPath: "id" });
+        articles.createIndex("by-source", "sourceId");
+        articles.createIndex("by-published", "publishedAt");
+        const reading = instance.createObjectStore("reading", { keyPath: "id" });
+        reading.createIndex("by-updated", "updatedAt");
+        instance.createObjectStore("meta", { keyPath: "key" });
+      },
+    });
+    await legacy.put("sources", source("s1"));
+    await legacy.put("reading", { id: "s1~a", read: true, updatedAt: 1 });
+    // A real v1 install already carries the seeding flag, so the upgrade must
+    // not re-run the curated seed over records the reader already owns.
+    await legacy.put("meta", { key: "seed:initialised", value: { at: 1, version: 1 } });
+    legacy.close();
+
+    // Opening through the current code upgrades to v2.
+    previous = await import("./db");
+    const repo = await import("./repository");
+    const snapshot = await repo.loadAll();
+    expect(snapshot.sources.map((s) => s.id)).toEqual(["s1"]);
+    expect(snapshot.reading.map((r) => r.id)).toEqual(["s1~a"]);
+
+    // …and the stores the upgrade added are ready to use.
+    await repo.putTopic(topic("news"));
+    expect((await repo.loadAll()).topics.map((t) => t.id)).toEqual(["news"]);
   });
 });

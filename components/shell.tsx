@@ -18,6 +18,7 @@ import { EditSource } from "./edit-source";
 import { IconButton, Wordmark } from "./brand";
 import { NavRail } from "./nav-rail";
 import { SearchPalette } from "./search-palette";
+import { Settings } from "./settings";
 import { Shortcuts } from "./shortcuts";
 import { StreamColumn } from "./stream-column";
 import { editionFor } from "@/lib/edition";
@@ -163,6 +164,7 @@ export function Shell({ edition }: { edition?: Edition }) {
       {r.searchOpen && <SearchPalette />}
       {r.addOpen && <AddSource />}
       {r.editingId && <EditSource />}
+      {r.settingsOpen && <Settings />}
       {r.shortcutsOpen && <Shortcuts />}
     </ReaderContext.Provider>
   );

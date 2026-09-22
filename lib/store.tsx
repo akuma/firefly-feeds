@@ -11,6 +11,17 @@ import {
   useState,
 } from "react";
 import type { Edition } from "./edition";
+import {
+  articleFingerprint,
+  classificationFromOutcome,
+  classifyInputFor,
+  correctionRecord,
+  defaultTopics,
+  mergeClassification,
+  needsClassification,
+  requestClassification,
+  resolveClassification,
+} from "./classify";
 import { readingTime } from "./reading";
 import {
   articlesUnchanged,
@@ -26,7 +37,13 @@ import { FOLDERS, SUGGESTED_BY_ID, SUGGESTED_SOURCES, type SuggestedSource } fro
 import { feedFromSource, readingFlags, storyFromArticle } from "./shaping";
 import * as repo from "./storage/repository";
 import { loadPrefs, savePrefs } from "./storage/prefs";
-import type { ArticleRecord, ReadingRecord, SourceRecord } from "./storage/types";
+import type {
+  ArticleClassification,
+  ArticleRecord,
+  ArticleTopic,
+  ReadingRecord,
+  SourceRecord,
+} from "./storage/types";
 import type { Feed, FeedId, FolderId, Story, ViewId } from "./types";
 /**
  * The theme is written by an inline boot script before React hydrates, so the
@@ -96,6 +113,41 @@ type Ctx = {
 
   /** The story whose full text is being fetched, if any. */
   extracting: string | null;
+
+  /** The reader's article topics, excluding tombstones. */
+  topics: ArticleTopic[];
+  /** Whether stories are classified at all. Off until the reader opts in. */
+  classifyEnabled: boolean;
+  setClassifyEnabled: (v: boolean) => void;
+  /** An optional personal Jev key kept in local prefs. */
+  jevKey: string;
+  setJevKey: (v: string) => void;
+  /** The last classification failure, shown rather than swallowed. */
+  classifyError: string | null;
+  classifyWorking: boolean;
+  /** Stories still waiting for a classification, for the settings panel. */
+  pendingClassifications: number;
+  /** Clear a failure and let the sweep run again. */
+  retryClassification: () => void;
+  classificationFor: (itemId: string) => ArticleClassification | undefined;
+  /** Replace a story's topics with the reader's own, which auto never overrides. */
+  correctClassification: (itemId: string, topicIds: string[]) => void;
+  /** Mark a story's classification as wrong, so it stops being shown. */
+  rejectClassification: (itemId: string) => void;
+  /** Forget a story's classification so the next sweep starts clean. */
+  reclassify: (itemId: string) => void;
+  addTopic: (label: string, description?: string) => void;
+  updateTopic: (id: string, patch: { label?: string; description?: string }) => void;
+  deleteTopic: (id: string) => void;
+  /** Re-add any built-in topic the reader has removed, keeping their own. */
+  restoreDefaultTopics: () => void;
+  /** The active article-topic filter, independent of folders and sources. */
+  topicFilter: string | null;
+  setTopicFilter: (id: string | null) => void;
+  /** How many stories carry each topic, for the filter's counts. */
+  topicCounts: Record<string, number>;
+  settingsOpen: boolean;
+  setSettingsOpen: (v: boolean) => void;
 
   addOpen: boolean;
   setAddOpen: (v: boolean) => void;
@@ -178,6 +230,15 @@ export function useReaderState(edition: Edition): Ctx {
   /** The story whose full text is being fetched, if any. */
   const [extracting, setExtracting] = useState<string | null>(null);
   const [reading, setReading] = useState<ReadingRecord[]>([]);
+  const [topics, setTopics] = useState<ArticleTopic[]>([]);
+  const [classifications, setClassifications] = useState<ArticleClassification[]>([]);
+  const [classifyEnabled, setClassifyEnabled] = useState(false);
+  const [jevKey, setJevKey] = useState("");
+  const [classifyError, setClassifyError] = useState<string | null>(null);
+  const [classifyWorking, setClassifyWorking] = useState(false);
+  const [classifyNonce, setClassifyNonce] = useState(0);
+  const [topicFilter, setTopicFilter] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [view, setViewRaw] = useState<ViewId>("today");
   const [query, setQuery] = useState("");
@@ -215,12 +276,20 @@ export function useReaderState(edition: Edition): Ctx {
     if (prefs.theme) setTheme(prefs.theme);
     shapedOwnNav.current = typeof prefs.navOpen === "boolean";
     if (typeof prefs.navOpen === "boolean") setNavOpen(prefs.navOpen);
+    if (typeof prefs.classify === "boolean") setClassifyEnabled(prefs.classify);
+    if (typeof prefs.jevKey === "string") setJevKey(prefs.jevKey);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      let snapshot: repo.Snapshot = { sources: [], articles: [], reading: [] };
+      let snapshot: repo.Snapshot = {
+        sources: [],
+        articles: [],
+        reading: [],
+        topics: [],
+        classifications: [],
+      };
       try {
         snapshot = await repo.loadAll();
       } catch (error) {
@@ -232,6 +301,8 @@ export function useReaderState(edition: Edition): Ctx {
       setSources(snapshot.sources.toSorted(byAddedDesc));
       setArticles(snapshot.articles);
       setReading(snapshot.reading);
+      setTopics(snapshot.topics);
+      setClassifications(snapshot.classifications);
 
       // A remembered view is restored only if its source still exists.
       const remembered = loadPrefs().view;
@@ -268,8 +339,16 @@ export function useReaderState(edition: Edition): Ctx {
    */
   useEffect(() => {
     if (!ready) return;
-    savePrefs({ theme, font, navOpen, view });
-  }, [ready, theme, font, navOpen, view]);
+    savePrefs({
+      theme,
+      font,
+      navOpen,
+      view,
+      classify: classifyEnabled,
+      // an empty key clears the override rather than persisting a blank one
+      ...(jevKey ? { jevKey } : {}),
+    });
+  }, [ready, theme, font, navOpen, view, classifyEnabled, jevKey]);
 
   /* ------------------------------------------------------ derive views */
 
@@ -295,13 +374,18 @@ export function useReaderState(edition: Edition): Ctx {
 
   const state = useMemo(() => readingFlags(reading), [reading]);
 
+  const classificationIndex = useMemo(
+    () => new Map(classifications.map((record) => [record.itemId, record])),
+    [classifications],
+  );
+
   const stories = useMemo<Story[]>(
     () =>
       [
-        ...articles.map((a) => storyFromArticle(a, now)),
+        ...articles.map((a) => storyFromArticle(a, now, classificationIndex.get(a.id))),
         ...(sample ? SAMPLE_STORIES : []),
       ].toSorted((a, b) => a.minutesAgo - b.minutesAgo),
-    [articles, now, sample],
+    [articles, now, sample, classificationIndex],
   );
 
   /**
@@ -609,6 +693,217 @@ export function useReaderState(edition: Edition): Ctx {
     };
   }, [ready, refreshAll]);
 
+  /* ---------------------------------------------------- classification */
+
+  /*
+   * Topics are seeded the first time classification is switched on. The
+   * built-in set is a starting point, not a fixed taxonomy: the reader can
+   * rename, delete and add to it, and a reset only restores what was removed.
+   */
+  useEffect(() => {
+    if (!ready || !classifyEnabled || topics.length > 0) return;
+    const seeded = defaultTopics(Date.now());
+    // Seeding the built-in set is a one-time write to storage, the external
+    // system this effect exists to synchronise.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setTopics(seeded);
+    void repo.putTopics(seeded);
+  }, [ready, classifyEnabled, topics.length]);
+
+  const replaceClassification = useCallback((record: ArticleClassification) => {
+    setClassifications((current) => [...current.filter((c) => c.itemId !== record.itemId), record]);
+    void repo.putClassification(record);
+  }, []);
+
+  const correctClassification = useCallback(
+    (itemId: string, topicIds: string[]) => {
+      const article = articles.find((a) => a.id === itemId);
+      if (!article) return;
+      const input = classifyInputFor(article);
+      replaceClassification(
+        correctionRecord(itemId, topicIds, articleFingerprint(input.title, input.summary)),
+      );
+      setClassifyError(null);
+    },
+    [articles, replaceClassification],
+  );
+
+  const rejectClassification = useCallback(
+    (itemId: string) => {
+      const article = articles.find((a) => a.id === itemId);
+      if (!article) return;
+      const input = classifyInputFor(article);
+      replaceClassification({
+        itemId,
+        topicIds: [],
+        confidence: 1,
+        status: "rejected",
+        provider: "jev",
+        contentFingerprint: articleFingerprint(input.title, input.summary),
+        updatedAt: Date.now(),
+      });
+    },
+    [articles, replaceClassification],
+  );
+
+  const reclassify = useCallback(async (itemId: string) => {
+    // Forget it in storage before the sweep can see it, so a tombstone and a
+    // fresh record can never race for the same key.
+    await repo.removeClassification(itemId);
+    setClassifications((current) => current.filter((c) => c.itemId !== itemId));
+    setClassifyError(null);
+  }, []);
+
+  const addTopic = useCallback((label: string, description?: string) => {
+    const name = label.trim();
+    if (!name) return;
+    setTopics((current) => {
+      const slug = slugForTopic(name, current);
+      const topic: ArticleTopic = {
+        id: slug,
+        slug,
+        label: name,
+        updatedAt: Date.now(),
+        ...(description?.trim() ? { description: description.trim() } : {}),
+      };
+      void repo.putTopic(topic);
+      return [...current, topic];
+    });
+  }, []);
+
+  const updateTopic = useCallback((id: string, patch: { label?: string; description?: string }) => {
+    setTopics((current) =>
+      current.map((topic) => {
+        if (topic.id !== id) return topic;
+        const next: ArticleTopic = {
+          ...topic,
+          label: patch.label?.trim() || topic.label,
+          updatedAt: Date.now(),
+        };
+        if (patch.description !== undefined) {
+          const description = patch.description.trim();
+          if (description) next.description = description;
+          else delete next.description;
+        }
+        void repo.putTopic(next);
+        return next;
+      }),
+    );
+  }, []);
+
+  const deleteTopic = useCallback((id: string) => {
+    setTopics((current) => current.filter((topic) => topic.id !== id));
+    setTopicFilter((current) => (current === id ? null : current));
+    void repo.removeTopic(id);
+  }, []);
+
+  const restoreDefaultTopics = useCallback(() => {
+    setTopics((current) => {
+      const existing = new Set(current.map((topic) => topic.slug));
+      const restored = defaultTopics(Date.now()).filter((topic) => !existing.has(topic.slug));
+      if (restored.length) void repo.putTopics(restored);
+      return [...current, ...restored];
+    });
+  }, []);
+
+  const classificationFor = useCallback(
+    (itemId: string) => classificationIndex.get(itemId),
+    [classificationIndex],
+  );
+
+  /*
+   * The classification a reader might correct while a request is in flight.
+   * Read through a ref at write time so an answer that arrives after a
+   * correction cannot overwrite it using a stale snapshot.
+   */
+  const classificationsRef = useRef(classifications);
+  useEffect(() => {
+    classificationsRef.current = classifications;
+  });
+
+  const retryClassification = useCallback(() => {
+    setClassifyError(null);
+    setClassifyNonce((n) => n + 1);
+  }, []);
+
+  /*
+   * The classification sweep: one story at a time, like the feed refresh, and
+   * only for stories that have no answer yet or whose text has changed. A
+   * failure pauses the sweep instead of retrying into a rate limit; the reader
+   * clears it with Retry. Nothing here fetches an article body — classification
+   * reads the summary (or an already-cached body), never the publisher's page.
+   */
+  const classifyInFlight = useRef(false);
+  /* oxlint-disable react/set-state-in-effect, react/exhaustive-effect-dependencies */
+  useEffect(() => {
+    if (!ready || !classifyEnabled || classifyError || !topics.length) return;
+    if (classifyInFlight.current) return;
+    const next = articles.find((article) =>
+      needsClassification(classifyInputFor(article), classificationIndex.get(article.id), topics),
+    );
+    if (!next) return;
+    classifyInFlight.current = true;
+    setClassifyWorking(true);
+    void (async () => {
+      try {
+        const input = classifyInputFor(next);
+        const result = await requestClassification({
+          ...input,
+          topics: topics.map((topic) => ({
+            slug: topic.slug,
+            label: topic.label,
+            ...(topic.description ? { description: topic.description } : {}),
+          })),
+          ...(jevKey ? { key: jevKey } : {}),
+        });
+        if (!result.ok) {
+          setClassifyError(result.error);
+          return;
+        }
+        const outcome = resolveClassification(result.classification, topics);
+        const record = classificationFromOutcome(
+          next.id,
+          outcome,
+          articleFingerprint(input.title, input.summary),
+          result.classification.model ? { model: result.classification.model } : {},
+        );
+        // A reader's correction wins even when the answer was already in flight.
+        const existing = classificationsRef.current.find((c) => c.itemId === next.id);
+        const winner = mergeClassification(existing, record);
+        if (winner === existing) return;
+        replaceClassification(winner);
+      } catch (error) {
+        // A malformed answer is a visible failure, not a silent one.
+        setClassifyError(
+          error instanceof Error ? error.message : "That story could not be classified.",
+        );
+      } finally {
+        classifyInFlight.current = false;
+        setClassifyWorking(false);
+      }
+    })();
+  }, [
+    ready,
+    classifyEnabled,
+    classifyError,
+    classifyNonce,
+    topics,
+    jevKey,
+    articles,
+    classificationIndex,
+    replaceClassification,
+  ]);
+  /* oxlint-enable react/set-state-in-effect, react/exhaustive-effect-dependencies */
+
+  const pendingClassifications = useMemo(() => {
+    if (!classifyEnabled) return 0;
+    return articles.filter((article) =>
+      needsClassification(classifyInputFor(article), classificationIndex.get(article.id), topics),
+    ).length;
+  }, [classifyEnabled, articles, classificationIndex, topics]);
+
+  const setTopicFilterValue = useCallback((id: string | null) => setTopicFilter(id), []);
+
   /* ------------------------------------------------------------- filter */
 
   /*
@@ -642,12 +937,38 @@ export function useReaderState(edition: Edition): Ctx {
       const id = view.slice(5) as FeedId;
       list = list.filter((s) => s.feedId === id);
     }
+    // Article topics are a filter layered on whatever view is open, not a
+    // navigation view of their own: a folder and a topic answer different
+    // questions and can be combined.
+    if (topicFilter) list = list.filter((s) => s.topics.includes(topicFilter));
     const column = list.toSorted((a, b) => a.minutesAgo - b.minutesAgo);
     const visible = streamFilter === "unread" ? column.filter((s) => !state.read[s.id]) : column;
     return { filtered: visible, listed: column };
-  }, [stories, view, query, state.saved, state.later, state.read, streamFilter, feedIndex]);
+  }, [
+    stories,
+    view,
+    query,
+    state.saved,
+    state.later,
+    state.read,
+    streamFilter,
+    feedIndex,
+    topicFilter,
+  ]);
 
   const story = useCallback((id: string) => stories.find((s) => s.id === id), [stories]);
+
+  /*
+   * A story counts toward every topic it was classified into, not just its
+   * primary one — the topic filter should find it under any of them.
+   */
+  const topicCounts = useMemo(() => {
+    const byTopic: Record<string, number> = {};
+    for (const s of stories) {
+      for (const id of s.topics) byTopic[id] = (byTopic[id] ?? 0) + 1;
+    }
+    return byTopic;
+  }, [stories]);
 
   /* ------------------------------------------------------------ counts */
 
@@ -981,6 +1302,28 @@ export function useReaderState(edition: Edition): Ctx {
     refresh,
     refreshAll,
     extracting,
+    topics,
+    classifyEnabled,
+    setClassifyEnabled,
+    jevKey,
+    setJevKey,
+    classifyError,
+    classifyWorking,
+    pendingClassifications,
+    retryClassification,
+    classificationFor,
+    correctClassification,
+    rejectClassification,
+    reclassify,
+    addTopic,
+    updateTopic,
+    deleteTopic,
+    restoreDefaultTopics,
+    topicFilter,
+    setTopicFilter: setTopicFilterValue,
+    topicCounts,
+    settingsOpen,
+    setSettingsOpen,
     addOpen,
     setAddOpen,
     editingId,
@@ -1038,6 +1381,25 @@ function byAddedDesc(a: SourceRecord, b: SourceRecord): number {
   return b.addedAt - a.addedAt;
 }
 
+/**
+ * A readable, stable slug for a reader-made topic. It is the key sent to Jev
+ * and the id stored on classifications, so it is derived once from the label
+ * and never rewritten when the label is edited.
+ */
+function slugForTopic(label: string, existing: readonly ArticleTopic[]): string {
+  const base =
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "topic";
+  const taken = new Set(existing.map((topic) => topic.slug));
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base}-${n}`)) n += 1;
+  return `${base}-${n}`;
+}
+
 /* -------------------------------------------------------------- helpers */
 
 export function useKeyboardShortcuts(ctx: Ctx) {
@@ -1063,6 +1425,7 @@ export function useKeyboardShortcuts(ctx: Ctx) {
       if (e.key === "Escape") {
         if (c.addOpen) c.setAddOpen(false);
         else if (c.editingId) c.setEditingId(null);
+        else if (c.settingsOpen) c.setSettingsOpen(false);
         else if (c.shortcutsOpen) c.setShortcutsOpen(false);
         else if (c.searchOpen) c.setSearchOpen(false);
         else if (c.immersive) c.setImmersive(false);
@@ -1070,7 +1433,7 @@ export function useKeyboardShortcuts(ctx: Ctx) {
         return;
       }
       // a dialog owns the keyboard while it is open
-      if (c.addOpen || c.editingId) return;
+      if (c.addOpen || c.editingId || c.settingsOpen) return;
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
 
       switch (e.key) {

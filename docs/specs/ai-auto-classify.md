@@ -104,4 +104,3 @@ type ArticleClassification = {
 ```
 
 源级 folder 继续用现有 `FolderId` / `SourceRecord.folder`；文章分类用独立 store/记录，二者不要混成一个字段。
-

@@ -295,6 +295,40 @@ always offers every folder, so nothing becomes unreachable — the sample editio
 simply says nothing about news or science, and the navigation does not pretend
 otherwise.
 
+## Article classification
+
+Folders file a publication; a topic describes a single story. A technology feed
+publishes pieces about policy, and a culture feed publishes pieces about books,
+so the two are kept apart: `SourceRecord.folder` stays exactly what it was, and
+an article's topics live in their own stores (`topics` / `classifications` in
+`lib/storage/types.ts`).
+
+Classification is opt-in and local-first. When it is on, `lib/store.tsx` walks
+the stories that have no answer yet — or whose title/summary changed since they
+were classified — and sends each one's title and summary to `POST /api/classify`.
+The route holds the Jev key and makes the one outbound call, to Jev's native
+decision endpoint, with a **closed** choice question built from the reader's own
+topic set; the browser never reaches Jev directly. This is never a background
+crawl: the input is the stored summary, or an already-cached body, and a story
+is never fetched in order to classify it.
+
+Jev answers with a slug and a confidence. Above the floor the topic is stored as
+`auto`; below it the same topic is stored as `needs_review`, shown to the reader
+as a question rather than a fact. The reader can correct the answer, which
+stores a `confirmed` record — and a confirmed or rejected record is never
+overwritten by a later automatic pass, however the story's text changes. A
+classification is therefore user state, kept in its own stores rather than on
+the disposable article cache record (see [STORAGE.md](STORAGE.md)).
+
+The sweep is serial and stops at the first failure, because Jev rate-limits and
+a reader's page should not hammer it; a failure is surfaced in Settings with a
+Retry rather than swallowed. Classification does not change a stream row's
+`layout`.
+
+Privacy: while classification is on, the only thing that leaves the device is a
+story's title and summary. It goes to this app's own endpoint and then to Jev.
+No reading history, no subscription list, no full text, no Firefly account.
+
 ## Reading state
 
 **Reaching the end of a story marks it read. Nothing else does automatically.**
@@ -349,19 +383,22 @@ blurb or a pull quote. `lib/shaping.test.ts` asserts this and names the offender
 app/
   layout.tsx           font preloads and the pre-paint theme script
   page.tsx             resolves the edition date, renders the shell
-  api/feed/route.ts    feed intake — one of the two server-side network routes
+  api/feed/route.ts    feed intake — server-side, so publishers need no CORS
   api/article/route.ts original-page extraction and revalidation
+  api/classify/route.ts the only route that calls Jev; holds the API key
 components/
   shell.tsx            the responsive three-column frame and mobile chrome
   nav-rail.tsx         navigation, sources, colophon
   stream-column.tsx    edition header, filter rail, five story layouts
   article-pane.tsx     reader: toolbar, progress, block renderer
   add-source.tsx       the subscribe dialog
+  settings.tsx         classification switch, Jev key, the topic set
   search-palette.tsx   ⌘K overlay
   shortcuts.tsx        the key legend
   plate.tsx            generative SVG artwork
 lib/
   store.tsx            all application state — one context, one hook
+  classify.ts          Jev request/response rules, the confidence floor
   sources.ts           real suggested publications and folders
   sample/              the invented sample edition
   feed-server.ts       XML → ParsedFeed

@@ -948,4 +948,7 @@ export const SAMPLE_STORIES: Story[] = ARTICLES.map((a) => ({
   minutes: readingTime(a.body),
   contentState: "full",
   extractionState: "idle",
+  // Invented stories are never classified: the classifier's input would be
+  // fabricated, and a topic on them would read as a claim about real writing.
+  topics: [],
 }));

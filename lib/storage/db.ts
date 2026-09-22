@@ -1,6 +1,13 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { hashString } from "../hash";
-import type { ArticleRecord, MetaRecord, ReadingRecord, SourceRecord } from "./types";
+import type {
+  ArticleClassification,
+  ArticleRecord,
+  ArticleTopic,
+  MetaRecord,
+  ReadingRecord,
+  SourceRecord,
+} from "./types";
 
 /**
  * The only module in the application that knows IndexedDB exists. Everything
@@ -9,7 +16,12 @@ import type { ArticleRecord, MetaRecord, ReadingRecord, SourceRecord } from "./t
  */
 
 const DB_NAME = "firefly-feeds";
-const DB_VERSION = 1;
+/**
+ * 2 added the classification stores. The change is additive — the v1 stores
+ * are untouched — so an existing database keeps its subscriptions, read flags
+ * and cached bodies and simply gains two empty stores.
+ */
+const DB_VERSION = 2;
 const SEEDED = "seed:initialised";
 
 export interface FireflyDB extends DBSchema {
@@ -26,6 +38,16 @@ export interface FireflyDB extends DBSchema {
   reading: {
     key: string;
     value: ReadingRecord;
+    indexes: { "by-updated": number };
+  };
+  topics: {
+    key: string;
+    value: ArticleTopic;
+    indexes: { "by-updated": number };
+  };
+  classifications: {
+    key: string;
+    value: ArticleClassification;
     indexes: { "by-updated": number };
   };
   meta: {
@@ -62,19 +84,33 @@ export async function close(): Promise<void> {
 
 async function connect(): Promise<IDBPDatabase<FireflyDB>> {
   const database = await openDB<FireflyDB>(DB_NAME, DB_VERSION, {
-    upgrade(instance) {
-      const sources = instance.createObjectStore("sources", { keyPath: "id" });
-      sources.createIndex("by-folder", "folder");
-      sources.createIndex("by-added", "addedAt");
+    upgrade(instance, oldVersion) {
+      // Guarded by version so an upgrade from an existing database adds the new
+      // stores without recreating — and therefore without clearing — the ones
+      // that already hold the reader's subscriptions and read state.
+      if (oldVersion < 1) {
+        const sources = instance.createObjectStore("sources", { keyPath: "id" });
+        sources.createIndex("by-folder", "folder");
+        sources.createIndex("by-added", "addedAt");
 
-      const articles = instance.createObjectStore("articles", { keyPath: "id" });
-      articles.createIndex("by-source", "sourceId");
-      articles.createIndex("by-published", "publishedAt");
+        const articles = instance.createObjectStore("articles", { keyPath: "id" });
+        articles.createIndex("by-source", "sourceId");
+        articles.createIndex("by-published", "publishedAt");
 
-      const reading = instance.createObjectStore("reading", { keyPath: "id" });
-      reading.createIndex("by-updated", "updatedAt");
+        const reading = instance.createObjectStore("reading", { keyPath: "id" });
+        reading.createIndex("by-updated", "updatedAt");
 
-      instance.createObjectStore("meta", { keyPath: "key" });
+        instance.createObjectStore("meta", { keyPath: "key" });
+      }
+
+      if (oldVersion < 2) {
+        const topics = instance.createObjectStore("topics", { keyPath: "id" });
+        topics.createIndex("by-updated", "updatedAt");
+        const classifications = instance.createObjectStore("classifications", {
+          keyPath: "itemId",
+        });
+        classifications.createIndex("by-updated", "updatedAt");
+      }
     },
   });
 

@@ -1,6 +1,11 @@
 import { initials } from "./hash";
 import { blocksToText } from "./feed-html";
-import type { ArticleRecord, ReadingRecord, SourceRecord } from "./storage/types";
+import type {
+  ArticleClassification,
+  ArticleRecord,
+  ReadingRecord,
+  SourceRecord,
+} from "./storage/types";
 import type { ContentState, Feed, Story } from "./types";
 
 /**
@@ -30,7 +35,11 @@ export function feedFromSource(source: SourceRecord): Feed {
   };
 }
 
-export function storyFromArticle(article: ArticleRecord, now: number): Story {
+export function storyFromArticle(
+  article: ArticleRecord,
+  now: number,
+  classification?: ArticleClassification,
+): Story {
   const minutesAgo = Math.max(1, Math.round((now - article.publishedAt) / 60_000));
   return {
     id: article.id,
@@ -58,6 +67,10 @@ export function storyFromArticle(article: ArticleRecord, now: number): Story {
     live: true,
     contentState: contentStateOf(article),
     extractionState: article.extractionState ?? "idle",
+    // Classification is separate from the article cache: the record arrives
+    // from its own store and is absent when classification has never run.
+    topics: classification?.topicIds ?? [],
+    ...(classification ? { classificationStatus: classification.status } : {}),
   };
 }
 

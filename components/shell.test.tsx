@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { editionFor } from "@/lib/edition";
+import { articleFingerprint, defaultTopics } from "@/lib/classify";
 import { ARTICLE_STALE_MS, EXTRACTOR_VERSION, EXTRACTION_RETRY_MS } from "@/lib/refreshing";
 import { Shell } from "./shell";
 
@@ -665,7 +666,7 @@ describe("the navigation", () => {
     // the ⌘K chip teaches the shortcut; it is not a second button
     expect(footer.textContent).toContain("K");
     expect([...footer.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(
-      ["Switch to dark (T)", "Search", "Keyboard shortcuts (?)"],
+      ["Switch to dark (T)", "Search", "Keyboard shortcuts (?)", "Settings"],
     );
   });
 
@@ -2250,5 +2251,180 @@ describe("appearance", () => {
     await waitFor(() => expect(document.documentElement).toHaveClass("dark"));
     expect(navThemeButtons()).toHaveLength(1);
     expect(navThemeButtons()[0].getAttribute("aria-label")).toBe("Switch to light (T)");
+  });
+});
+
+/* ---------------------------------------------------- classification */
+
+/**
+ * Two real stories, each already classified, with classification switched on.
+ * Seeding the records directly keeps this about the interface and the store;
+ * the classifier's own decision rules live in `lib/classify.test.ts`.
+ */
+async function seedClassifiedStories() {
+  const repo = await import("@/lib/storage/repository");
+  const now = Date.now();
+  await repo.putTopics(defaultTopics(now));
+  await repo.putSource({
+    id: "scls",
+    url: "https://cls.example/feed.xml",
+    siteUrl: "https://cls.example",
+    title: "Classified Source",
+    host: "cls.example",
+    folder: "news",
+    addedAt: now,
+    fetchedAt: now,
+    updatedAt: now,
+  });
+  const stories = [
+    {
+      id: "scls~chips",
+      title: "Chips and wafers",
+      summary: "Semiconductors.",
+      topic: "technology",
+    },
+    { id: "scls~novel", title: "A new novel", summary: "Fiction.", topic: "books" },
+  ];
+  await repo.replaceArticles(
+    "scls",
+    stories.map((story) => ({
+      id: story.id,
+      sourceId: "scls",
+      title: story.title,
+      publishedAt: now,
+      fetchedAt: now,
+      summary: story.summary,
+      body: [{ kind: "p" as const, text: story.summary }],
+      minutes: 2,
+      layout: "standard" as const,
+      contentState: "full" as const,
+      extractionState: "idle" as const,
+    })),
+  );
+  await Promise.all(
+    stories.map((story) =>
+      repo.putClassification({
+        itemId: story.id,
+        topicIds: [story.topic],
+        primaryTopicId: story.topic,
+        confidence: 0.9,
+        // confirmed so the background sweep leaves the seed alone
+        status: "confirmed",
+        provider: "jev",
+        contentFingerprint: articleFingerprint(story.title, story.summary),
+        updatedAt: now,
+      }),
+    ),
+  );
+}
+
+describe("article classification", () => {
+  beforeEach(() => {
+    // classification is opt-in, so the reader's choice is what turns it on
+    localStorage.setItem("firefly.feeds.v1", JSON.stringify({ classify: true }));
+  });
+
+  it("shows a topic per story and filters the column by it", async () => {
+    await seedClassifiedStories();
+    const { user } = await mount();
+
+    expect(within(stream()).getByText("Technology")).toBeInTheDocument();
+    expect(within(stream()).getByText("Books")).toBeInTheDocument();
+    expect(rows()).toHaveLength(2);
+
+    const trigger = stream().querySelector<HTMLElement>("[data-topic-trigger]");
+    expect(trigger).toBeTruthy();
+    await user.click(trigger!);
+    await user.click(within(stream()).getByRole("option", { name: "Technology" }));
+
+    await waitFor(() => expect(rows()).toHaveLength(1));
+    expect(within(stream()).getByText("Chips and wafers")).toBeInTheDocument();
+    expect(within(stream()).queryByText("A new novel")).not.toBeInTheDocument();
+  });
+
+  it("keeps a correction after a full remount", async () => {
+    await seedClassifiedStories();
+    const first = await mount();
+    const topicMenu = () => reader().querySelector<HTMLElement>("[data-t='topic-menu']")!;
+
+    await first.user.click(rows()[0]);
+    await waitFor(() =>
+      expect(reader().querySelector("[data-t='reader-topics']")).toBeInTheDocument(),
+    );
+    await first.user.click(within(reader()).getByRole("button", { name: /Correct/ }));
+    // move it from Technology to Books, the reader's own answer
+    await first.user.click(within(topicMenu()).getByRole("button", { name: "Technology" }));
+    await first.user.click(within(topicMenu()).getByRole("button", { name: "Books" }));
+    await first.user.click(within(topicMenu()).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(reader().querySelector("[data-t='reader-topics']")?.textContent).toContain("Books"),
+    );
+    first.unmount();
+
+    // the correction is user state, so reopening the edition must find it again
+    await mount();
+    await waitFor(() =>
+      expect(reader().querySelector("[data-t='reader-topics']")?.textContent).toContain("Books"),
+    );
+  });
+});
+
+describe("turning classification on", () => {
+  it("sends nothing while it is off, then classifies from the settings switch", async () => {
+    await seedInitialRealStories();
+    const calls: { url: string; method: string }[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push({ url, method });
+      if (url.includes("/api/classify") && method === "GET") {
+        return new Response(JSON.stringify({ ok: true, configured: true }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("/api/classify")) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            classification: {
+              primarySlug: "technology",
+              topicSlugs: ["technology"],
+              confidence: 0.93,
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ ok: true, items: [] }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const { user } = await mount();
+      // nothing leaves the device until the reader asks for it
+      expect(
+        calls.some((call) => call.method === "POST" && call.url.includes("/api/classify")),
+      ).toBe(false);
+
+      await user.click(within(nav()).getByLabelText("Settings"));
+      const panel = await screen.findByRole("dialog", { name: "Settings" });
+      await user.click(within(panel).getByRole("switch", { name: "Classify new stories" }));
+
+      // the default set is seeded and the story receives a topic
+      await waitFor(() =>
+        expect(within(stream()).getAllByText("Technology").length).toBeGreaterThan(0),
+      );
+
+      const repo = await import("@/lib/storage/repository");
+      await waitFor(async () => {
+        const saved = await repo.loadAll();
+        expect(saved.classifications.map((c) => c.primaryTopicId)).toContain("technology");
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });

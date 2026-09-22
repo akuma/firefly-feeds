@@ -38,7 +38,7 @@ const WORKERS_MODULE = "cloudflare:workers";
  * actor to key on, and the failure mode — a shared network throttled together
  * — is preferable to having no limiter at all.
  */
-async function rateLimiter(): Promise<RateLimiter | null> {
+async function rateLimiter(bindingName: string): Promise<RateLimiter | null> {
   try {
     // A variable, so no bundler tries to resolve the specifier statically: it
     // exists in workerd and nowhere else, and a hard import would fail the Node
@@ -46,7 +46,7 @@ async function rateLimiter(): Promise<RateLimiter | null> {
     const mod = (await import(/* @vite-ignore */ WORKERS_MODULE)) as {
       env?: Record<string, unknown>;
     };
-    const binding = mod.env?.FEED_FETCH;
+    const binding = mod.env?.[bindingName];
     if (binding && typeof (binding as RateLimiter).limit === "function") {
       return binding as RateLimiter;
     }
@@ -56,8 +56,11 @@ async function rateLimiter(): Promise<RateLimiter | null> {
   return null;
 }
 
-export async function withinRateLimit(request: Request): Promise<boolean> {
-  const limiter = await rateLimiter();
+export async function withinRateLimit(
+  request: Request,
+  bindingName = "FEED_FETCH",
+): Promise<boolean> {
+  const limiter = await rateLimiter(bindingName);
   if (!limiter) return true;
   const key = request.headers.get("cf-connecting-ip") ?? "unknown";
   try {
@@ -66,6 +69,22 @@ export async function withinRateLimit(request: Request): Promise<boolean> {
   } catch {
     // never let the limiter's own failure take the reader down with it
     return true;
+  }
+}
+
+/**
+ * The Worker's bindings, when there is a Worker to ask. Under `vinext start` on
+ * Node (and in tests) this is empty, so callers degrade rather than crash — the
+ * classification route reports itself unconfigured instead of failing hard.
+ */
+export async function serverEnv(): Promise<Record<string, unknown>> {
+  try {
+    const mod = (await import(/* @vite-ignore */ WORKERS_MODULE)) as {
+      env?: Record<string, unknown>;
+    };
+    return mod.env ?? {};
+  } catch {
+    return {};
   }
 }
 

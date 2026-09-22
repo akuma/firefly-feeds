@@ -1,4 +1,11 @@
-import type { Block, ContentState, ExtractionState, FolderId, StoryLayout } from "../types";
+import type {
+  Block,
+  ClassificationStatus,
+  ContentState,
+  ExtractionState,
+  FolderId,
+  StoryLayout,
+} from "../types";
 
 /**
  * Record shapes are designed for replication, not just for this browser.
@@ -88,11 +95,67 @@ export type MetaRecord = {
   value: unknown;
 };
 
+/**
+ * A reader-editable article topic.
+ *
+ * Deliberately separate from `SourceRecord.folder`: a folder files a
+ * publication, while a topic describes what a single story is about. The same
+ * feed publishes pieces in several of them, so folding the two together would
+ * lose the only thing article-level classification adds.
+ *
+ * `id` and `slug` are the same value for the built-in set. They are kept apart
+ * because the slug is what travels to the classifier as a stable, readable
+ * label, while the id is what a stored classification points at — so a reader
+ * renaming a topic's label never has to rewrite every record that used it.
+ */
+export type ArticleTopic = {
+  id: string;
+  slug: string;
+  label: string;
+  /** Guidance shown to the classifier. Never rendered in the reader. */
+  description?: string;
+  /** True for the set Firefly ships, so a reset can restore them. */
+  builtin?: boolean;
+  /** Last local mutation, for last-write-wins reconciliation. */
+  updatedAt: number;
+  /** Tombstone. Removed topics are kept so the removal can replicate. */
+  deletedAt?: number;
+};
+
+/**
+ * The topic a story was classified into. This is user state — the reader can
+ * correct it and it is worth carrying to another device — so it lives in its
+ * own store rather than on the disposable `articles` cache record.
+ */
+export type ArticleClassification = {
+  /** The `ArticleRecord.id` this belongs to. One classification per story. */
+  itemId: string;
+  topicIds: string[];
+  primaryTopicId?: string;
+  confidence: number;
+  status: ClassificationStatus;
+  provider: "jev";
+  model?: string;
+  /**
+   * Hash of the title and summary the classification was made from. A story
+   * whose text changes gets a new fingerprint and is classified again — unless
+   * the reader has already confirmed or rejected it.
+   */
+  contentFingerprint: string;
+  /** Last local mutation, for last-write-wins reconciliation. */
+  updatedAt: number;
+  /** Tombstone. Removed classifications are kept so the removal can replicate. */
+  deletedAt?: number;
+};
+
 /** What a sync client needs: everything that changed after a watermark. */
 export type Changeset = {
   watermark: number;
   sources: SourceRecord[];
   reading: ReadingRecord[];
+  /** Optional so a changeset from a peer that predates topics still merges. */
+  topics?: ArticleTopic[];
+  classifications?: ArticleClassification[];
 };
 
 export type StorageUsage = {

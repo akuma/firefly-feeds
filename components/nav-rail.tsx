@@ -1,6 +1,17 @@
 "use client";
 
-import { Command, Keyboard, Moon, Pencil, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
+import {
+  Command,
+  Keyboard,
+  Moon,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+  Sun,
+  X,
+} from "lucide-react";
 import { clsx } from "./clsx";
 import { IconButton, Wordmark } from "./brand";
 import { Firefly } from "./plate";
@@ -479,6 +490,13 @@ export function NavRail({
             size={24}
             active={r.shortcutsOpen}
             onClick={() => r.setShortcutsOpen(true)}
+          />
+          <IconButton
+            icon={Settings}
+            label="Settings"
+            size={24}
+            active={r.settingsOpen}
+            onClick={() => r.setSettingsOpen(true)}
           />
         </div>
         {/* A hint, not a second way in: the icon beside it is the control. */}

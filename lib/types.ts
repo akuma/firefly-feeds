@@ -104,7 +104,22 @@ export type Article = {
   extractionState: ExtractionState;
 };
 
+/**
+ * How a story's topic was arrived at. `auto` is the classifier's own answer;
+ * `needs_review` is the same answer below the confidence floor, shown as a
+ * question rather than a fact. `confirmed` and `rejected` are the reader's, and
+ * neither is overwritten by a later automatic pass.
+ */
+export type ClassificationStatus = "auto" | "confirmed" | "needs_review" | "rejected";
+
 export type Story = Article & {
   /** Reading time derived from the body. */
   minutes: number;
+  /**
+   * Topic ids this story was classified into, primary first. Empty when
+   * classification is off, still running, or was rejected by the reader.
+   */
+  topics: string[];
+  /** Present once a classification exists. */
+  classificationStatus?: ClassificationStatus;
 };

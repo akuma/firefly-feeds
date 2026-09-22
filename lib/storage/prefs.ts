@@ -17,6 +17,17 @@ export type Prefs = {
   font?: number;
   navOpen?: boolean;
   view?: ViewId;
+  /**
+   * Article classification is off until the reader turns it on: it is the one
+   * part of the app that sends any of the reader's data off the device.
+   */
+  classify?: boolean;
+  /**
+   * An optional personal Jev key. The shared default lives as a server secret;
+   * a key kept here overrides it for this browser alone, and is sent to our own
+   * `/api/classify` — never to Jev directly, and never written server-side.
+   */
+  jevKey?: string;
 };
 
 export function loadPrefs(): Prefs {

@@ -11,8 +11,9 @@ import {
   Plus,
   Search,
   Sun,
+  Tag,
 } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { IconButton } from "./brand";
 import { Firefly, Media, hasArt } from "./plate";
@@ -32,6 +33,116 @@ const SMART_HEAD: Record<string, { kicker: string; title: string }> = {
 
 function plural(n: number, one: string, many: string) {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+/** A topic label for a story, or nothing when only unknown ids remain. */
+function primaryTopicLabel(
+  story: Story,
+  topics: { id: string; label: string }[],
+): string | undefined {
+  const id = story.topics[0];
+  if (!id) return undefined;
+  return topics.find((topic) => topic.id === id)?.label;
+}
+
+/**
+ * The article-topic filter. It sits in the stream's own filter rail rather than
+ * in the navigation because it narrows the column, independent of the source
+ * or folder the column was opened from; the two can be combined.
+ */
+function TopicFilter() {
+  const r = useReader();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t || ref.current?.contains(t)) return;
+      if (t.closest("[data-topic-trigger]")) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  // Hidden until there is something to filter by: a topic set with no
+  // classified story (the sample edition, or a fresh install) would otherwise
+  // offer a filter that empties the column.
+  if (!r.classifyEnabled || r.topics.length === 0) return null;
+  if (Object.keys(r.topicCounts).length === 0) return null;
+  const active = r.topicFilter ? r.topics.find((topic) => topic.id === r.topicFilter) : undefined;
+
+  return (
+    <div className="relative flex items-stretch" ref={ref}>
+      <button
+        type="button"
+        data-topic-trigger
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={clsx(
+          "label relative flex items-center gap-1.5 transition-colors",
+          active ? "text-ink" : "text-ink4 hover:text-ink2",
+        )}
+      >
+        {active ? active.label : "Topic"}
+        <Tag size={10} strokeWidth={1.6} />
+        {active && <span className="absolute -bottom-px left-0 h-px w-full bg-spark" />}
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label="Filter by topic"
+          className="absolute top-full -left-2.5 z-30 mt-1 max-h-[52vh] w-[216px] overflow-y-auto border border-rule bg-reader p-1.5 shadow-[0_14px_30px_-22px_rgba(0,0,0,0.55)]"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              r.setTopicFilter(null);
+              setOpen(false);
+            }}
+            className={clsx(
+              "flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left text-[14px] transition-colors",
+              !active ? "bg-activec text-ink" : "text-ink3 hover:bg-hoverc hover:text-ink",
+            )}
+          >
+            All topics
+          </button>
+          {r.topics.map((topic) => {
+            const count = r.topicCounts[topic.id] ?? 0;
+            const current = r.topicFilter === topic.id;
+            return (
+              <button
+                key={topic.id}
+                type="button"
+                role="option"
+                aria-selected={current}
+                aria-label={topic.label}
+                onClick={() => {
+                  r.setTopicFilter(current ? null : topic.id);
+                  setOpen(false);
+                }}
+                className={clsx(
+                  "flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition-colors",
+                  current ? "bg-activec text-ink" : "text-ink2 hover:bg-hoverc hover:text-ink",
+                )}
+              >
+                <span className="min-w-0 truncate text-[14px]">{topic.label}</span>
+                {count > 0 && (
+                  <span aria-hidden className="mono tnum shrink-0 text-[10px] text-ink4">
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function viewHead(
@@ -184,6 +295,7 @@ function StreamHeader({
               )}
             </button>
           ))}
+          <TopicFilter />
         </div>
         <button
           type="button"
@@ -202,6 +314,8 @@ function StreamHeader({
 function Kicker({ s, selected }: { s: Story; selected: boolean }) {
   const r = useReader();
   const unread = !r.state.read[s.id];
+  const topic = primaryTopicLabel(s, r.topics);
+  const review = s.classificationStatus === "needs_review";
   return (
     <div
       data-t="kicker"
@@ -220,6 +334,21 @@ function Kicker({ s, selected }: { s: Story; selected: boolean }) {
         ·
       </span>
       <span className="shrink-0 text-ink4">{agoLabel(s.minutesAgo)}</span>
+      {topic && (
+        <>
+          <span className="shrink-0 text-ink4" aria-hidden>
+            ·
+          </span>
+          <span
+            data-t="story-topic"
+            title={review ? "Low confidence — correct it in the reader" : undefined}
+            className={clsx("truncate", review ? "text-spark" : "text-ink4")}
+          >
+            {topic}
+            {review ? "?" : ""}
+          </span>
+        </>
+      )}
       {selected && (
         <>
           <span className="shrink-0 text-ink4" aria-hidden>

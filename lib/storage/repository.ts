@@ -1,5 +1,13 @@
 import { articleIdFor, available, db, sourceIdFor } from "./db";
-import type { ArticleRecord, Changeset, ReadingRecord, SourceRecord, StorageUsage } from "./types";
+import type {
+  ArticleClassification,
+  ArticleRecord,
+  ArticleTopic,
+  Changeset,
+  ReadingRecord,
+  SourceRecord,
+  StorageUsage,
+} from "./types";
 
 /**
  * The application's storage contract. Nothing above this file imports `idb` or
@@ -7,34 +15,49 @@ import type { ArticleRecord, Changeset, ReadingRecord, SourceRecord, StorageUsag
  * adapter, or SQLite on the server for real cross-device sync) a swap rather
  * than a rewrite.
  *
- * The three stores have different jobs and different lifetimes:
+ * The stores have different jobs and different lifetimes:
  *
- *   sources   the registry of what you subscribe to. Small, durable, synced.
- *   reading   read / saved / later per article. Tiny, synced, high write rate.
- *   articles  cached bodies. Large, disposable, re-fetchable. NEVER synced —
- *             a new device should re-fetch rather than download a corpus.
+ *   sources          the registry of what you subscribe to. Small, durable, synced.
+ *   reading          read / saved / later per article. Tiny, synced, high write rate.
+ *   articles         cached bodies. Large, disposable, re-fetchable. NEVER synced —
+ *                    a new device should re-fetch rather than download a corpus.
+ *   topics           the reader's article topics. Small, durable, synced.
+ *   classifications  one topic per story. Small, synced, and always kept apart
+ *                    from the body cache so a source refresh cannot touch it.
  */
 
 export type Snapshot = {
   sources: SourceRecord[];
   articles: ArticleRecord[];
   reading: ReadingRecord[];
+  topics: ArticleTopic[];
+  classifications: ArticleClassification[];
 };
 
-const EMPTY: Snapshot = { sources: [], articles: [], reading: [] };
+const EMPTY: Snapshot = {
+  sources: [],
+  articles: [],
+  reading: [],
+  topics: [],
+  classifications: [],
+};
 
 export async function loadAll(): Promise<Snapshot> {
   if (!available()) return EMPTY;
   const database = await db();
-  const [sources, articles, reading] = await Promise.all([
+  const [sources, articles, reading, topics, classifications] = await Promise.all([
     database.getAll("sources"),
     database.getAll("articles"),
     database.getAll("reading"),
+    database.getAll("topics"),
+    database.getAll("classifications"),
   ]);
   return {
     sources: sources.filter((s) => !s.deletedAt),
     articles,
     reading,
+    topics: topics.filter((t) => !t.deletedAt),
+    classifications: classifications.filter((c) => !c.deletedAt),
   };
 }
 
@@ -114,6 +137,59 @@ export async function putReadingMany(records: ReadingRecord[]): Promise<void> {
   await tx.done;
 }
 
+/* ----------------------------------------------------------- topics */
+
+/**
+ * Topics and classifications are user state, not cache: they get their own
+ * stores and their own writes so a source refresh can never touch them, and a
+ * future sync client can carry them without dragging article bodies along.
+ */
+export async function putTopic(topic: ArticleTopic): Promise<void> {
+  if (!available()) return;
+  await (await db()).put("topics", topic);
+}
+
+export async function putTopics(topics: ArticleTopic[]): Promise<void> {
+  if (!available() || !topics.length) return;
+  const database = await db();
+  const tx = database.transaction("topics", "readwrite");
+  for (const topic of topics) tx.store.put(topic);
+  await tx.done;
+}
+
+/** Tombstone rather than delete, so the removal can replicate. */
+export async function removeTopic(id: string): Promise<void> {
+  if (!available()) return;
+  const database = await db();
+  const tx = database.transaction("topics", "readwrite");
+  const existing = await tx.store.get(id);
+  if (existing) {
+    tx.store.put({ ...existing, deletedAt: Date.now(), updatedAt: Date.now() });
+  }
+  await tx.done;
+}
+
+export async function putClassification(record: ArticleClassification): Promise<void> {
+  if (!available()) return;
+  await (await db()).put("classifications", record);
+}
+
+/**
+ * Forgets one story's classification. Used by the reader's "reclassify" so the
+ * next sweep starts clean; the removal is a tombstone so it can replicate, and
+ * a fresh classification simply overwrites it.
+ */
+export async function removeClassification(itemId: string): Promise<void> {
+  if (!available()) return;
+  const database = await db();
+  const tx = database.transaction("classifications", "readwrite");
+  const existing = await tx.store.get(itemId);
+  if (existing) {
+    tx.store.put({ ...existing, deletedAt: Date.now(), updatedAt: Date.now() });
+  }
+  await tx.done;
+}
+
 /* ------------------------------------------------------------------ sync */
 
 /**
@@ -122,23 +198,33 @@ export async function putReadingMany(records: ReadingRecord[]): Promise<void> {
  * design, because cached bodies are re-fetchable rather than user data.
  */
 export async function changesSince(watermark: number): Promise<Changeset> {
-  if (!available()) return { watermark, sources: [], reading: [] };
+  if (!available()) {
+    return { watermark, sources: [], reading: [], topics: [], classifications: [] };
+  }
   const database = await db();
-  const [sources, reading] = await Promise.all([
+  const [sources, reading, topics, classifications] = await Promise.all([
     database.getAll("sources"),
     database.getAllFromIndex("reading", "by-updated", IDBKeyRange.lowerBound(watermark, true)),
+    database.getAllFromIndex("topics", "by-updated", IDBKeyRange.lowerBound(watermark, true)),
+    database.getAllFromIndex(
+      "classifications",
+      "by-updated",
+      IDBKeyRange.lowerBound(watermark, true),
+    ),
   ]);
   return {
     watermark: Date.now(),
     sources: sources.filter((s) => s.updatedAt > watermark),
     reading,
+    topics,
+    classifications,
   };
 }
 
 export async function mergeChangeset(changes: Changeset): Promise<void> {
   if (!available()) return;
   const database = await db();
-  const tx = database.transaction(["sources", "reading"], "readwrite");
+  const tx = database.transaction(["sources", "reading", "topics", "classifications"], "readwrite");
 
   // reads and writes share one transaction, so they must stay ordered
   /* oxlint-disable no-await-in-loop */
@@ -156,6 +242,22 @@ export async function mergeChangeset(changes: Changeset): Promise<void> {
     const local = await tx.objectStore("reading").get(incoming.id);
     if (!local || incoming.updatedAt >= local.updatedAt) {
       tx.objectStore("reading").put(incoming);
+    }
+  }
+
+  for (const incoming of changes.topics ?? []) {
+    const local = await tx.objectStore("topics").get(incoming.id);
+    const wins =
+      !local ||
+      incoming.updatedAt > local.updatedAt ||
+      (incoming.updatedAt === local.updatedAt && Boolean(incoming.deletedAt) && !local.deletedAt);
+    if (wins) tx.objectStore("topics").put(incoming);
+  }
+
+  for (const incoming of changes.classifications ?? []) {
+    const local = await tx.objectStore("classifications").get(incoming.itemId);
+    if (!local || incoming.updatedAt >= local.updatedAt) {
+      tx.objectStore("classifications").put(incoming);
     }
   }
   /* oxlint-enable no-await-in-loop */
@@ -178,11 +280,16 @@ export async function estimate(): Promise<StorageUsage> {
 export async function clearAll(): Promise<void> {
   if (!available()) return;
   const database = await db();
-  const tx = database.transaction(["sources", "articles", "reading"], "readwrite");
+  const tx = database.transaction(
+    ["sources", "articles", "reading", "topics", "classifications"],
+    "readwrite",
+  );
   await Promise.all([
     tx.objectStore("sources").clear(),
     tx.objectStore("articles").clear(),
     tx.objectStore("reading").clear(),
+    tx.objectStore("topics").clear(),
+    tx.objectStore("classifications").clear(),
     tx.done,
   ]);
 }

@@ -10,8 +10,10 @@ import {
   Maximize2,
   Minimize2,
   Moon,
+  Pencil,
   Play,
   Sun,
+  Tag,
   Type,
   ExternalLink,
 } from "lucide-react";
@@ -22,7 +24,7 @@ import { Media } from "./plate";
 import { FOLDERS } from "@/lib/sources";
 import { DWELL_MS, progressFor, readSignal } from "@/lib/reading";
 import { FONT_SIZES, useReader, type ReaderFont } from "@/lib/store";
-import type { Block, Inline } from "@/lib/types";
+import type { Block, Inline, Story } from "@/lib/types";
 
 function hostOf(url: string): string {
   try {
@@ -134,6 +136,122 @@ function FontMenu({ onClose }: { onClose: () => void }) {
         </span>
         <span>T</span>
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- topic menu */
+
+/**
+ * The reader's correction surface.
+ *
+ * Rendered once from <ArticlePane>, for the same reason the font menu is: the
+ * toolbar exists twice in the DOM (desktop and mobile), and a popover inside a
+ * shared fragment would grow two outside-click listeners and close on the wrong
+ * mousedown.
+ */
+function TopicMenu({ story, onClose }: { story: Story; onClose: () => void }) {
+  const r = useReader();
+  const current = r.classificationFor(story.id);
+  const [selected, setSelected] = useState<string[]>(current?.topicIds ?? []);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t || ref.current?.contains(t)) return;
+      if (t.closest("[data-topic-edit]")) return;
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  const toggle = (id: string) =>
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((topicId) => topicId !== id) : [...prev, id],
+    );
+
+  return (
+    <div
+      ref={ref}
+      data-t="topic-menu"
+      className="w-[250px] border border-rule bg-reader p-3.5 shadow-[0_14px_30px_-22px_rgba(0,0,0,0.55)]"
+    >
+      <div className="label text-ink4">Correct topics</div>
+      <p className="mt-2 text-[12.5px] leading-[1.45] text-ink4">
+        Your choice is kept and the classifier will not overwrite it.
+      </p>
+      <div className="mt-3 max-h-[38vh] overflow-y-auto">
+        {r.topics.map((topic) => {
+          const on = selected.includes(topic.id);
+          return (
+            <button
+              key={topic.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => toggle(topic.id)}
+              className="flex w-full items-center gap-2.5 py-1.5 text-left transition-colors hover:bg-hoverc"
+            >
+              <span
+                aria-hidden
+                className={clsx(
+                  "flex h-3.5 w-3.5 shrink-0 items-center justify-center border",
+                  on ? "border-spark bg-spark text-canvas" : "border-rulestrong",
+                )}
+              >
+                {on && <Check size={9} strokeWidth={3} />}
+              </span>
+              <span className={clsx("min-w-0 truncate text-[14px]", on ? "text-ink" : "text-ink3")}>
+                {topic.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3 border-t border-rule pt-3">
+        <button
+          type="button"
+          onClick={() => {
+            r.rejectClassification(story.id);
+            onClose();
+          }}
+          className="mono text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-spark"
+        >
+          Not this
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            r.correctClassification(story.id, selected);
+            onClose();
+          }}
+          className="mono bg-ink px-3 py-1.5 text-[9px] tracking-[0.16em] text-canvas uppercase transition-opacity hover:opacity-90"
+        >
+          Save
+        </button>
+      </div>
+
+      {current && (
+        <button
+          type="button"
+          onClick={() => {
+            r.reclassify(story.id);
+            onClose();
+          }}
+          className="mono mt-3 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-spark"
+        >
+          Ask the classifier again
+        </button>
+      )}
     </div>
   );
 }
@@ -311,6 +429,7 @@ export function ArticlePane() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [progress, setProgress] = useState(0);
   const [fontOpen, setFontOpen] = useState(false);
+  const [topicOpen, setTopicOpen] = useState(false);
   /** Stories already credited by the scroll-to-end rule, so it fires once each. */
   const credited = useRef(new Set<string>());
 
@@ -337,6 +456,7 @@ export function ArticlePane() {
     el.scrollTop = 0;
     setProgress(0);
     setFontOpen(false);
+    setTopicOpen(false);
     el.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
     return () => el.removeEventListener("scroll", onScroll);
@@ -421,6 +541,14 @@ export function ArticlePane() {
   // of the Unread filter, and "Next up" should still point where `j` goes.
   const next = r.upNext;
   const pct = Math.round(progress * 100);
+
+  // Topics arrive as ids so the label is always the reader's current one, even
+  // after a rename.
+  const topicLabels = s.topics
+    .map((id) => r.topics.find((topic) => topic.id === id))
+    .filter((topic) => topic !== undefined);
+  const classification = r.classificationFor(s.id);
+  const review = classification?.status === "needs_review";
 
   /* ---------------------------------------------------------- toolbar */
   const canonical = r.originalUrl(s);
@@ -535,6 +663,13 @@ export function ArticlePane() {
         </div>
       )}
 
+      {/* ------------------------------------------------ topic popover */}
+      {topicOpen && (
+        <div className="absolute right-3 z-40" style={{ top: r.immersive ? 46 : 52 }}>
+          <TopicMenu story={s} onClose={() => setTopicOpen(false)} />
+        </div>
+      )}
+
       {/* ------------------------------------------------------ article */}
       <div
         ref={scrollRef}
@@ -587,6 +722,47 @@ export function ArticlePane() {
               {s.publishedLabel ?? r.edition.long} · {s.minutes} min read
             </span>
           </div>
+
+          {/* Article topics, with the reader's correction one tap away. */}
+          {!isSample && r.classifyEnabled && (
+            <div
+              data-t="reader-topics"
+              className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-2"
+            >
+              {topicLabels.map((topic, i) => (
+                <span
+                  key={topic.id}
+                  className={clsx(
+                    "mono border px-2 py-1 text-[9.5px] leading-none tracking-[0.14em] uppercase",
+                    i === 0 ? "border-rulestrong text-ink2" : "border-rule text-ink4",
+                  )}
+                >
+                  {topic.label}
+                </span>
+              ))}
+              {topicLabels.length === 0 && (
+                <span className="mono text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
+                  {r.classifyWorking ? "Classifying…" : "No topic yet"}
+                </span>
+              )}
+              {review && (
+                <span className="mono flex items-center gap-1 text-[9.5px] tracking-[0.14em] text-spark uppercase">
+                  <Tag size={10} strokeWidth={1.8} />
+                  Needs review
+                </span>
+              )}
+              <button
+                type="button"
+                data-topic-edit
+                aria-expanded={topicOpen}
+                onClick={() => setTopicOpen((v) => !v)}
+                className="mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-spark"
+              >
+                <Pencil size={10} strokeWidth={1.8} />
+                Correct
+              </button>
+            </div>
+          )}
 
           {/*
            * A body image keeps its position, so the article never renders one
