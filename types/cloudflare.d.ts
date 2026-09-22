@@ -26,10 +26,17 @@ declare module "cloudflare:workers" {
       limit(options: { key: string }): Promise<{ success: boolean }>;
     };
     /**
-     * The Jev API key. A Worker secret in production, `.dev.vars` locally, and
-     * deliberately absent from the client — the browser only ever reaches Jev
-     * through `app/api/classify`. A reader may override it with their own key,
-     * which travels as a request header and is never written server-side.
+     * Cloudflare Workers AI: the account the model runs in, and a token with
+     * Workers AI permission. Together they are the only way this app reaches
+     * Jev; the key never leaves the server. `.dev.vars` locally, Worker
+     * secrets/vars in production.
+     */
+    CF_API_TOKEN?: string;
+    CF_ACCOUNT_ID?: string;
+    /**
+     * The direct Jev (TypeSafe) key, kept only as a fallback for when the
+     * Cloudflare account cannot run a third-party model (for example an AI
+     * Gateway with no balance and no BYOK configured). Optional.
      */
     JEV_API_KEY?: string;
   };

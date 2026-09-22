@@ -16,28 +16,48 @@ import { useReader } from "@/lib/store";
 export function Settings() {
   const r = useReader();
   const close = () => r.setSettingsOpen(false);
-  const [serverConfigured, setServerConfigured] = useState<boolean | null>(null);
+  const [serverConfigured, setServerConfigured] = useState<{
+    configured: boolean;
+    provider: string | null;
+  } | null>(null);
   const [draft, setDraft] = useState("");
   const [keyDraft, setKeyDraft] = useState(r.jevKey);
 
-  // Whether the shared server key exists is a fact only the endpoint knows; the
-  // dialog asks once rather than guessing from a failed classification.
+  // Whether the shared server credential exists is a fact only the endpoint
+  // knows; the dialog asks once rather than guessing from a failed run.
   useEffect(() => {
     let cancelled = false;
     void fetch("/api/classify")
       .then((res) => res.json())
-      .then((data: { configured?: boolean }) => {
-        if (!cancelled) setServerConfigured(Boolean(data?.configured));
+      .then((data: { configured?: boolean; provider?: string | null }) => {
+        if (!cancelled) {
+          setServerConfigured({
+            configured: Boolean(data?.configured),
+            provider: data?.provider ?? null,
+          });
+        }
       })
       .catch(() => {
-        if (!cancelled) setServerConfigured(false);
+        if (!cancelled) setServerConfigured({ configured: false, provider: null });
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const keyReady = Boolean(r.jevKey) || serverConfigured === true;
+  const keyReady = Boolean(r.jevKey) || serverConfigured?.configured === true;
+  const providerLabel =
+    serverConfigured?.provider === "cloudflare"
+      ? "Cloudflare Workers AI"
+      : serverConfigured?.provider === "jev"
+        ? "Direct Jev API"
+        : null;
+  const lastProvider =
+    r.classifyProvider === "cloudflare"
+      ? "Cloudflare"
+      : r.classifyProvider === "jev"
+        ? "direct Jev"
+        : null;
 
   const addDraft = () => {
     const label = draft.trim();
@@ -114,10 +134,12 @@ export function Settings() {
                 <span className="flex items-center gap-1.5">
                   <Sparkles size={11} strokeWidth={1.6} />
                   {serverConfigured === null
-                    ? "Checking for a key…"
+                    ? "Checking for a credential…"
                     : keyReady
-                      ? "Jev key available"
-                      : "No Jev key yet"}
+                      ? providerLabel
+                        ? `${providerLabel} ready`
+                        : "Credential ready"
+                      : "No classifier credential"}
                 </span>
                 {r.classifyWorking && (
                   <>
@@ -131,10 +153,16 @@ export function Settings() {
                     <span>{r.pendingClassifications} waiting</span>
                   </>
                 )}
+                {lastProvider && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span>Last via {lastProvider}</span>
+                  </>
+                )}
               </div>
 
               <label htmlFor="jev-key" className="label mt-5 block text-ink4">
-                Personal Jev key (optional)
+                Cloudflare API token (optional)
               </label>
               <div className="mt-2 flex items-center gap-3 border-b border-rulestrong pb-2">
                 <input
@@ -165,8 +193,8 @@ export function Settings() {
                 )}
               </div>
               <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
-                A shared key can be configured on the server; this one overrides it for this browser
-                and is never written anywhere but here.
+                Jev runs through Cloudflare Workers AI. A shared token can be configured on the
+                server; this one overrides it for this browser and is never written anywhere else.
               </p>
 
               {r.classifyError && (

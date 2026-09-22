@@ -9,9 +9,11 @@ import {
   CLASSIFY_MAX_PER_MINUTE,
   CLASSIFY_MIN_INTERVAL_MS,
   CLASSIFY_WINDOW_MS,
+  cloudflareBody,
   CONFIDENCE_THRESHOLD,
   correctionRecord,
   defaultTopics,
+  JEV_MODEL,
   mergeClassification,
   needsClassification,
   parseClassifyResponse,
@@ -29,20 +31,18 @@ const topics: ArticleTopic[] = [
 
 const known = new Set(topics.map((topic) => topic.slug));
 
-/** A response in the shape Jev's native decisions endpoint returns. */
-function jevResponse(overrides: Record<string, unknown> = {}) {
+/** A successful Cloudflare Workers AI response, in the REST envelope. */
+function cfResponse(answers: Record<string, unknown>) {
+  return { result: { model: "jev-1.13.0", answers }, success: true, errors: [], messages: [] };
+}
+
+function choiceAnswer(overrides: Record<string, unknown> = {}) {
   return {
-    code: 0,
-    message: "ok",
-    data: {
-      model: "typesafe-ai/jev",
-      answers: {
-        topic: {
-          choice: "technology",
-          confidence: 0.81,
-          probabilities: { technology: 0.72, science: 0.18, news: 0.1 },
-        },
-      },
+    topic: {
+      type: "choice",
+      choice: "technology",
+      confidence: 0.81,
+      probabilities: { technology: 0.72, science: 0.18, news: 0.1 },
       ...overrides,
     },
   };
@@ -63,41 +63,71 @@ describe("the classifier request", () => {
     expect(request.state.title).toBe("A title");
     expect(request.state.summary).toBe("A summary");
   });
+
+  it("wraps the decision for Cloudflare Workers AI", () => {
+    const input = buildClassifyRequest({ title: "A title", summary: "A summary" }, [
+      { slug: "news", label: "News" },
+    ]);
+    const body = cloudflareBody(input);
+    expect(body.model).toBe(JEV_MODEL);
+    expect(body.model).toBe("typesafe/jev");
+    expect(body.input.questions.topic.criteria).toEqual({ news: "News" });
+  });
 });
 
 /* -------------------------------------------------------- result validation */
 
 describe("reading a Jev answer", () => {
   it("accepts a successful closed-set choice and keeps its secondary topics", () => {
-    const suggestion = parseClassifyResponse(jevResponse(), known);
+    const suggestion = parseClassifyResponse(cfResponse(choiceAnswer()), known);
     expect(suggestion.primarySlug).toBe("technology");
     expect(suggestion.topicSlugs[0]).toBe("technology");
     expect(suggestion.topicSlugs).toContain("science");
     expect(suggestion.confidence).toBeCloseTo(0.81);
-    expect(suggestion.model).toBe("typesafe-ai/jev");
+    expect(suggestion.model).toBe("jev-1.13.0");
   });
 
-  it("refuses a failed call rather than inventing an answer", () => {
+  it("also reads the direct Jev API's envelope", () => {
+    const suggestion = parseClassifyResponse(
+      { code: 0, message: "ok", data: { answers: choiceAnswer() } },
+      known,
+    );
+    expect(suggestion.primarySlug).toBe("technology");
+  });
+
+  it("refuses a failed direct call rather than inventing an answer", () => {
     expect(() =>
       parseClassifyResponse({ code: -1, message: "Too many requests.", data: null }, known),
     ).toThrow(/Too many requests/);
   });
 
+  it("refuses a Cloudflare failure with its own message", () => {
+    expect(() =>
+      parseClassifyResponse(
+        {
+          success: false,
+          errors: [
+            { code: 2021, message: "Insufficient balance; add money to your gateway or use BYOK" },
+          ],
+          result: {},
+          messages: [],
+        },
+        known,
+      ),
+    ).toThrow(/Insufficient balance/);
+  });
+
   it("refuses a choice outside the reader's own topic set", () => {
-    const raw = jevResponse({
-      answers: { topic: { choice: "sports", confidence: 0.9 } },
-    });
+    const raw = cfResponse({ topic: { choice: "sports", confidence: 0.9 } });
     expect(() => parseClassifyResponse(raw, known)).toThrow(ClassifyError);
   });
 
   it("refuses a response with no choice at all", () => {
-    expect(() => parseClassifyResponse({ code: 0, data: { answers: {} } }, known)).toThrow(
-      /did not choose/,
-    );
+    expect(() => parseClassifyResponse(cfResponse({}), known)).toThrow(/did not choose/);
   });
 
   it("clamps a confidence the model reports out of range", () => {
-    const raw = jevResponse({ answers: { topic: { choice: "news", confidence: 4 } } });
+    const raw = cfResponse(choiceAnswer({ choice: "news", confidence: 4 }));
     expect(parseClassifyResponse(raw, known).confidence).toBe(1);
   });
 });
@@ -106,7 +136,7 @@ describe("reading a Jev answer", () => {
 
 describe("the confidence floor", () => {
   it("calls a confident answer a fact", () => {
-    const parsed = parseClassifyResponse(jevResponse(), known);
+    const parsed = parseClassifyResponse(cfResponse(choiceAnswer()), known);
     const outcome = resolveClassification(parsed, topics);
     expect(outcome.status).toBe("auto");
     expect(outcome.primaryTopicId).toBe("technology");
@@ -114,9 +144,9 @@ describe("the confidence floor", () => {
   });
 
   it("holds a weak answer as a question instead", () => {
-    const raw = jevResponse({
-      answers: { topic: { choice: "news", confidence: CONFIDENCE_THRESHOLD - 0.01 } },
-    });
+    const raw = cfResponse(
+      choiceAnswer({ choice: "news", confidence: CONFIDENCE_THRESHOLD - 0.01 }),
+    );
     const outcome = resolveClassification(parseClassifyResponse(raw, known), topics);
     expect(outcome.status).toBe("needs_review");
     // the topic is still recorded — it is a suggestion, not silence
@@ -124,9 +154,7 @@ describe("the confidence floor", () => {
   });
 
   it("treats the threshold itself as confident enough", () => {
-    const raw = jevResponse({
-      answers: { topic: { choice: "news", confidence: CONFIDENCE_THRESHOLD } },
-    });
+    const raw = cfResponse(choiceAnswer({ choice: "news", confidence: CONFIDENCE_THRESHOLD }));
     expect(resolveClassification(parseClassifyResponse(raw, known), topics).status).toBe("auto");
   });
 });

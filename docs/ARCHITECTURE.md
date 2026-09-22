@@ -306,11 +306,14 @@ an article's topics live in their own stores (`topics` / `classifications` in
 Classification is opt-in and local-first. When it is on, `lib/store.tsx` walks
 the stories that have no answer yet — or whose title/summary changed since they
 were classified — and sends each one's title and summary to `POST /api/classify`.
-The route holds the Jev key and makes the one outbound call, to Jev's native
-decision endpoint, with a **closed** choice question built from the reader's own
-topic set; the browser never reaches Jev directly. This is never a background
-crawl: the input is the stored summary, or an already-cached body, and a story
-is never fetched in order to classify it.
+The route holds the credential and makes the one outbound call to **Cloudflare
+Workers AI** (`typesafe/jev`), with a **closed** choice question built from the
+reader's own topic set; the browser never reaches the classifier directly. If
+the Cloudflare account cannot run the third-party model — an AI Gateway with no
+balance and no BYOK — the direct Jev API is used as a fallback when
+`JEV_API_KEY` is configured. This is never a background crawl: the input is the
+stored summary, or an already-cached body, and a story is never fetched in order
+to classify it.
 
 Jev answers with a slug and a confidence. Above the floor the topic is stored as
 `auto`; below it the same topic is stored as `needs_review`, shown to the reader
@@ -328,8 +331,9 @@ trickle, not a burst; a failure is surfaced in Settings with a Retry rather than
 swallowed. Classification does not change a stream row's `layout`.
 
 Privacy: while classification is on, the only thing that leaves the device is a
-story's title and summary. It goes to this app's own endpoint and then to Jev.
-No reading history, no subscription list, no full text, no Firefly account.
+story's title and summary. It goes to this app's own endpoint, and then to
+Cloudflare Workers AI (or, as a fallback, the direct Jev API). No reading
+history, no subscription list, no full text, no Firefly account.
 
 ## Reading state
 

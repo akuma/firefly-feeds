@@ -13,11 +13,20 @@ import type { ClassificationStatus } from "./types";
  * server-side and the reader's page must not reach a third party directly.
  */
 
-/** Jev's own decision endpoint. The preset workflows do not fit a topic choice. */
-export const JEV_ENDPOINT = "https://www.jevai.org/api/v1/decisions";
+/**
+ * Jev's own decision endpoint. This is the fallback path, used only when the
+ * Cloudflare account cannot run the third-party model (for example an AI
+ * Gateway with no balance and no BYOK). The primary path is Workers AI.
+ */
+export const JEV_DIRECT_ENDPOINT = "https://www.jevai.org/api/v1/decisions";
 
-/** The one model this feature asks for. */
-export const JEV_MODEL = "typesafe-ai/jev";
+/** The Workers AI model id. Cloudflare hosts Jev under `typesafe/jev`. */
+export const JEV_MODEL = "typesafe/jev";
+
+/** The Cloudflare Workers AI run endpoint for one account. */
+export function cloudflareRunUrl(accountId: string): string {
+  return `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run`;
+}
 
 /**
  * Below this, the classifier is guessing and the reader is shown a question
@@ -124,8 +133,7 @@ export function classifyInputFor(article: {
 
 export type ApiTopic = { slug: string; label: string; description?: string };
 
-export type JevRequest = {
-  model: string;
+export type ClassifyInput = {
   state: { title: string; summary: string; topics: { slug: string; label: string }[] };
   questions: {
     topic: { type: "choice"; instructions: string; criteria: Record<string, string> };
@@ -137,10 +145,15 @@ const INSTRUCTIONS =
   "title and summary. If the text does not clearly support a topic, choose the " +
   "closest one but answer with low confidence.";
 
+/**
+ * The provider-agnostic decision: a state plus one closed-set choice question.
+ * Cloudflare and the direct Jev API accept the same body; only the envelope
+ * around it differs.
+ */
 export function buildClassifyRequest(
   input: { title: string; summary: string },
   topics: readonly ApiTopic[],
-): JevRequest {
+): ClassifyInput {
   const criteria: Record<string, string> = {};
   for (const topic of topics) {
     criteria[topic.slug] = topic.description
@@ -148,7 +161,6 @@ export function buildClassifyRequest(
       : topic.label;
   }
   return {
-    model: JEV_MODEL,
     state: {
       title: input.title,
       summary: input.summary,
@@ -158,6 +170,11 @@ export function buildClassifyRequest(
       topic: { type: "choice", instructions: INSTRUCTIONS, criteria },
     },
   };
+}
+
+/** The Cloudflare Workers AI body: the model plus the decision under `input`. */
+export function cloudflareBody(input: ClassifyInput): { model: string; input: ClassifyInput } {
+  return { model: JEV_MODEL, input };
 }
 
 /* ------------------------------------------------------- response parse */
@@ -195,20 +212,28 @@ function probabilityMap(value: unknown, knownSlugs: ReadonlySet<string>): Map<st
  * successful call with a known, closed-set choice is an error — the caller must
  * never guess on the classifier's behalf, and a topic outside the reader's own
  * set would be a fabricated answer.
+ *
+ * Both transports are accepted: Cloudflare's Workers AI REST envelope
+ * (`{ success, result: { model, answers } }`) and the direct Jev API's
+ * (`{ code, data: { answers } }`). The Workers AI binding returns the answer at
+ * the top level, which also falls through here.
  */
 export function parseClassifyResponse(
   raw: unknown,
   knownSlugs: ReadonlySet<string>,
 ): ClassifySuggestion {
   const body = asRecord(raw);
-  if (!body) throw new ClassifyError("Jev returned an unreadable response.");
-  if (body.code !== 0) {
-    const message = typeof body.message === "string" && body.message ? body.message : "";
-    throw new ClassifyError(message || "Jev refused the request.");
+  if (!body) throw new ClassifyError("The classifier returned an unreadable response.");
+
+  if (body.success === false) {
+    throw new ClassifyError(providerError(body) ?? "Cloudflare Workers AI refused the request.");
+  }
+  if (typeof body.code === "number" && body.code !== 0) {
+    throw new ClassifyError(providerError(body) ?? "Jev refused the request.");
   }
 
-  const data = asRecord(body.data);
-  const answers = asRecord(data?.answers);
+  const container = asRecord(body.result) ?? asRecord(body.data) ?? body;
+  const answers = asRecord(container?.answers);
   const answer = asRecord(answers?.topic);
   const choice = typeof answer?.choice === "string" ? answer.choice : undefined;
   if (!choice || !knownSlugs.has(choice)) {
@@ -219,7 +244,7 @@ export function parseClassifyResponse(
   const confidence = clamp01(
     finiteNumber(answer?.confidence) ??
       probabilities.get(choice) ??
-      finiteNumber(data?.confidence) ??
+      finiteNumber(container?.confidence) ??
       0,
   );
 
@@ -230,13 +255,25 @@ export function parseClassifyResponse(
     .slice(0, MAX_TOPICS_PER_ARTICLE - 1)
     .map(([slug]) => slug);
 
-  const model = typeof data?.model === "string" && data.model ? data.model : undefined;
+  const model =
+    typeof container?.model === "string" && container.model ? container.model : undefined;
   return {
     primarySlug: choice,
     topicSlugs: [choice, ...ranked],
     confidence,
     ...(model ? { model } : {}),
   };
+}
+
+/** The first human-readable message, where each provider puts it. */
+function providerError(body: Record<string, unknown>): string | undefined {
+  const errors = body.errors;
+  if (Array.isArray(errors) && errors.length) {
+    const first = asRecord(errors[0]);
+    const message = first && typeof first.message === "string" ? first.message : undefined;
+    if (message) return message;
+  }
+  return typeof body.message === "string" && body.message ? body.message : undefined;
 }
 
 function clamp01(value: number): number {
@@ -394,12 +431,14 @@ export function classifyDelay(recent: readonly number[], now: number): number {
 /* ------------------------------------------------------- the proxy call */
 
 export type ClassifyApiResult =
-  { ok: true; classification: ClassifySuggestion } | { ok: false; error: string };
+  | { ok: true; classification: ClassifySuggestion; provider?: string }
+  | { ok: false; error: string };
 
 /**
  * The browser's only way to reach the classifier. The key, when the reader has
  * supplied their own, travels as a header to our own origin and is never
- * persisted server-side.
+ * persisted server-side. `provider` reports which transport actually answered —
+ * Cloudflare Workers AI, or the direct Jev API when Cloudflare could not.
  */
 export async function requestClassification(input: {
   title: string;
@@ -419,11 +458,16 @@ export async function requestClassification(input: {
       ok?: boolean;
       error?: string;
       classification?: ClassifySuggestion;
+      provider?: string;
     };
     if (!data.ok || !data.classification) {
       return { ok: false, error: data.error ?? "Classification failed." };
     }
-    return { ok: true, classification: data.classification };
+    return {
+      ok: true,
+      classification: data.classification,
+      ...(data.provider ? { provider: data.provider } : {}),
+    };
   } catch {
     return { ok: false, error: "Could not reach the classification service." };
   }

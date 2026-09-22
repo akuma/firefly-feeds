@@ -127,6 +127,8 @@ type Ctx = {
   /** The last classification failure, shown rather than swallowed. */
   classifyError: string | null;
   classifyWorking: boolean;
+  /** The transport behind the last successful classification, if any. */
+  classifyProvider: string | null;
   /** Stories still waiting for a classification, for the settings panel. */
   pendingClassifications: number;
   /** Clear a failure and let the sweep run again. */
@@ -238,6 +240,8 @@ export function useReaderState(edition: Edition): Ctx {
   const [jevKey, setJevKey] = useState("");
   const [classifyError, setClassifyError] = useState<string | null>(null);
   const [classifyWorking, setClassifyWorking] = useState(false);
+  /** Which transport answered the last request: cloudflare | jev. */
+  const [classifyProvider, setClassifyProvider] = useState<string | null>(null);
   const [classifyNonce, setClassifyNonce] = useState(0);
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -884,6 +888,7 @@ export function useReaderState(edition: Edition): Ctx {
           setClassifyError(result.error);
           return;
         }
+        setClassifyProvider(result.provider ?? null);
         const outcome = resolveClassification(result.classification, topics);
         const record = classificationFromOutcome(
           next.id,
@@ -1333,6 +1338,7 @@ export function useReaderState(edition: Edition): Ctx {
     setJevKey,
     classifyError,
     classifyWorking,
+    classifyProvider,
     pendingClassifications,
     retryClassification,
     classificationFor,

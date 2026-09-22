@@ -1,9 +1,13 @@
 import {
   buildClassifyRequest,
   ClassifyError,
-  JEV_ENDPOINT,
+  cloudflareBody,
+  cloudflareRunUrl,
+  JEV_DIRECT_ENDPOINT,
   parseClassifyResponse,
   type ApiTopic,
+  type ClassifyInput,
+  type ClassifySuggestion,
 } from "@/lib/classify";
 import { fromAnotherSite, serverEnv, withinRateLimit } from "../guards";
 
@@ -14,17 +18,23 @@ const MAX_TOPICS = 24;
 const MAX_TITLE = 300;
 const MAX_SUMMARY = 2_000;
 const MAX_LABEL = 80;
+const TIMEOUT_MS = 20_000;
 
 /**
  * Classification, proxied.
  *
- * The browser cannot call Jev itself: the key is a server secret, and a reader
- * who supplies their own key should still not hand it to a third-party origin
- * from our page. So the request goes to our own origin, the call happens here,
- * and only the slugs come back. The endpoint is never a general Jev proxy — it
- * accepts a title, a summary and a closed topic set, nothing else.
+ * The browser cannot call Jev itself: the credential is a server secret, and a
+ * reader who supplies their own should still not hand it to a third-party
+ * origin from our page. So the request goes to our own origin, the call happens
+ * here, and only the slugs come back. The endpoint is never a general proxy —
+ * it accepts a title, a summary and a closed topic set, nothing else.
  *
- *   GET  /api/classify   → whether a key is configured
+ * Jev is reached through **Cloudflare Workers AI** (`typesafe/jev`). When the
+ * account cannot run the third-party model — an AI Gateway with no balance and
+ * no BYOK, for instance — the direct Jev API is tried as a fallback if a key
+ * is configured, so a billing problem degrades rather than breaks the feature.
+ *
+ *   GET  /api/classify   → whether a credential is configured, and which path
  *   POST /api/classify   → one article, one closed-set choice
  */
 export async function GET(request: Request) {
@@ -32,8 +42,14 @@ export async function GET(request: Request) {
     return denied();
   }
   const env = await serverEnv();
+  const cloudflare = Boolean(text(env.CF_API_TOKEN) && text(env.CF_ACCOUNT_ID));
+  const direct = Boolean(text(env.JEV_API_KEY));
   return Response.json(
-    { ok: true, configured: typeof env.JEV_API_KEY === "string" && env.JEV_API_KEY.length > 0 },
+    {
+      ok: true,
+      configured: cloudflare || direct,
+      provider: cloudflare ? "cloudflare" : direct ? "jev" : null,
+    },
     { headers: { "cache-control": "no-store" } },
   );
 }
@@ -51,15 +67,16 @@ export async function POST(request: Request) {
   }
 
   const env = await serverEnv();
-  // A reader's own key is a header on a same-origin request, never stored. The
-  // server key is the shared default.
-  const headerKey = request.headers.get("x-jev-key")?.trim();
-  const key = headerKey || (typeof env.JEV_API_KEY === "string" ? env.JEV_API_KEY : "");
-  if (!key) {
+  // A reader's own token is a header on a same-origin request, never stored.
+  const headerToken = request.headers.get("x-jev-key")?.trim();
+  const cloudflareToken = headerToken || text(env.CF_API_TOKEN);
+  const accountId = text(env.CF_ACCOUNT_ID);
+  const directKey = text(env.JEV_API_KEY);
+  if (!cloudflareToken && !directKey) {
     return Response.json(
       {
         ok: false,
-        error: "No Jev API key is configured. Add one in Settings to classify stories.",
+        error: "No classifier credential is configured. Set CF_API_TOKEN and CF_ACCOUNT_ID.",
       },
       { status: 503 },
     );
@@ -77,51 +94,103 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, error: parsed.error }, { status: 400 });
   }
 
-  const payload = buildClassifyRequest(
+  const input = buildClassifyRequest(
     { title: parsed.title, summary: parsed.summary },
     parsed.topics,
   );
   const knownSlugs = new Set(parsed.topics.map((topic) => topic.slug));
+  const failures: UpstreamFailure[] = [];
 
+  if (cloudflareToken && accountId) {
+    const result = await callProvider(
+      cloudflareRunUrl(accountId),
+      cloudflareToken,
+      cloudflareBody(input),
+      knownSlugs,
+      "Cloudflare Workers AI",
+    );
+    if (result.ok) return success(result.suggestion, "cloudflare");
+    failures.push(result);
+  }
+
+  // Fall back to the direct API only when Workers AI could not answer.
+  if (directKey) {
+    const result = await callProvider(JEV_DIRECT_ENDPOINT, directKey, input, knownSlugs, "Jev");
+    if (result.ok) return success(result.suggestion, "jev");
+    failures.push(result);
+  }
+
+  // A rate limit is the most actionable failure to surface, then billing.
+  const failure =
+    failures.find((candidate) => candidate.status === 429) ??
+    failures.find((candidate) => candidate.status === 402) ??
+    failures[0];
+  return Response.json(
+    { ok: false, error: failure?.error ?? "The classifier did not answer." },
+    { status: failure?.status ?? 502 },
+  );
+}
+
+/* --------------------------------------------------------------- upstream */
+
+type UpstreamFailure = { ok: false; status: number; error: string };
+type Upstream = { ok: true; suggestion: ClassifySuggestion } | UpstreamFailure;
+
+function success(suggestion: ClassifySuggestion, provider: "cloudflare" | "jev"): Response {
+  return Response.json(
+    { ok: true, classification: suggestion, provider },
+    { headers: { "cache-control": "no-store" } },
+  );
+}
+
+async function callProvider(
+  url: string,
+  key: string,
+  payload: ClassifyInput | { model: string; input: ClassifyInput },
+  knownSlugs: ReadonlySet<string>,
+  label: string,
+): Promise<Upstream> {
   try {
-    const res = await fetch(JEV_ENDPOINT, {
+    const res = await fetch(url, {
       method: "POST",
-      headers: {
-        authorization: `Bearer ${key}`,
-        "content-type": "application/json",
-      },
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
+    const raw: unknown = await res.json().catch(() => null);
 
     if (res.status === 429) {
-      return Response.json(
-        { ok: false, error: "Jev is rate limiting requests. Try again shortly." },
-        { status: 429, headers: { "retry-after": "60" } },
-      );
+      return { ok: false, status: 429, error: `${label} is rate limiting requests.` };
     }
-    if (res.status === 401 || res.status === 403) {
-      return Response.json(
-        { ok: false, error: "Jev rejected the API key. Check it in Settings." },
-        { status: 502 },
-      );
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        error: readProviderError(raw) ?? `${label} refused the request.`,
+      };
     }
-
-    const raw: unknown = await res.json();
-    const classification = parseClassifyResponse(raw, knownSlugs);
-    return Response.json(
-      { ok: true, classification },
-      { headers: { "cache-control": "no-store" } },
-    );
+    return { ok: true, suggestion: parseClassifyResponse(raw, knownSlugs) };
   } catch (error) {
     if (error instanceof ClassifyError) {
-      return Response.json({ ok: false, error: error.message }, { status: 502 });
+      return { ok: false, status: 502, error: error.message };
     }
-    return Response.json(
-      { ok: false, error: "Could not reach Jev. The story stays unclassified." },
-      { status: 502 },
-    );
+    return { ok: false, status: 502, error: `Could not reach ${label}.` };
   }
+}
+
+/** The first human-readable message in a Cloudflare or Jev error body. */
+function readProviderError(raw: unknown): string | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const record = raw as Record<string, unknown>;
+  const errors = record.errors;
+  if (Array.isArray(errors) && errors.length) {
+    const first = errors[0];
+    if (typeof first === "object" && first !== null) {
+      const message = (first as Record<string, unknown>).message;
+      if (typeof message === "string" && message) return message;
+    }
+  }
+  return typeof record.message === "string" && record.message ? record.message : undefined;
 }
 
 function denied() {
@@ -130,6 +199,12 @@ function denied() {
     { status: 403 },
   );
 }
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/* ---------------------------------------------------------------- input */
 
 type ReadInput =
   { ok: true; title: string; summary: string; topics: ApiTopic[] } | { ok: false; error: string };
