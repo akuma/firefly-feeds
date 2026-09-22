@@ -14,6 +14,8 @@ import type { Edition } from "./edition";
 import {
   articleFingerprint,
   classificationFromOutcome,
+  CLASSIFY_WINDOW_MS,
+  classifyDelay,
   classifyInputFor,
   correctionRecord,
   defaultTopics,
@@ -834,18 +836,40 @@ export function useReaderState(edition: Edition): Ctx {
    * reads the summary (or an already-cached body), never the publisher's page.
    */
   const classifyInFlight = useRef(false);
+  // Send times of recent calls, so a backlog cannot exceed the pacing limits.
+  const classifyTimes = useRef<number[]>([]);
+  // The sweep sleeps between calls; it must not fire one after being switched off.
+  const classifyEnabledRef = useRef(classifyEnabled);
+  useEffect(() => {
+    classifyEnabledRef.current = classifyEnabled;
+  });
   /* oxlint-disable react/set-state-in-effect, react/exhaustive-effect-dependencies */
   useEffect(() => {
     if (!ready || !classifyEnabled || classifyError || !topics.length) return;
     if (classifyInFlight.current) return;
-    const next = articles.find((article) =>
-      needsClassification(classifyInputFor(article), classificationIndex.get(article.id), topics),
-    );
+    // Newest first: the stories a reader is most likely to open get an answer
+    // soonest, and the back catalogue trickles in behind them.
+    const next = articles
+      .filter((article) =>
+        needsClassification(classifyInputFor(article), classificationIndex.get(article.id), topics),
+      )
+      .toSorted((a, b) => b.publishedAt - a.publishedAt)[0];
     if (!next) return;
     classifyInFlight.current = true;
     setClassifyWorking(true);
     void (async () => {
       try {
+        // Pace the request. `classifyInFlight` stays set through the wait, so
+        // nothing else can slip past the limiter.
+        const wait = classifyDelay(classifyTimes.current, Date.now());
+        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+        if (!classifyEnabledRef.current) return;
+        const at = Date.now();
+        classifyTimes.current = [
+          ...classifyTimes.current.filter((time) => at - time < CLASSIFY_WINDOW_MS),
+          at,
+        ];
+
         const input = classifyInputFor(next);
         const result = await requestClassification({
           ...input,

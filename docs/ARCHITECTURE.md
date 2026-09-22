@@ -320,10 +320,12 @@ overwritten by a later automatic pass, however the story's text changes. A
 classification is therefore user state, kept in its own stores rather than on
 the disposable article cache record (see [STORAGE.md](STORAGE.md)).
 
-The sweep is serial and stops at the first failure, because Jev rate-limits and
-a reader's page should not hammer it; a failure is surfaced in Settings with a
-Retry rather than swallowed. Classification does not change a stream row's
-`layout`.
+The sweep is serial and paced — one request at a time, with a minimum gap
+between calls and a ceiling per rolling minute — and stops at the first
+failure, because Jev rate-limits per key and a reader's page should not hammer
+it. Enabling classification on a large library is therefore a slow background
+trickle, not a burst; a failure is surfaced in Settings with a Retry rather than
+swallowed. Classification does not change a stream row's `layout`.
 
 Privacy: while classification is on, the only thing that leaves the device is a
 story's title and summary. It goes to this app's own endpoint and then to Jev.

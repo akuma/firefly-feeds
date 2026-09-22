@@ -361,6 +361,36 @@ export function mergeClassification(
   return incoming;
 }
 
+/* ------------------------------------------------------------ pacing */
+
+/**
+ * How fast the client will ask the classifier for an answer.
+ *
+ * A backlog of stored stories is classified politely: a personal reader has no
+ * reason to spend a shared Jev quota as fast as the network allows, and Jev
+ * rate-limits per key. Two limits do the work — a gap between calls, and a
+ * ceiling per rolling minute — so enabling classification on a large library
+ * is a slow background trickle rather than a burst.
+ */
+export const CLASSIFY_MIN_INTERVAL_MS = 2_500;
+export const CLASSIFY_MAX_PER_MINUTE = 12;
+export const CLASSIFY_WINDOW_MS = 60_000;
+
+/**
+ * How long to wait before the next call, given the times of recent ones. Zero
+ * means send now. Both limits are checked, so the stricter one wins.
+ */
+export function classifyDelay(recent: readonly number[], now: number): number {
+  const withinWindow = recent.filter((at) => now - at < CLASSIFY_WINDOW_MS);
+  const last = recent.length ? recent[recent.length - 1] : undefined;
+  let delay = last === undefined ? 0 : Math.max(0, CLASSIFY_MIN_INTERVAL_MS - (now - last));
+  if (withinWindow.length >= CLASSIFY_MAX_PER_MINUTE) {
+    const oldest = Math.min(...withinWindow);
+    delay = Math.max(delay, oldest + CLASSIFY_WINDOW_MS - now);
+  }
+  return delay;
+}
+
 /* ------------------------------------------------------- the proxy call */
 
 export type ClassifyApiResult =

@@ -3,8 +3,12 @@ import {
   articleFingerprint,
   buildClassifyRequest,
   classificationFromOutcome,
+  classifyDelay,
   classifyInputFor,
   ClassifyError,
+  CLASSIFY_MAX_PER_MINUTE,
+  CLASSIFY_MIN_INTERVAL_MS,
+  CLASSIFY_WINDOW_MS,
   CONFIDENCE_THRESHOLD,
   correctionRecord,
   defaultTopics,
@@ -215,5 +219,36 @@ describe("classification input", () => {
     expect(seeded.length).toBeGreaterThan(5);
     expect(new Set(seeded.map((topic) => topic.slug)).size).toBe(seeded.length);
     expect(seeded.every((topic) => topic.builtin === true)).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------- pacing */
+
+describe("classifier pacing", () => {
+  it("sends immediately when nothing has been sent", () => {
+    expect(classifyDelay([], AT)).toBe(0);
+  });
+
+  it("keeps a gap between calls", () => {
+    expect(classifyDelay([AT - 1_000], AT)).toBe(CLASSIFY_MIN_INTERVAL_MS - 1_000);
+    expect(classifyDelay([AT - CLASSIFY_MIN_INTERVAL_MS], AT)).toBe(0);
+    // a call from long ago does not delay the next one
+    expect(classifyDelay([AT - 10 * 60_000], AT)).toBe(0);
+  });
+
+  it("holds the line at a ceiling per rolling minute", () => {
+    const recent = Array.from({ length: CLASSIFY_MAX_PER_MINUTE }, (_, i) => AT - i * 100);
+    // the oldest of the burst only ages out of the window a minute after it
+    expect(classifyDelay(recent, AT)).toBe(
+      CLASSIFY_WINDOW_MS - (CLASSIFY_MAX_PER_MINUTE - 1) * 100,
+    );
+  });
+
+  it("forgets calls that have left the window", () => {
+    const stale = Array.from(
+      { length: CLASSIFY_MAX_PER_MINUTE },
+      () => AT - CLASSIFY_WINDOW_MS - 1,
+    );
+    expect(classifyDelay(stale, AT)).toBe(0);
   });
 });
