@@ -4,6 +4,7 @@ import {
   Bookmark,
   BookmarkCheck,
   Check,
+  CircleHelp,
   Clock,
   ExternalLink,
   Moon,
@@ -16,6 +17,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { IconButton } from "./brand";
+import { Hint, LOW_CONFIDENCE_HINT } from "./hint";
 import { Firefly, Media, hasArt } from "./plate";
 import { agoLabel } from "@/lib/reading";
 import { FOLDERS } from "@/lib/sources";
@@ -339,14 +341,25 @@ function Kicker({ s, selected }: { s: Story; selected: boolean }) {
           <span className="shrink-0 text-ink4" aria-hidden>
             ·
           </span>
-          <span
-            data-t="story-topic"
-            title={review ? "Low confidence — correct it in the reader" : undefined}
-            className={clsx("truncate", review ? "text-spark" : "text-ink4")}
-          >
-            {topic}
-            {review ? "?" : ""}
+          {/*
+            The kicker is publication, age and topic in one line, so the topic
+            carries a mark of its own — otherwise it reads as more of the
+            publication's name than as the story's category.
+          */}
+          <span data-t="story-topic" className="flex min-w-0 items-center gap-1.5 text-ink4">
+            <Tag size={9.5} strokeWidth={1.8} aria-hidden className="shrink-0" />
+            <span className="truncate">{topic}</span>
           </span>
+          {/*
+            A low-confidence topic is a question, not a fact — but it is only a
+            question, so it gets an icon rather than a word. The kicker is the
+            quietest line in the row and a label here would out-shout the title.
+          */}
+          {review && (
+            <Hint label={LOW_CONFIDENCE_HINT} name="Why this topic is uncertain">
+              <CircleHelp size={11} strokeWidth={1.8} aria-hidden />
+            </Hint>
+          )}
         </>
       )}
       {selected && (

@@ -1,3 +1,4 @@
+import type { ClassifyConfig } from "../classify";
 import type { ViewId } from "../types";
 
 /**
@@ -23,11 +24,12 @@ export type Prefs = {
    */
   classify?: boolean;
   /**
-   * An optional personal Jev key. The shared default lives as a server secret;
-   * a key kept here overrides it for this browser alone, and is sent to our own
-   * `/api/classify` — never to Jev directly, and never written server-side.
+   * The reader's classifier configuration: which decision API classifies new
+   * stories, and the address, account and key it needs. It is kept on this
+   * device only — the commercial APIs take a key, and it is sent to this app's
+   * own `/api/classify` rather than to the API itself.
    */
-  jevKey?: string;
+  classifyConfig?: ClassifyConfig;
 };
 
 export function loadPrefs(): Prefs {

@@ -6,7 +6,9 @@ import {
   Bookmark,
   BookmarkCheck,
   Check,
+  CircleHelp,
   Clock,
+  ExternalLink,
   Maximize2,
   Minimize2,
   Moon,
@@ -15,11 +17,11 @@ import {
   Sun,
   Tag,
   Type,
-  ExternalLink,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { IconButton, Rule } from "./brand";
+import { Hint, LOW_CONFIDENCE_HINT } from "./hint";
 import { Media } from "./plate";
 import { FOLDERS } from "@/lib/sources";
 import { DWELL_MS, progressFor, readSignal } from "@/lib/reading";
@@ -733,10 +735,11 @@ export function ArticlePane() {
                 <span
                   key={topic.id}
                   className={clsx(
-                    "mono border px-2 py-1 text-[9.5px] leading-none tracking-[0.14em] uppercase",
+                    "mono flex items-center gap-1.5 border px-2 py-1 text-[9.5px] leading-none tracking-[0.14em] uppercase",
                     i === 0 ? "border-rulestrong text-ink2" : "border-rule text-ink4",
                   )}
                 >
+                  <Tag size={9.5} strokeWidth={1.8} aria-hidden className="shrink-0" />
                   {topic.label}
                 </span>
               ))}
@@ -746,10 +749,9 @@ export function ArticlePane() {
                 </span>
               )}
               {review && (
-                <span className="mono flex items-center gap-1 text-[9.5px] tracking-[0.14em] text-spark uppercase">
-                  <Tag size={10} strokeWidth={1.8} />
-                  Needs review
-                </span>
+                <Hint label={LOW_CONFIDENCE_HINT} name="Why this topic is uncertain">
+                  <CircleHelp size={11} strokeWidth={1.8} aria-hidden />
+                </Hint>
               )}
               <button
                 type="button"

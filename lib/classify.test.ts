@@ -5,6 +5,7 @@ import {
   classificationFromOutcome,
   classifyDelay,
   classifyInputFor,
+  CLASSIFY_PROVIDERS,
   ClassifyError,
   CLASSIFY_MAX_PER_MINUTE,
   CLASSIFY_MIN_INTERVAL_MS,
@@ -12,12 +13,23 @@ import {
   cloudflareBody,
   CONFIDENCE_THRESHOLD,
   correctionRecord,
+  credential,
+  DEFAULT_CLASSIFY_CONFIG,
   defaultTopics,
-  JEV_MODEL,
+  findProvider,
+  JEV_DIRECT_ENDPOINT,
   mergeClassification,
+  missingFields,
   needsClassification,
+  ollamaTagsUrl,
+  readOllamaModels,
   parseClassifyResponse,
+  providerLabel,
+  providerReady,
+  readClassifyConfig,
   resolveClassification,
+  withField,
+  type ClassifyConfig,
 } from "./classify";
 import type { ArticleClassification, ArticleTopic } from "./storage/types";
 
@@ -30,6 +42,11 @@ const topics: ArticleTopic[] = [
 ];
 
 const known = new Set(topics.map((topic) => topic.slug));
+
+/** One closed choice question, as the sweep builds it. */
+const input = buildClassifyRequest({ title: "A title", summary: "A summary" }, [
+  { slug: "news", label: "News" },
+]);
 
 /** A successful Cloudflare Workers AI response, in the REST envelope. */
 function cfResponse(answers: Record<string, unknown>) {
@@ -54,24 +71,330 @@ describe("the classifier request", () => {
       { title: "A title", summary: "A summary" },
       topics.map((topic) => ({ slug: topic.slug, label: topic.label })),
     );
-    expect(request.questions.topic.type).toBe("choice");
-    expect(Object.keys(request.questions.topic.criteria).toSorted()).toEqual([
-      "news",
-      "science",
-      "technology",
-    ]);
+    const question = request.questions.topic!;
+    expect(question.type).toBe("choice");
+    expect(Object.keys(question.criteria).toSorted()).toEqual(["news", "science", "technology"]);
     expect(request.state.title).toBe("A title");
     expect(request.state.summary).toBe("A summary");
   });
 
-  it("wraps the decision for Cloudflare Workers AI", () => {
-    const input = buildClassifyRequest({ title: "A title", summary: "A summary" }, [
-      { slug: "news", label: "News" },
+  it("asks a publication which folder it belongs in, with its own prompt", () => {
+    const request = buildClassifyRequest(
+      { title: "Aeon", summary: "Essays on philosophy and culture." },
+      [{ slug: "culture", label: "Culture" }],
+      "folder",
+    );
+    // filed under the decision's own name, so the answer is unambiguous
+    expect(Object.keys(request.questions)).toEqual(["folder"]);
+    expect(request.questions.folder!.instructions).toMatch(/folder this publication/);
+    expect(request.questions.folder!.criteria).toEqual({ culture: "Culture" });
+  });
+
+  it("puts the decision at the top level for Cloudflare, not under `input`", () => {
+    const body = cloudflareBody("clef", input);
+    expect(body).toEqual({
+      model: "clef",
+      state: { title: "A title", summary: "A summary", topics: [{ slug: "news", label: "News" }] },
+      questions: {
+        topic: { type: "choice", instructions: expect.any(String), criteria: { news: "News" } },
+      },
+    });
+  });
+});
+
+/* ------------------------------------------------------------- providers */
+
+describe("the classifier a reader picks", () => {
+  /** A working local setup: the default address, and a model actually picked. */
+  const local: ClassifyConfig = {
+    ...DEFAULT_CLASSIFY_CONFIG,
+    ollamaModel: "clef-flash:latest",
+  };
+  const cloudflare: ClassifyConfig = {
+    ...DEFAULT_CLASSIFY_CONFIG,
+    provider: "cloudflare",
+    cloudflareModel: "clef",
+    cloudflareAccountId: "account",
+    keys: { cloudflare: "token" },
+  };
+  const openai: ClassifyConfig = {
+    ...DEFAULT_CLASSIFY_CONFIG,
+    provider: "openai",
+    openaiModel: "gpt-6-luna-decisions",
+    keys: { openai: "sk-live-1" },
+  };
+
+  it("is ordered by how widely used each one is", () => {
+    expect(CLASSIFY_PROVIDERS.map((provider) => provider.id)).toEqual([
+      "openai",
+      "cloudflare",
+      "typesafe",
+      "ollama",
     ]);
-    const body = cloudflareBody(input);
-    expect(body.model).toBe(JEV_MODEL);
-    expect(body.model).toBe("typesafe/jev");
-    expect(body.input.questions.topic.criteria).toEqual({ news: "News" });
+    // the default is separate from the order: a local model needs no key
+    expect(DEFAULT_CLASSIFY_CONFIG.provider).toBe("ollama");
+  });
+
+  it("starts on a local Ollama, which needs nothing filled in", () => {
+    const ollama = findProvider("ollama")!;
+    expect(providerReady(ollama, local)).toBe(true);
+    expect(missingFields(ollama, local)).toEqual([]);
+  });
+
+  it("asks Ollama on its own decision endpoint, for the model the reader picked", () => {
+    const call = findProvider("ollama")!.call(local, input);
+    expect(call.url).toBe("http://localhost:11434/v1/systemone");
+    expect(call.body).toEqual({
+      model: "clef-flash:latest",
+      state: { title: "A title", summary: "A summary", topics: [{ slug: "news", label: "News" }] },
+      questions: {
+        topic: { type: "choice", instructions: expect.any(String), criteria: { news: "News" } },
+      },
+    });
+    // Ollama takes no credential, so nothing of the reader's is sent with it.
+    expect(call.headers.authorization).toBeUndefined();
+  });
+
+  it("presumes no local model, so an unpicked one is a missing field", () => {
+    const ollama = findProvider("ollama")!;
+    // the address has a default, so it is never the one that is missing
+    expect(DEFAULT_CLASSIFY_CONFIG.ollamaModel).toBe("");
+    const unpicked: ClassifyConfig = { ...DEFAULT_CLASSIFY_CONFIG };
+    expect(providerReady(ollama, unpicked)).toBe(false);
+    expect(missingFields(ollama, unpicked).map((field) => field.label)).toEqual(["Model"]);
+    // and the picker comes before the address, because it is the one that matters
+    expect(ollama.fields.map((field) => field.key)).toEqual(["ollamaModel", "ollamaBaseUrl"]);
+
+    expect(providerReady(ollama, local)).toBe(true);
+    expect((ollama.call(local, input).body as { model: string }).model).toBe("clef-flash:latest");
+  });
+
+  it("follows an Ollama that listens somewhere other than localhost", () => {
+    const moved = withField(local, "ollama", "ollamaBaseUrl", "http://gpu.box:11434/");
+    expect(findProvider("ollama")!.call(moved, input).url).toBe(
+      "http://gpu.box:11434/v1/systemone",
+    );
+  });
+
+  it("sends a commercial transport the key the reader typed, and nothing else", () => {
+    const call = findProvider("typesafe")!.call(
+      withField(DEFAULT_CLASSIFY_CONFIG, "typesafe", "key", "  sk-live-1  "),
+      input,
+    );
+    expect(call.url).toBe(JEV_DIRECT_ENDPOINT);
+    expect(call.headers.authorization).toBe("Bearer sk-live-1");
+  });
+
+  it("runs the model the reader picked, in their own Cloudflare account", () => {
+    const call = findProvider("cloudflare")!.call(cloudflare, input);
+    expect(call.url).toBe(
+      "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/cloudflare/clef",
+    );
+    expect(call.headers.authorization).toBe("Bearer token");
+    expect((call.body as { model: string }).model).toBe("clef");
+
+    const flash = withField(cloudflare, "cloudflare", "cloudflareModel", "clef-flash");
+    expect(findProvider("cloudflare")!.call(flash, input).url).toContain(
+      "/ai/run/@cf/cloudflare/clef-flash",
+    );
+  });
+
+  it("offers exactly the two decision models Workers AI publishes", () => {
+    const field = findProvider("cloudflare")!.fields.find((f) => f.key === "cloudflareModel")!;
+    expect(field.choices?.map((choice) => choice.value)).toEqual(["clef-flash", "clef"]);
+    // and it is a required choice, not a free field with a default behind it
+    expect(field.optional).toBeUndefined();
+    expect(
+      missingFields(findProvider("cloudflare")!, { ...DEFAULT_CLASSIFY_CONFIG }).map(
+        (f) => f.label,
+      ),
+    ).toEqual(["Model", "Account ID", "API token"]);
+  });
+
+  it("keeps one key per transport, so switching back is not a retype", () => {
+    const both = withField(cloudflare, "typesafe", "key", "ts-key");
+    expect(credential(both, "cloudflare")).toBe("token");
+    expect(credential(both, "typesafe")).toBe("ts-key");
+    expect(credential(both, "ollama")).toBe("");
+  });
+
+  it("names what a transport is still missing, and only that", () => {
+    const cloudflareProvider = findProvider("cloudflare")!;
+    const half: ClassifyConfig = {
+      ...DEFAULT_CLASSIFY_CONFIG,
+      provider: "cloudflare",
+      cloudflareAccountId: "account",
+    };
+    // the model is a required choice, so it is what a fresh reader is missing
+    expect(providerReady(cloudflareProvider, half)).toBe(false);
+    expect(missingFields(cloudflareProvider, half).map((field) => field.label)).toEqual([
+      "Model",
+      "API token",
+    ]);
+    expect(providerReady(cloudflareProvider, cloudflare)).toBe(true);
+  });
+
+  it("names each transport for the settings dialog and the status line", () => {
+    expect(providerLabel("openai")).toBe("OpenAI");
+    expect(providerLabel("cloudflare")).toBe("Cloudflare Workers AI");
+    expect(providerLabel("typesafe")).toBe("TypeSafe (Jev)");
+    expect(providerLabel("ollama")).toBe("Ollama");
+    expect(providerLabel(null)).toBeNull();
+    expect(findProvider("nope")).toBeUndefined();
+  });
+
+  it("reads a reader's own configuration out of a request body", () => {
+    expect(
+      readClassifyConfig({
+        provider: "openai",
+        openaiBaseUrl: "  https://api.openai.com/v1  ",
+        openaiModel: " gpt-6-luna-decisions ",
+        cloudflareModel: " clef ",
+        cloudflareAccountId: "account",
+        ollamaBaseUrl: "http://localhost:11434",
+        ollamaModel: " clef ",
+        keys: { openai: " sk-live-1 ", typesafe: 7 },
+      }),
+    ).toEqual({
+      provider: "openai",
+      openaiBaseUrl: "https://api.openai.com/v1",
+      openaiModel: "gpt-6-luna-decisions",
+      cloudflareModel: "clef",
+      cloudflareAccountId: "account",
+      ollamaBaseUrl: "http://localhost:11434",
+      ollamaModel: "clef",
+      keys: { openai: "sk-live-1" },
+    });
+  });
+
+  it("refuses a transport the table does not have", () => {
+    expect(readClassifyConfig({ provider: "openai", keys: {} })).toBeDefined();
+    expect(readClassifyConfig({ provider: "anthropic", keys: {} })).toBeUndefined();
+    expect(readClassifyConfig({ keys: {} })).toBeUndefined();
+    expect(readClassifyConfig(null)).toBeUndefined();
+  });
+
+  /* --------------------------------------------------------- OpenAI shape */
+
+  it("asks OpenAI for a decision in its own format, not System One's", () => {
+    const call = findProvider("openai")!.call(openai, input);
+    expect(call.url).toBe("https://api.openai.com/v1/decisions");
+    expect(call.headers.authorization).toBe("Bearer sk-live-1");
+    expect(call.body).toEqual({
+      model: "gpt-6-luna-decisions",
+      input: JSON.stringify({
+        title: "A title",
+        summary: "A summary",
+        topics: [{ slug: "news", label: "News" }],
+      }),
+      questions: [
+        {
+          type: "choice",
+          name: "topic",
+          instructions: expect.any(String),
+          choices: [{ value: "news", description: "News" }],
+        },
+      ],
+    });
+  });
+
+  it("follows an OpenAI-compatible gateway when the reader points at one", () => {
+    const via = withField(openai, "openai", "openaiBaseUrl", "https://ai-gateway.vercel.sh/v1/");
+    expect(findProvider("openai")!.call(via, input).url).toBe(
+      "https://ai-gateway.vercel.sh/v1/decisions",
+    );
+  });
+
+  it("reads an OpenAI answer, whose probabilities are pairs in a list", () => {
+    const suggestion = findProvider("openai")!.read!(
+      {
+        model: "gpt-6-luna-decisions",
+        answers: [
+          {
+            type: "choice",
+            name: "topic",
+            choice: "technology",
+            confidence: 0.81,
+            probabilities: [
+              { value: "technology", probability: 0.72 },
+              { value: "science", probability: 0.18 },
+              { value: "news", probability: 0.1 },
+            ],
+          },
+        ],
+        usage: { input_tokens: 96, output_tokens: 0 },
+      },
+      known,
+    );
+    expect(suggestion.primarySlug).toBe("technology");
+    expect(suggestion.topicSlugs).toContain("science");
+    expect(suggestion.confidence).toBeCloseTo(0.81);
+    expect(suggestion.model).toBe("gpt-6-luna-decisions");
+  });
+
+  it("refuses an OpenAI answer that ignores the reader's topic set", () => {
+    expect(() =>
+      findProvider("openai")!.read!(
+        { answers: [{ name: "topic", choice: "sports", confidence: 0.9, probabilities: [] }] },
+        known,
+      ),
+    ).toThrow(ClassifyError);
+  });
+
+  it("surfaces an OpenAI failure, which nests its message", () => {
+    expect(() =>
+      findProvider("openai")!.read!(
+        { error: { message: "Image input isn't supported yet.", type: "invalid_request_error" } },
+        known,
+      ),
+    ).toThrow(/Image input/);
+  });
+
+  /* ------------------------------------------------- the local model list */
+
+  it("reads the decision models a local Ollama has pulled", () => {
+    expect(
+      readOllamaModels({
+        models: [
+          { name: "clef-flash:latest", capabilities: ["decision", "vision"] },
+          { name: "llama3", capabilities: ["completion"] },
+          { name: "clef", capabilities: ["decision"] },
+          { name: "no-capabilities" },
+        ],
+      }),
+    ).toEqual(["clef-flash:latest", "clef"]);
+  });
+
+  it("reports an empty list rather than guessing, when nothing is pulled", () => {
+    expect(readOllamaModels({ models: [] })).toEqual([]);
+    expect(readOllamaModels({})).toEqual([]);
+    expect(readOllamaModels(null)).toEqual([]);
+  });
+
+  it("asks Ollama for its model list beside the decision endpoint", () => {
+    expect(ollamaTagsUrl()).toBe("http://localhost:11434/api/tags");
+    expect(ollamaTagsUrl("http://gpu.box:11434/")).toBe("http://gpu.box:11434/api/tags");
+  });
+
+  /* --------------------------------------------------- System One answers */
+
+  it("reads an Ollama answer, which puts the answers at the top level", () => {
+    const suggestion = parseClassifyResponse(
+      {
+        model: "clef-flash",
+        answers: choiceAnswer(),
+        usage: { input_tokens: 12, output_tokens: 1 },
+      },
+      known,
+    );
+    expect(suggestion.primarySlug).toBe("technology");
+    expect(suggestion.model).toBe("clef-flash");
+  });
+
+  it("surfaces an Ollama failure instead of calling it a missing choice", () => {
+    expect(() => parseClassifyResponse({ error: "model 'clef-flash' not found" }, known)).toThrow(
+      /not found/,
+    );
   });
 });
 

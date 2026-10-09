@@ -73,22 +73,6 @@ export async function withinRateLimit(
 }
 
 /**
- * The Worker's bindings, when there is a Worker to ask. Under `vinext start` on
- * Node (and in tests) this is empty, so callers degrade rather than crash — the
- * classification route reports itself unconfigured instead of failing hard.
- */
-export async function serverEnv(): Promise<Record<string, unknown>> {
-  try {
-    const mod = (await import(/* @vite-ignore */ WORKERS_MODULE)) as {
-      env?: Record<string, unknown>;
-    };
-    return mod.env ?? {};
-  } catch {
-    return {};
-  }
-}
-
-/**
  * Rejects requests a browser made from somebody else's page, so the Worker
  * cannot be quietly embedded as another site's backend. Requests with no
  * `Origin` at all — curl, a native app, a same-origin GET — are allowed; the

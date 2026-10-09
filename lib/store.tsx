@@ -17,6 +17,10 @@ import {
   CLASSIFY_WINDOW_MS,
   classifyDelay,
   classifyInputFor,
+  DEFAULT_CLASSIFY_CONFIG,
+  findProvider,
+  type ClassifyConfig,
+  type ClassifyProviderId,
   correctionRecord,
   defaultTopics,
   mergeClassification,
@@ -38,7 +42,7 @@ import { SAMPLE_FEEDS, SAMPLE_STORIES } from "./sample";
 import { FOLDERS, SUGGESTED_BY_ID, SUGGESTED_SOURCES, type SuggestedSource } from "./sources";
 import { feedFromSource, readingFlags, storyFromArticle } from "./shaping";
 import * as repo from "./storage/repository";
-import { loadPrefs, savePrefs } from "./storage/prefs";
+import { loadPrefs, savePrefs, type Prefs } from "./storage/prefs";
 import type {
   ArticleClassification,
   ArticleRecord,
@@ -121,9 +125,13 @@ type Ctx = {
   /** Whether stories are classified at all. Off until the reader opts in. */
   classifyEnabled: boolean;
   setClassifyEnabled: (v: boolean) => void;
-  /** An optional personal Jev key kept in local prefs. */
-  jevKey: string;
-  setJevKey: (v: string) => void;
+  /**
+   * The reader's own classifier setup: which decision API to use, and the
+   * address, account and key it needs. Kept on this device only.
+   */
+  classifyConfig: ClassifyConfig;
+  /** Rewrite part of that setup — one field, or the transport itself. */
+  updateClassifyConfig: (patch: Partial<ClassifyConfig>) => void;
   /** The last classification failure, shown rather than swallowed. */
   classifyError: string | null;
   classifyWorking: boolean;
@@ -237,11 +245,16 @@ export function useReaderState(edition: Edition): Ctx {
   const [topics, setTopics] = useState<ArticleTopic[]>([]);
   const [classifications, setClassifications] = useState<ArticleClassification[]>([]);
   const [classifyEnabled, setClassifyEnabled] = useState(false);
-  const [jevKey, setJevKey] = useState("");
+  const [classifyConfig, setClassifyConfig] = useState(DEFAULT_CLASSIFY_CONFIG);
+  // One field, or the transport itself. A shallow merge is enough: the keys map
+  // is replaced whole, and `withField` in lib/classify.ts is what writes one.
+  const updateClassifyConfig = useCallback((patch: Partial<ClassifyConfig>) => {
+    setClassifyConfig((current) => ({ ...current, ...patch }));
+  }, []);
   const [classifyError, setClassifyError] = useState<string | null>(null);
   const [classifyWorking, setClassifyWorking] = useState(false);
-  /** Which transport answered the last request: cloudflare | jev. */
-  const [classifyProvider, setClassifyProvider] = useState<string | null>(null);
+  /** Which transport answered the last request. */
+  const [classifyProvider, setClassifyProvider] = useState<ClassifyProviderId | null>(null);
   const [classifyNonce, setClassifyNonce] = useState(0);
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -283,7 +296,7 @@ export function useReaderState(edition: Edition): Ctx {
     shapedOwnNav.current = typeof prefs.navOpen === "boolean";
     if (typeof prefs.navOpen === "boolean") setNavOpen(prefs.navOpen);
     if (typeof prefs.classify === "boolean") setClassifyEnabled(prefs.classify);
-    if (typeof prefs.jevKey === "string") setJevKey(prefs.jevKey);
+    setClassifyConfig(readClassifyConfig(prefs));
   }, []);
 
   useEffect(() => {
@@ -351,10 +364,9 @@ export function useReaderState(edition: Edition): Ctx {
       navOpen,
       view,
       classify: classifyEnabled,
-      // an empty key clears the override rather than persisting a blank one
-      ...(jevKey ? { jevKey } : {}),
+      classifyConfig,
     });
-  }, [ready, theme, font, navOpen, view, classifyEnabled, jevKey]);
+  }, [ready, theme, font, navOpen, view, classifyEnabled, classifyConfig]);
 
   /* ------------------------------------------------------ derive views */
 
@@ -882,13 +894,14 @@ export function useReaderState(edition: Edition): Ctx {
             label: topic.label,
             ...(topic.description ? { description: topic.description } : {}),
           })),
-          ...(jevKey ? { key: jevKey } : {}),
+          classifier: classifyConfig,
         });
         if (!result.ok) {
           setClassifyError(result.error);
           return;
         }
-        setClassifyProvider(result.provider ?? null);
+        // the route echoes a transport id; anything else is not one of ours
+        setClassifyProvider(findProvider(result.provider)?.id ?? null);
         const outcome = resolveClassification(result.classification, topics);
         const record = classificationFromOutcome(
           next.id,
@@ -917,7 +930,7 @@ export function useReaderState(edition: Edition): Ctx {
     classifyError,
     classifyNonce,
     topics,
-    jevKey,
+    classifyConfig,
     articles,
     classificationIndex,
     replaceClassification,
@@ -1334,11 +1347,11 @@ export function useReaderState(edition: Edition): Ctx {
     topics,
     classifyEnabled,
     setClassifyEnabled,
-    jevKey,
-    setJevKey,
     classifyError,
     classifyWorking,
     classifyProvider,
+    classifyConfig,
+    updateClassifyConfig,
     pendingClassifications,
     retryClassification,
     classificationFor,
@@ -1409,6 +1422,23 @@ export { ReaderContext, FONT_SIZES };
  */
 function byAddedDesc(a: SourceRecord, b: SourceRecord): number {
   return b.addedAt - a.addedAt;
+}
+
+/**
+ * The reader's classifier setup out of local prefs, with the defaults filled in
+ * for anything an older build of this feature left out. Without a stored choice
+ * that is a local Ollama, which needs no key and sends nothing anywhere.
+ */
+function readClassifyConfig(prefs: Prefs): ClassifyConfig {
+  const stored = prefs.classifyConfig;
+  if (!stored) return DEFAULT_CLASSIFY_CONFIG;
+  const merged = { ...DEFAULT_CLASSIFY_CONFIG, ...stored, keys: { ...stored.keys } };
+  // A transport the table no longer offers cannot be shown as chosen, and the
+  // route would refuse it — so it falls back to the default rather than leaving
+  // Settings describing one thing while classification does another.
+  return findProvider(merged.provider)
+    ? merged
+    : { ...merged, provider: DEFAULT_CLASSIFY_CONFIG.provider };
 }
 
 /**

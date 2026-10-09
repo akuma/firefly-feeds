@@ -1,15 +1,20 @@
 import {
   buildClassifyRequest,
   ClassifyError,
-  cloudflareBody,
-  cloudflareRunUrl,
-  JEV_DIRECT_ENDPOINT,
+  findProvider,
+  missingFields,
   parseClassifyResponse,
+  providerReady,
+  readClassifyConfig,
   type ApiTopic,
+  type ClassifyConfig,
   type ClassifyInput,
+  type ClassifyProvider,
+  type ClassifyProviderId,
+  type ClassifyQuestion,
   type ClassifySuggestion,
 } from "@/lib/classify";
-import { fromAnotherSite, serverEnv, withinRateLimit } from "../guards";
+import { fromAnotherSite, withinRateLimit } from "../guards";
 
 export const dynamic = "force-dynamic";
 
@@ -20,39 +25,29 @@ const MAX_SUMMARY = 2_000;
 const MAX_LABEL = 80;
 const TIMEOUT_MS = 20_000;
 
+/** Shown when the body names a transport the table does not have. */
+const UNKNOWN_PROVIDER = "Choose a classifier in Settings.";
+
 /**
  * Classification, proxied.
  *
- * The browser cannot call Jev itself: the credential is a server secret, and a
- * reader who supplies their own should still not hand it to a third-party
- * origin from our page. So the request goes to our own origin, the call happens
- * here, and only the slugs come back. The endpoint is never a general proxy —
- * it accepts a title, a summary and a closed topic set, nothing else.
+ * The browser cannot call a decision API itself: the reader's credential would
+ * be handed to a third-party origin straight from our page. So the request goes
+ * to our own origin, the call happens here, and only the slugs come back. The
+ * endpoint is never a general proxy — it accepts a title, a summary, a closed
+ * topic set and the reader's own choice of transport, nothing else.
  *
- * Jev is reached through **Cloudflare Workers AI** (`typesafe/jev`). When the
- * account cannot run the third-party model — an AI Gateway with no balance and
- * no BYOK, for instance — the direct Jev API is tried as a fallback if a key
- * is configured, so a billing problem degrades rather than breaks the feature.
+ * There is no server-side configuration. The reader picks the transport in
+ * Settings and it arrives with the request, so a key is never stored here and
+ * this app can be deployed with no secrets at all. `CLASSIFY_PROVIDERS` in
+ * `lib/classify.ts` is the whole list of what can be picked — OpenAI's Decisions
+ * API, Cloudflare Workers AI in the reader's own account, the hosted TypeSafe
+ * (Jev) API, or a decision model on a local Ollama — and each entry states what
+ * the reader fills in and where the call goes. A transport the reader has not
+ * finished setting up is refused here rather than called half-built.
  *
- *   GET  /api/classify   → whether a credential is configured, and which path
  *   POST /api/classify   → one article, one closed-set choice
  */
-export async function GET(request: Request) {
-  if (fromAnotherSite(request)) {
-    return denied();
-  }
-  const env = await serverEnv();
-  const cloudflare = Boolean(text(env.CF_API_TOKEN) && text(env.CF_ACCOUNT_ID));
-  const direct = Boolean(text(env.JEV_API_KEY));
-  return Response.json(
-    {
-      ok: true,
-      configured: cloudflare || direct,
-      provider: cloudflare ? "cloudflare" : direct ? "jev" : null,
-    },
-    { headers: { "cache-control": "no-store" } },
-  );
-}
 
 export async function POST(request: Request) {
   if (fromAnotherSite(request)) {
@@ -63,22 +58,6 @@ export async function POST(request: Request) {
     return Response.json(
       { ok: false, error: "Too many classification requests. Give it a minute and try again." },
       { status: 429, headers: { "retry-after": "60" } },
-    );
-  }
-
-  const env = await serverEnv();
-  // A reader's own token is a header on a same-origin request, never stored.
-  const headerToken = request.headers.get("x-jev-key")?.trim();
-  const cloudflareToken = headerToken || text(env.CF_API_TOKEN);
-  const accountId = text(env.CF_ACCOUNT_ID);
-  const directKey = text(env.JEV_API_KEY);
-  if (!cloudflareToken && !directKey) {
-    return Response.json(
-      {
-        ok: false,
-        error: "No classifier credential is configured. Set CF_API_TOKEN and CF_ACCOUNT_ID.",
-      },
-      { status: 503 },
     );
   }
 
@@ -94,41 +73,30 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, error: parsed.error }, { status: 400 });
   }
 
+  const provider = findProvider(parsed.classifier.provider);
+  if (!provider) {
+    return Response.json({ ok: false, error: UNKNOWN_PROVIDER }, { status: 400 });
+  }
+  // Refused rather than called half-built: a transport with no account or no key
+  // would only answer with somebody else's error message.
+  if (!providerReady(provider, parsed.classifier)) {
+    const missing = missingFields(provider, parsed.classifier).map((field) => field.label);
+    return Response.json(
+      { ok: false, error: `${provider.label} still needs: ${missing.join(", ")}.` },
+      { status: 400 },
+    );
+  }
+
   const input = buildClassifyRequest(
     { title: parsed.title, summary: parsed.summary },
     parsed.topics,
+    parsed.question,
   );
   const knownSlugs = new Set(parsed.topics.map((topic) => topic.slug));
-  const failures: UpstreamFailure[] = [];
 
-  if (cloudflareToken && accountId) {
-    const result = await callProvider(
-      cloudflareRunUrl(accountId),
-      cloudflareToken,
-      cloudflareBody(input),
-      knownSlugs,
-      "Cloudflare Workers AI",
-    );
-    if (result.ok) return success(result.suggestion, "cloudflare");
-    failures.push(result);
-  }
-
-  // Fall back to the direct API only when Workers AI could not answer.
-  if (directKey) {
-    const result = await callProvider(JEV_DIRECT_ENDPOINT, directKey, input, knownSlugs, "Jev");
-    if (result.ok) return success(result.suggestion, "jev");
-    failures.push(result);
-  }
-
-  // A rate limit is the most actionable failure to surface, then billing.
-  const failure =
-    failures.find((candidate) => candidate.status === 429) ??
-    failures.find((candidate) => candidate.status === 402) ??
-    failures[0];
-  return Response.json(
-    { ok: false, error: failure?.error ?? "The classifier did not answer." },
-    { status: failure?.status ?? 502 },
-  );
+  const result = await callProvider(provider, parsed.classifier, input, knownSlugs);
+  if (result.ok) return success(result.suggestion, provider.id);
+  return Response.json({ ok: false, error: result.error }, { status: result.status });
 }
 
 /* --------------------------------------------------------------- upstream */
@@ -136,7 +104,7 @@ export async function POST(request: Request) {
 type UpstreamFailure = { ok: false; status: number; error: string };
 type Upstream = { ok: true; suggestion: ClassifySuggestion } | UpstreamFailure;
 
-function success(suggestion: ClassifySuggestion, provider: "cloudflare" | "jev"): Response {
+function success(suggestion: ClassifySuggestion, provider: ClassifyProviderId): Response {
   return Response.json(
     { ok: true, classification: suggestion, provider },
     { headers: { "cache-control": "no-store" } },
@@ -144,41 +112,50 @@ function success(suggestion: ClassifySuggestion, provider: "cloudflare" | "jev")
 }
 
 async function callProvider(
-  url: string,
-  key: string,
-  payload: ClassifyInput | { model: string; input: ClassifyInput },
+  provider: ClassifyProvider,
+  classifier: ClassifyConfig,
+  input: ClassifyInput,
   knownSlugs: ReadonlySet<string>,
-  label: string,
 ): Promise<Upstream> {
+  const call = provider.call(classifier, input);
   try {
-    const res = await fetch(url, {
+    const res = await fetch(call.url, {
       method: "POST",
-      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-      body: JSON.stringify(payload),
+      headers: call.headers,
+      body: JSON.stringify(call.body),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const raw: unknown = await res.json().catch(() => null);
 
     if (res.status === 429) {
-      return { ok: false, status: 429, error: `${label} is rate limiting requests.` };
+      return { ok: false, status: 429, error: `${provider.label} is rate limiting requests.` };
     }
     if (!res.ok) {
       return {
         ok: false,
         status: res.status,
-        error: readProviderError(raw) ?? `${label} refused the request.`,
+        error: readProviderError(raw) ?? `${provider.label} refused the request.`,
       };
     }
-    return { ok: true, suggestion: parseClassifyResponse(raw, knownSlugs) };
+    return { ok: true, suggestion: parseResponse(provider, raw, knownSlugs) };
   } catch (error) {
     if (error instanceof ClassifyError) {
       return { ok: false, status: 502, error: error.message };
     }
-    return { ok: false, status: 502, error: `Could not reach ${label}.` };
+    return { ok: false, status: 502, error: `Could not reach ${provider.label}.` };
   }
 }
 
-/** The first human-readable message in a Cloudflare or Jev error body. */
+/** Each transport reads its own answer; the System One family shares one. */
+function parseResponse(
+  provider: ClassifyProvider,
+  raw: unknown,
+  knownSlugs: ReadonlySet<string>,
+): ClassifySuggestion {
+  return provider.read ? provider.read(raw, knownSlugs) : parseClassifyResponse(raw, knownSlugs);
+}
+
+/** The first human-readable message in a Cloudflare, TypeSafe or Ollama body. */
 function readProviderError(raw: unknown): string | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const record = raw as Record<string, unknown>;
@@ -190,6 +167,7 @@ function readProviderError(raw: unknown): string | undefined {
       if (typeof message === "string" && message) return message;
     }
   }
+  if (typeof record.error === "string" && record.error) return record.error;
   return typeof record.message === "string" && record.message ? record.message : undefined;
 }
 
@@ -200,14 +178,18 @@ function denied() {
   );
 }
 
-function text(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
 /* ---------------------------------------------------------------- input */
 
 type ReadInput =
-  { ok: true; title: string; summary: string; topics: ApiTopic[] } | { ok: false; error: string };
+  | {
+      ok: true;
+      title: string;
+      summary: string;
+      topics: ApiTopic[];
+      classifier: ClassifyConfig;
+      question: ClassifyQuestion;
+    }
+  | { ok: false; error: string };
 
 /**
  * Validate before anything leaves the server. The topic set is the reader's,
@@ -245,5 +227,26 @@ function readInput(body: unknown): ReadInput {
     topics.push(description ? { slug, label, description } : { slug, label });
   }
 
-  return { ok: true, title, summary: summary.slice(0, MAX_SUMMARY), topics };
+  // The reader's own choice of transport. Without one there is nothing to call,
+  // and an unrecognised one is not a transport this app can vouch for.
+  const classifier = readClassifyConfig(body);
+  if (!classifier) {
+    return { ok: false, error: UNKNOWN_PROVIDER };
+  }
+
+  // Which decision is being asked. The server still writes the prompt, so this
+  // only chooses between two it already knows — never free text.
+  const question = record.question;
+  if (question !== undefined && question !== "topic" && question !== "folder") {
+    return { ok: false, error: "Unknown question." };
+  }
+
+  return {
+    ok: true,
+    title,
+    summary: summary.slice(0, MAX_SUMMARY),
+    topics,
+    classifier,
+    question: question ?? "topic",
+  };
 }

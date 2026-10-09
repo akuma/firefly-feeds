@@ -3,6 +3,12 @@
 import { ArrowRight, Search, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clsx } from "./clsx";
+import {
+  CONFIDENCE_THRESHOLD,
+  findProvider,
+  providerReady,
+  requestClassification,
+} from "@/lib/classify";
 import { FOLDERS } from "@/lib/sources";
 import { useReader } from "@/lib/store";
 import type { Block, ContentState, FolderId, StoryLayout } from "@/lib/types";
@@ -77,6 +83,9 @@ export function AddSource() {
   const [folder, setFolder] = useState<FolderId | null>(queued?.folder ?? null);
   const [saving, setSaving] = useState(false);
   const [faviconFailed, setFaviconFailed] = useState(false);
+  /** The folder the classifier picked, once it has answered. */
+  const [suggested, setSuggested] = useState<FolderId | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const close = () => {
@@ -123,6 +132,47 @@ export function AddSource() {
     booted.current = true;
     void look(queued.feedUrl);
   }, [queued, look]);
+
+  /**
+   * File the feed where it belongs, if there is a classifier to ask.
+   *
+   * Only ever a suggestion: the folder row stays the reader's to change, and a
+   * guess they have already overridden is left alone. With no classifier
+   * configured — or an answer below the confidence floor — nothing is offered,
+   * because a weak guess is worse than an empty field.
+   */
+  useEffect(() => {
+    if (!preview) return;
+    const provider = findProvider(r.classifyConfig.provider);
+    if (!provider || !providerReady(provider, r.classifyConfig)) return;
+
+    let cancelled = false;
+    // The one synchronous write: it says the ask is in flight, and the answer
+    // itself lands in the async continuation below.
+    /* oxlint-disable-next-line react/set-state-in-effect */
+    setSuggesting(true);
+    void (async () => {
+      const result = await requestClassification({
+        title: preview.feed.title,
+        summary: preview.feed.description,
+        topics: FOLDERS.map((f) => ({ slug: f.id, label: f.name })),
+        classifier: r.classifyConfig,
+        question: "folder",
+      });
+      if (cancelled) return;
+      setSuggesting(false);
+      if (!result.ok) return;
+      if (result.classification.confidence < CONFIDENCE_THRESHOLD) return;
+
+      const picked = result.classification.primarySlug as FolderId;
+      setSuggested(picked);
+      // a folder the reader already chose outranks anything the model says
+      setFolder((current) => current ?? picked);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [preview, r.classifyConfig]);
 
   const commit = async () => {
     if (!preview) return;
@@ -333,8 +383,15 @@ export function AddSource() {
           <div className="shrink-0 border-t border-rule px-6 py-4">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <span className="label text-ink4">File under</span>
+              {suggesting && <span className="label text-ink4">Suggesting…</span>}
+              {!suggesting && suggested && (
+                <span className="label text-ink4">
+                  Suggested · {FOLDERS.find((f) => f.id === suggested)?.name}
+                </span>
+              )}
               <button
                 type="button"
+                aria-pressed={folder === null}
                 onClick={() => setFolder(null)}
                 className={clsx(
                   "mono px-2 py-1 text-[9.5px] leading-none tracking-[0.14em] uppercase transition-colors",
@@ -349,6 +406,7 @@ export function AddSource() {
                 <button
                   key={f.id}
                   type="button"
+                  aria-pressed={folder === f.id}
                   onClick={() => setFolder((current) => (current === f.id ? null : f.id))}
                   className={clsx(
                     "mono px-2 py-1 text-[9.5px] leading-none tracking-[0.14em] uppercase transition-colors",

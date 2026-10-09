@@ -1,63 +1,75 @@
 "use client";
 
-import { Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
+import { ChevronDown, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { clsx } from "./clsx";
+import {
+  CLASSIFY_PROVIDERS,
+  type ClassifyProviderId,
+  fieldValue,
+  findProvider,
+  missingFields,
+  providerLabel,
+  withField,
+} from "@/lib/classify";
 import { useReader } from "@/lib/store";
 
 /**
- * Classification settings: the switch, the credential, and the topic set the
+ * Classification settings: the switch, the classifier, and the topic set the
  * reader maintains.
  *
  * A dialog rather than a page because it is a small, occasional decision. It
  * follows the house dialog rule — capped height, a scrolling body — so the
  * topic list can be long without pushing anything out of reach.
+ *
+ * The classifier half is rendered from `CLASSIFY_PROVIDERS` rather than written
+ * out: the list, each one's description and the fields it asks for all come from
+ * that table, so a new decision API needs no change here.
  */
 export function Settings() {
   const r = useReader();
   const close = () => r.setSettingsOpen(false);
-  const [serverConfigured, setServerConfigured] = useState<{
-    configured: boolean;
-    provider: string | null;
-  } | null>(null);
   const [draft, setDraft] = useState("");
-  const [keyDraft, setKeyDraft] = useState(r.jevKey);
+  /** The decision models the local Ollama has, or null while asking. */
+  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
 
-  // Whether the shared server credential exists is a fact only the endpoint
-  // knows; the dialog asks once rather than guessing from a failed run.
+  // One label per transport, shared with the server so the two never drift.
+  const lastProvider = providerLabel(r.classifyProvider);
+  const chosen = findProvider(r.classifyConfig.provider) ?? CLASSIFY_PROVIDERS[0];
+  const ready = missingFields(chosen, r.classifyConfig).length === 0;
+
+  // What a local Ollama can actually answer with is a fact only it knows, so the
+  // picker asks rather than assuming. Debounced, because the address is a text
+  // field and every keystroke would otherwise be a request.
   useEffect(() => {
+    if (chosen.id !== "ollama") return;
+    const base = r.classifyConfig.ollamaBaseUrl;
     let cancelled = false;
-    void fetch("/api/classify")
-      .then((res) => res.json())
-      .then((data: { configured?: boolean; provider?: string | null }) => {
-        if (!cancelled) {
-          setServerConfigured({
-            configured: Boolean(data?.configured),
-            provider: data?.provider ?? null,
-          });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setServerConfigured({ configured: false, provider: null });
-      });
+    const timer = setTimeout(() => {
+      // The previous list stays until this one arrives, so editing the address
+      // does not make the field flicker between a picker and a text box.
+      void fetch(`/api/classify/models?base=${encodeURIComponent(base)}`)
+        .then((res) => res.json())
+        .then((data: { ok?: boolean; models?: string[] }) => {
+          if (!cancelled) setOllamaModels(data.ok ? (data.models ?? []) : []);
+        })
+        .catch(() => {
+          if (!cancelled) setOllamaModels([]);
+        });
+    }, 400);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, []);
+  }, [chosen.id, r.classifyConfig.ollamaBaseUrl]);
 
-  const keyReady = Boolean(r.jevKey) || serverConfigured?.configured === true;
-  const providerLabel =
-    serverConfigured?.provider === "cloudflare"
-      ? "Cloudflare Workers AI"
-      : serverConfigured?.provider === "jev"
-        ? "Direct Jev API"
-        : null;
-  const lastProvider =
-    r.classifyProvider === "cloudflare"
-      ? "Cloudflare"
-      : r.classifyProvider === "jev"
-        ? "direct Jev"
-        : null;
+  // A field whose choices are only known at runtime gets them here, so the table
+  // stays a static description and the dialog stays a generic renderer.
+  const fields = chosen.fields.map((field) =>
+    field.key === "ollamaModel" && ollamaModels?.length
+      ? { ...field, choices: ollamaModels.map((name) => ({ value: name, label: name })) }
+      : field,
+  );
 
   const addDraft = () => {
     const label = draft.trim();
@@ -107,8 +119,8 @@ export function Settings() {
             <div className="min-w-0">
               <div className="text-[15.5px] leading-[1.3] text-ink">Classify new stories</div>
               <p className="mt-1 max-w-[42ch] text-[13px] leading-[1.45] text-ink4">
-                Sends a story&apos;s title and summary to Jev through this app&apos;s own endpoint.
-                Off by default; nothing is sent while it is off.
+                Sends a story&apos;s title and summary to the classifier through this app&apos;s own
+                endpoint. Off by default; nothing is sent while it is off.
               </p>
             </div>
             <button
@@ -133,13 +145,7 @@ export function Settings() {
               <div className="mono flex flex-wrap items-center gap-x-2 gap-y-1 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                 <span className="flex items-center gap-1.5">
                   <Sparkles size={11} strokeWidth={1.6} />
-                  {serverConfigured === null
-                    ? "Checking for a credential…"
-                    : keyReady
-                      ? providerLabel
-                        ? `${providerLabel} ready`
-                        : "Credential ready"
-                      : "No classifier credential"}
+                  {ready ? `${chosen.label} ready` : `${chosen.label} needs setting up`}
                 </span>
                 {r.classifyWorking && (
                   <>
@@ -161,41 +167,128 @@ export function Settings() {
                 )}
               </div>
 
-              <label htmlFor="jev-key" className="label mt-5 block text-ink4">
-                Cloudflare API token (optional)
-              </label>
-              <div className="mt-2 flex items-center gap-3 border-b border-rulestrong pb-2">
-                <input
-                  id="jev-key"
-                  type="password"
-                  value={keyDraft}
-                  onChange={(e) => setKeyDraft(e.target.value)}
-                  onBlur={() => r.setJevKey(keyDraft.trim())}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") r.setJevKey(keyDraft.trim());
-                  }}
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder="Kept in this browser only"
-                  className="mono min-w-0 flex-1 bg-transparent text-[13px] text-ink2 outline-none placeholder:text-ink4"
-                />
-                {keyDraft && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setKeyDraft("");
-                      r.setJevKey("");
-                    }}
-                    className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink"
+              <div className="mt-6">
+                <label htmlFor="classifier" className="label block text-ink4">
+                  Classifier
+                </label>
+                <div className="relative mt-2 border-b border-rulestrong pr-6 pb-2">
+                  <select
+                    id="classifier"
+                    value={chosen.id}
+                    onChange={(e) =>
+                      r.updateClassifyConfig({
+                        provider: e.target.value as ClassifyProviderId,
+                      })
+                    }
+                    className="mono w-full appearance-none bg-transparent text-[13px] text-ink2 outline-none"
                   >
-                    Clear
-                  </button>
-                )}
+                    {CLASSIFY_PROVIDERS.map((provider) => (
+                      <option key={provider.id} value={provider.id}>
+                        {provider.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    size={12}
+                    strokeWidth={1.6}
+                    aria-hidden
+                    className="pointer-events-none absolute right-0 bottom-3 text-ink4"
+                  />
+                </div>
+                <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                  {chosen.blurb}
+                </p>
               </div>
-              <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
-                Jev runs through Cloudflare Workers AI. A shared token can be configured on the
-                server; this one overrides it for this browser and is never written anywhere else.
+
+              <p className="mt-2.5 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                Kept in this browser only, and sent to this app&apos;s own endpoint rather than to
+                the service itself. A commercial API bills per story, so a local model is the
+                cheaper default.
               </p>
+
+              {/* Whatever the chosen transport asks for, rendered from its own
+                  entry in the table — so a new one needs no change here. */}
+              <div className="mt-6 flex flex-col gap-5">
+                {fields.map((field) => {
+                  const id = `classify-${field.key}`;
+                  return (
+                    <div key={field.key}>
+                      <label htmlFor={id} className="label block text-ink4">
+                        {field.label}
+                        {field.optional && <span className="ml-2 normal-case">(optional)</span>}
+                      </label>
+                      <div className="relative mt-2 flex items-center gap-3 border-b border-rulestrong pb-2">
+                        {field.choices ? (
+                          <>
+                            <select
+                              id={id}
+                              value={fieldValue(r.classifyConfig, chosen.id, field.key)}
+                              onChange={(e) =>
+                                r.updateClassifyConfig(
+                                  withField(r.classifyConfig, chosen.id, field.key, e.target.value),
+                                )
+                              }
+                              className="mono w-full appearance-none bg-transparent text-[13px] text-ink2 outline-none"
+                            >
+                              <option value="">{field.placeholder}</option>
+                              {field.choices.map((choice) => (
+                                <option key={choice.value} value={choice.value}>
+                                  {choice.label}
+                                </option>
+                              ))}
+                            </select>
+                            <ChevronDown
+                              size={12}
+                              strokeWidth={1.6}
+                              aria-hidden
+                              className="pointer-events-none absolute right-0 bottom-2.5 text-ink4"
+                            />
+                          </>
+                        ) : (
+                          <input
+                            id={id}
+                            type={field.secret ? "password" : "text"}
+                            value={fieldValue(r.classifyConfig, chosen.id, field.key)}
+                            onChange={(e) =>
+                              r.updateClassifyConfig(
+                                withField(r.classifyConfig, chosen.id, field.key, e.target.value),
+                              )
+                            }
+                            spellCheck={false}
+                            autoComplete="off"
+                            placeholder={field.placeholder}
+                            className="mono min-w-0 flex-1 bg-transparent text-[13px] text-ink2 outline-none placeholder:text-ink4"
+                          />
+                        )}
+                        {field.secret && fieldValue(r.classifyConfig, chosen.id, field.key) && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              r.updateClassifyConfig(
+                                withField(r.classifyConfig, chosen.id, field.key, ""),
+                              )
+                            }
+                            className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      {field.hint && (
+                        <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                          {field.hint}
+                        </p>
+                      )}
+                      {field.key === "ollamaModel" && ollamaModels && ollamaModels.length === 0 && (
+                        <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                          No decision models found at that address. Pull one — `ollama pull
+                          clef-flash`, say — and it will appear here.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
 
               {r.classifyError && (
                 <div className="mt-5 flex items-start justify-between gap-4 border-l-2 border-spark py-1 pl-4">

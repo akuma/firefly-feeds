@@ -4,29 +4,73 @@ import type { ArticleClassification, ArticleRecord, ArticleTopic } from "./stora
 import type { ClassificationStatus } from "./types";
 
 /**
- * Article classification through Jev, kept as one pure module so the decision
- * rules — what counts as a valid answer, what confidence is enough to believe
- * it, and when a reader's correction outranks the classifier — are testable
- * without a network, a database or a DOM.
+ * Article classification, kept as one pure module so the decision rules — what
+ * counts as a valid answer, what confidence is enough to believe it, and when a
+ * reader's correction outranks the classifier — are testable without a network,
+ * a database or a DOM.
  *
- * The network call itself belongs to `app/api/classify`, because the API key is
- * server-side and the reader's page must not reach a third party directly.
+ * It also holds the transport table: the decision APIs a reader can choose
+ * between, what each one asks for, and where the call goes. The network call
+ * itself belongs to `app/api/classify`, so the reader's page still never reaches
+ * a third party directly.
  */
 
 /**
- * Jev's own decision endpoint. This is the fallback path, used only when the
- * Cloudflare account cannot run the third-party model (for example an AI
- * Gateway with no balance and no BYOK). The primary path is Workers AI.
+ * Jev's own decision endpoint. The last of the three transports, tried only
+ * when neither a local Ollama nor the Cloudflare account can answer — the
+ * latter because an AI Gateway has no balance and no BYOK, for instance.
  */
 export const JEV_DIRECT_ENDPOINT = "https://www.jevai.org/api/v1/decisions";
 
-/** The Workers AI model id. Cloudflare hosts Jev under `typesafe/jev`. */
-export const JEV_MODEL = "typesafe/jev";
+/**
+ * The decision models Workers AI runs. Cloudflare trained these two itself and
+ * hosts them under `@cf/cloudflare/…`, following the System One API: `clef-flash`
+ * is the 9B one for the hot path, `clef` the 27B one for precision.
+ */
+export const CLOUDFLARE_MODELS = ["clef-flash", "clef"] as const;
 
-/** The Cloudflare Workers AI run endpoint for one account. */
-export function cloudflareRunUrl(accountId: string): string {
-  return `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run`;
+export type CloudflareModel = (typeof CLOUDFLARE_MODELS)[number];
+
+/** The Workers AI run endpoint for one account and one decision model. */
+export function cloudflareRunUrl(accountId: string, model: string): string {
+  const account = encodeURIComponent(accountId);
+  return `https://api.cloudflare.com/client/v4/accounts/${account}/ai/run/@cf/cloudflare/${encodeURIComponent(model)}`;
 }
+
+/**
+ * Where a local Ollama listens. Set `OLLAMA_BASE_URL` to point somewhere else
+ * — another machine, a tunnel, a sidecar.
+ */
+export const OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434";
+
+/** Ollama's decision endpoint. Same request and answer shape as Jev's own. */
+export const OLLAMA_PATH = "/v1/systemone";
+
+/** The full Ollama decision URL, with or without a trailing slash on the base. */
+export function ollamaRunUrl(baseUrl?: string): string {
+  return `${(baseUrl?.trim() || OLLAMA_DEFAULT_BASE_URL).replace(/\/+$/, "")}${OLLAMA_PATH}`;
+}
+
+/** Ollama's model list, which says what each pulled model can do. */
+export const OLLAMA_TAGS_PATH = "/api/tags";
+
+/** The full Ollama model-list URL, with or without a trailing slash. */
+export function ollamaTagsUrl(baseUrl?: string): string {
+  return `${(baseUrl?.trim() || OLLAMA_DEFAULT_BASE_URL).replace(/\/+$/, "")}${OLLAMA_TAGS_PATH}`;
+}
+
+/** Where the OpenAI Decisions API lives. */
+export const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+
+/** Its decision path, under that base. */
+export const OPENAI_PATH = "/decisions";
+
+/**
+ * The model the OpenAI Decisions API is asked for. OpenAI has not published an
+ * id for it, and gateways that implement the same shape use their own slug, so
+ * the reader sets this one rather than the code guessing.
+ */
+export const OPENAI_DEFAULT_MODEL = "gpt-6-luna-decisions";
 
 /**
  * Below this, the classifier is guessing and the reader is shown a question
@@ -133,26 +177,47 @@ export function classifyInputFor(article: {
 
 export type ApiTopic = { slug: string; label: string; description?: string };
 
-export type ClassifyInput = {
-  state: { title: string; summary: string; topics: { slug: string; label: string }[] };
-  questions: {
-    topic: { type: "choice"; instructions: string; criteria: Record<string, string> };
-  };
+/** The one closed choice this app asks, whichever decision it is for. */
+export type DecisionQuestion = {
+  type: "choice";
+  instructions: string;
+  criteria: Record<string, string>;
 };
 
-const INSTRUCTIONS =
-  "Choose the single topic that best fits this article. Judge only from the " +
-  "title and summary. If the text does not clearly support a topic, choose the " +
-  "closest one but answer with low confidence.";
+export type ClassifyInput = {
+  state: { title: string; summary: string; topics: { slug: string; label: string }[] };
+  /** One question, filed under the name of the decision being asked for. */
+  questions: { [K in ClassifyQuestion]?: DecisionQuestion };
+};
+
+/**
+ * The decisions this app asks for, each with its own prompt. A story gets a
+ * topic; a publication gets a folder. Both are one closed choice over a set the
+ * reader already has, which is what makes either of them a decision rather than
+ * a guess.
+ */
+export type ClassifyQuestion = "topic" | "folder";
+
+const INSTRUCTIONS: Record<ClassifyQuestion, string> = {
+  topic:
+    "Choose the single topic that best fits this article. Judge only from the " +
+    "title and summary. If the text does not clearly support a topic, choose the " +
+    "closest one but answer with low confidence.",
+  folder:
+    "Choose the single folder this publication belongs in. Judge only from its " +
+    "name and description. If it does not clearly fit a folder, choose the " +
+    "closest one but answer with low confidence.",
+};
 
 /**
  * The provider-agnostic decision: a state plus one closed-set choice question.
- * Cloudflare and the direct Jev API accept the same body; only the envelope
- * around it differs.
+ * Every transport accepts the same decision; only the envelope around it — the
+ * model name, and whether the decision sits at the top level — differs.
  */
 export function buildClassifyRequest(
   input: { title: string; summary: string },
   topics: readonly ApiTopic[],
+  question: ClassifyQuestion = "topic",
 ): ClassifyInput {
   const criteria: Record<string, string> = {};
   for (const topic of topics) {
@@ -167,14 +232,415 @@ export function buildClassifyRequest(
       topics: topics.map((topic) => ({ slug: topic.slug, label: topic.label })),
     },
     questions: {
-      topic: { type: "choice", instructions: INSTRUCTIONS, criteria },
+      [question]: { type: "choice", instructions: INSTRUCTIONS[question], criteria },
     },
   };
 }
 
-/** The Cloudflare Workers AI body: the model plus the decision under `input`. */
-export function cloudflareBody(input: ClassifyInput): { model: string; input: ClassifyInput } {
-  return { model: JEV_MODEL, input };
+/**
+ * The Cloudflare Workers AI body: the model selector, then the decision itself at
+ * the top level. Its decision endpoint does not nest the state and questions
+ * under `input`, the way the older Workers AI models did.
+ */
+export function cloudflareBody(model: string, input: ClassifyInput) {
+  return { model, ...input };
+}
+
+/**
+ * The OpenAI Decisions body. Same decision, different shape: the state is a
+ * single string rather than a structured object, and the one question is an
+ * entry in a list with its options as pairs.
+ */
+export function openaiBody(
+  config: ClassifyConfig,
+  input: ClassifyInput,
+): { model: string; input: string; questions: unknown[] } {
+  const question = Object.values(input.questions)[0];
+  if (!question) throw new ClassifyError("No question was asked.");
+  return {
+    model: config.openaiModel.trim() || OPENAI_DEFAULT_MODEL,
+    input: JSON.stringify(input.state),
+    questions: [
+      {
+        type: question.type,
+        name: "topic",
+        instructions: question.instructions,
+        choices: Object.entries(question.criteria).map(([value, description]) => ({
+          value,
+          description,
+        })),
+      },
+    ],
+  };
+}
+
+/* ----------------------------------------------------------- providers */
+
+/** The transports a reader can choose between in Settings. */
+export type ClassifyProviderId = "openai" | "cloudflare" | "typesafe" | "ollama";
+
+/** The settings a transport asks for, besides its credential. */
+export type ClassifySettingKey =
+  | "ollamaBaseUrl"
+  | "ollamaModel"
+  | "cloudflareModel"
+  | "cloudflareAccountId"
+  | "openaiBaseUrl"
+  | "openaiModel";
+
+/** Which part of a config a field edits: a named setting, or the credential. */
+export type ClassifyFieldKey = ClassifySettingKey | "key";
+
+/** One outbound call: where it goes, what it carries, how it authenticates. */
+export type ProviderCall = {
+  url: string;
+  body: unknown;
+  headers: Record<string, string>;
+};
+
+/**
+ * The reader's classifier configuration, kept on this device and nowhere else.
+ *
+ * The commercial transports take a credential, so this is the one piece of
+ * reading state that is a secret. It lives in local prefs, is sent to this
+ * app's own endpoint rather than to the transport itself, and is never written
+ * anywhere the reader did not put it.
+ */
+export type ClassifyConfig = {
+  /** The transport that classifies new stories. */
+  provider: ClassifyProviderId;
+  /** Ollama: where it listens, and which local model answers. */
+  ollamaBaseUrl: string;
+  ollamaModel: string;
+  /** Cloudflare: the decision model to run, and the account to run it in. */
+  cloudflareModel: string;
+  cloudflareAccountId: string;
+  /** OpenAI: the Decisions API base, and the model to ask. */
+  openaiBaseUrl: string;
+  openaiModel: string;
+  /** One credential per transport, so switching back is not a retype. */
+  keys: Partial<Record<ClassifyProviderId, string>>;
+};
+
+/**
+ * A local Ollama, which needs no credential, is what a reader gets by default —
+ * so a reader who never opens Settings still sends nothing off the machine.
+ */
+export const DEFAULT_CLASSIFY_CONFIG: ClassifyConfig = {
+  provider: "ollama",
+  ollamaBaseUrl: OLLAMA_DEFAULT_BASE_URL,
+  ollamaModel: "",
+  cloudflareModel: "",
+  cloudflareAccountId: "",
+  openaiBaseUrl: OPENAI_DEFAULT_BASE_URL,
+  openaiModel: OPENAI_DEFAULT_MODEL,
+  keys: {},
+};
+
+/** One option in a picker field, for a transport whose choices can be listed. */
+export type ClassifyChoice = { value: string; label: string };
+
+/** One field the reader fills in for a transport. */
+export type ClassifyField = {
+  /** Which part of the config this writes to. */
+  key: ClassifyFieldKey;
+  label: string;
+  /** The empty option of a picker, or the ghost text of a free field. */
+  placeholder: string;
+  hint?: string;
+  /**
+   * Rendered as a picker rather than free text. Filled in by the caller when the
+   * choices are only known at runtime — which models a local Ollama has pulled,
+   * for instance — and absent otherwise.
+   */
+  choices?: readonly ClassifyChoice[];
+  /** A credential: shown as a password, and never worth logging. */
+  secret?: boolean;
+  /**
+   * May be left empty, because this transport has a known default to fall back
+   * on. A field with no sensible default — OpenAI's unpublished model id — is
+   * required instead, so the reader is asked rather than guessed at.
+   */
+  optional?: boolean;
+};
+
+/**
+ * A transport that can answer the decision.
+ *
+ * Most of them speak the System One wire format — a state plus one closed choice
+ * question in, one slug and a confidence out — so a transport only states what
+ * the reader fills in and where the call goes. One that answers differently
+ * supplies its own `read`. Either way, adding a transport is one more entry in
+ * `CLASSIFY_PROVIDERS`: the Settings dialog renders whatever fields are listed
+ * here, and the route and the confidence floor are unchanged.
+ */
+export type ClassifyProvider = {
+  id: ClassifyProviderId;
+  /** The name a reader picks from. */
+  label: string;
+  /** What this transport is and what it costs, in one line. */
+  blurb: string;
+  /** What the reader fills in before this transport can be called. */
+  fields: readonly ClassifyField[];
+  /** The call to make. Only reached once every required field is filled. */
+  call(config: ClassifyConfig, input: ClassifyInput): ProviderCall;
+  /**
+   * How this transport's answer is read. Omitted for the System One family,
+   * which `parseClassifyResponse` already covers.
+   */
+  read?: (raw: unknown, knownSlugs: ReadonlySet<string>) => ClassifySuggestion;
+};
+
+/**
+ * The transports on offer, ordered by how widely used they are: OpenAI first,
+ * then Cloudflare, then the hosted TypeSafe API, and a local Ollama last because
+ * it is not a service at all. The default in `DEFAULT_CLASSIFY_CONFIG` is still
+ * Ollama — the order of this list is what a reader browses, not what a reader
+ * gets.
+ */
+export const CLASSIFY_PROVIDERS: readonly ClassifyProvider[] = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    blurb:
+      "The Decisions API, in limited preview. Bills per call, and it is the only " +
+      "one here that answers in its own format rather than System One's.",
+    fields: [
+      {
+        key: "openaiBaseUrl",
+        label: "Base URL",
+        placeholder: OPENAI_DEFAULT_BASE_URL,
+        hint: "Where the Decisions API lives. Point it at a gateway that speaks the OpenAI shape to use one of those instead.",
+        optional: true,
+      },
+      {
+        key: "openaiModel",
+        label: "Model",
+        placeholder: OPENAI_DEFAULT_MODEL,
+        hint: "OpenAI has not published the model id, and gateways use their own slug, so this one is the reader's to set.",
+      },
+      { key: "key", label: "API key", placeholder: "sk-… from your OpenAI account", secret: true },
+    ],
+    call: (config, input) => ({
+      url: `${(config.openaiBaseUrl.trim() || OPENAI_DEFAULT_BASE_URL).replace(/\/+$/, "")}${OPENAI_PATH}`,
+      body: openaiBody(config, input),
+      headers: {
+        authorization: `Bearer ${credential(config, "openai")}`,
+        "content-type": "application/json",
+      },
+    }),
+    read: parseOpenAIClassifyResponse,
+  },
+  {
+    id: "cloudflare",
+    label: "Cloudflare Workers AI",
+    blurb:
+      "Cloudflare's own decision models, run inside your account. `clef-flash` is " +
+      "the 9B one for the hot path, `clef` the 27B one for precision.",
+    fields: [
+      {
+        key: "cloudflareModel",
+        label: "Model",
+        placeholder: "choose a model",
+        // A closed, published set, so the picker is written down here rather than
+        // discovered — unlike a local Ollama, whose list only it knows.
+        choices: [
+          { value: "clef-flash", label: "clef-flash — 9B, the fast one" },
+          { value: "clef", label: "clef — 27B, the accurate one" },
+        ],
+      },
+      {
+        key: "cloudflareAccountId",
+        label: "Account ID",
+        placeholder: "the 32-character id from your Cloudflare dashboard",
+      },
+      {
+        key: "key",
+        label: "API token",
+        placeholder: "a token with Workers AI permission",
+        secret: true,
+      },
+    ],
+    call: (config, input) => {
+      const model = config.cloudflareModel.trim();
+      return {
+        url: cloudflareRunUrl(config.cloudflareAccountId, model),
+        body: cloudflareBody(model, input),
+        headers: {
+          authorization: `Bearer ${credential(config, "cloudflare")}`,
+          "content-type": "application/json",
+        },
+      };
+    },
+  },
+  {
+    id: "typesafe",
+    label: "TypeSafe (Jev)",
+    blurb: "The hosted decision API, from the team behind the format. Bills per call.",
+    fields: [
+      {
+        key: "key",
+        label: "API key",
+        placeholder: "the key from your TypeSafe account",
+        secret: true,
+      },
+    ],
+    call: (config, input) => ({
+      url: JEV_DIRECT_ENDPOINT,
+      body: input,
+      headers: {
+        authorization: `Bearer ${credential(config, "typesafe")}`,
+        "content-type": "application/json",
+      },
+    }),
+  },
+  {
+    id: "ollama",
+    label: "Ollama",
+    blurb:
+      "A decision model running on this machine. Free, no key, and a story never " +
+      "leaves the device.",
+    fields: [
+      {
+        key: "ollamaModel",
+        label: "Model",
+        placeholder: "choose a model",
+        hint: "The decision models pulled on this machine, read from Ollama itself rather than assumed.",
+      },
+      {
+        key: "ollamaBaseUrl",
+        label: "Ollama address",
+        placeholder: OLLAMA_DEFAULT_BASE_URL,
+        hint: "Where Ollama listens. Leave it on localhost unless the model runs somewhere else.",
+        optional: true,
+      },
+    ],
+    call: (config, input) => ({
+      url: ollamaRunUrl(config.ollamaBaseUrl),
+      body: { model: config.ollamaModel.trim(), ...input },
+      // Ollama takes no credential, and ignores one if it is sent.
+      headers: { "content-type": "application/json" },
+    }),
+  },
+];
+
+/** The credential the reader kept for one transport, trimmed. */
+export function credential(config: ClassifyConfig, id: ClassifyProviderId): string {
+  return (config.keys[id] ?? "").trim();
+}
+
+/** What a field currently holds for one transport. */
+export function fieldValue(
+  config: ClassifyConfig,
+  id: ClassifyProviderId,
+  key: ClassifyFieldKey,
+): string {
+  if (key === "key") return config.keys[id] ?? "";
+  return config[key];
+}
+
+/** The same config with one field rewritten. Everything else is left alone. */
+export function withField(
+  config: ClassifyConfig,
+  id: ClassifyProviderId,
+  key: ClassifyFieldKey,
+  value: string,
+): ClassifyConfig {
+  if (key === "key") return { ...config, keys: { ...config.keys, [id]: value } };
+  return { ...config, [key]: value };
+}
+
+/** The transport with this id, or undefined when Settings never offered it. */
+export function findProvider(id: string | null | undefined): ClassifyProvider | undefined {
+  return CLASSIFY_PROVIDERS.find((provider) => provider.id === id);
+}
+
+/**
+ * Whether the reader's configuration is enough to call this transport: every
+ * field that has no default is filled in.
+ */
+export function providerReady(provider: ClassifyProvider, config: ClassifyConfig): boolean {
+  return provider.fields.every(
+    (field) => field.optional === true || fieldValue(config, provider.id, field.key).trim() !== "",
+  );
+}
+
+/** The fields still empty, in the order the reader is asked for them. */
+export function missingFields(provider: ClassifyProvider, config: ClassifyConfig): ClassifyField[] {
+  return provider.fields.filter(
+    (field) => field.optional !== true && fieldValue(config, provider.id, field.key).trim() === "",
+  );
+}
+
+/** The name a reader sees for the transport that answered. */
+export function providerLabel(id: string | null | undefined): string | null {
+  return findProvider(id)?.label ?? null;
+}
+
+/** A long enough ceiling for a key, an account id and an address. */
+const MAX_CREDENTIAL = 512;
+const MAX_ENDPOINT = 300;
+const MAX_ACCOUNT = 64;
+const MAX_MODEL = 128;
+
+/**
+ * The configuration out of a request body, or undefined when it is not one.
+ *
+ * The reader's own choices are validated here rather than trusted: an unknown
+ * transport is refused, and every string is trimmed and capped, so a stray body
+ * cannot turn the endpoint into a call to somewhere the table never named.
+ */
+export function readClassifyConfig(body: unknown): ClassifyConfig | undefined {
+  const record = asRecord(body);
+  if (!record) return undefined;
+  const provider = findProvider(typeof record.provider === "string" ? record.provider : "");
+  if (!provider) return undefined;
+
+  const keys: Partial<Record<ClassifyProviderId, string>> = {};
+  const rawKeys = asRecord(record.keys);
+  for (const entry of CLASSIFY_PROVIDERS) {
+    const value = rawKeys ? rawKeys[entry.id] : undefined;
+    if (typeof value === "string") keys[entry.id] = value.trim().slice(0, MAX_CREDENTIAL);
+  }
+
+  return {
+    provider: provider.id,
+    ollamaBaseUrl: readSetting(record.ollamaBaseUrl, MAX_ENDPOINT) ?? "",
+    ollamaModel: readSetting(record.ollamaModel, MAX_MODEL) ?? "",
+    cloudflareModel: readSetting(record.cloudflareModel, MAX_MODEL) ?? "",
+    cloudflareAccountId: readSetting(record.cloudflareAccountId, MAX_ACCOUNT) ?? "",
+    openaiBaseUrl: readSetting(record.openaiBaseUrl, MAX_ENDPOINT) ?? "",
+    openaiModel: readSetting(record.openaiModel, MAX_MODEL) ?? "",
+    keys,
+  };
+}
+
+function readSetting(value: unknown, limit: number): string | undefined {
+  return typeof value === "string" ? value.trim().slice(0, limit) : undefined;
+}
+
+/* ---------------------------------------------------- local model list */
+
+/**
+ * The decision models a local Ollama has pulled, in the order it lists them.
+ *
+ * Ollama says what each model can do in `capabilities`, so a reader who has
+ * pulled `clef`, `clef-flash`, `nimble` or anything else that answers decisions
+ * sees exactly those — and a reader who has pulled none sees an empty list,
+ * rather than a suggestion that would only fail. Nothing here presumes a
+ * particular model exists.
+ */
+export function readOllamaModels(raw: unknown): string[] {
+  const body = asRecord(raw);
+  const models = Array.isArray(body?.models) ? body.models : [];
+  const names: string[] = [];
+  for (const entry of models) {
+    const model = asRecord(entry);
+    const name = typeof model?.name === "string" ? model.name : "";
+    const capabilities = Array.isArray(model?.capabilities) ? model.capabilities : [];
+    if (name && capabilities.includes("decision")) names.push(name);
+  }
+  return names;
 }
 
 /* ------------------------------------------------------- response parse */
@@ -207,16 +673,30 @@ function probabilityMap(value: unknown, knownSlugs: ReadonlySet<string>): Map<st
   return map;
 }
 
+/** The same, for a transport that answers with a list of `{ value, probability }`. */
+function probabilityPairs(value: unknown, knownSlugs: ReadonlySet<string>): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!Array.isArray(value)) return map;
+  for (const entry of value) {
+    const pair = asRecord(entry);
+    const slug = typeof pair?.value === "string" ? pair.value : undefined;
+    const probability = finiteNumber(pair?.probability);
+    if (slug && knownSlugs.has(slug) && probability !== undefined) map.set(slug, probability);
+  }
+  return map;
+}
+
 /**
- * Turn a Jev response into slugs, or refuse it. Anything that is not a
+ * Turn a decision response into slugs, or refuse it. Anything that is not a
  * successful call with a known, closed-set choice is an error — the caller must
  * never guess on the classifier's behalf, and a topic outside the reader's own
  * set would be a fabricated answer.
  *
- * Both transports are accepted: Cloudflare's Workers AI REST envelope
- * (`{ success, result: { model, answers } }`) and the direct Jev API's
- * (`{ code, data: { answers } }`). The Workers AI binding returns the answer at
- * the top level, which also falls through here.
+ * Every transport is accepted, because they all answer the same way. Cloudflare's
+ * Workers AI REST envelope (`{ success, result: { model, answers } }`), the
+ * direct Jev API's (`{ code, data: { answers } }`), and Ollama's plain
+ * `{ model, answers }`. The Workers AI binding returns the answer at the top
+ * level, which also falls through here.
  */
 export function parseClassifyResponse(
   raw: unknown,
@@ -231,23 +711,39 @@ export function parseClassifyResponse(
   if (typeof body.code === "number" && body.code !== 0) {
     throw new ClassifyError(providerError(body) ?? "Jev refused the request.");
   }
+  // Ollama reports a failure as a bare message, with no answers beside it.
+  if (typeof body.error === "string" && body.error) {
+    throw new ClassifyError(body.error);
+  }
 
   const container = asRecord(body.result) ?? asRecord(body.data) ?? body;
   const answers = asRecord(container?.answers);
-  const answer = asRecord(answers?.topic);
+  // Exactly one question is ever asked, so the answer is the only entry.
+  const answer = asRecord(Object.values(answers ?? {})[0]);
   const choice = typeof answer?.choice === "string" ? answer.choice : undefined;
   if (!choice || !knownSlugs.has(choice)) {
     throw new ClassifyError("Jev did not choose one of the offered topics.");
   }
 
-  const probabilities = probabilityMap(answer?.probabilities, knownSlugs);
-  const confidence = clamp01(
-    finiteNumber(answer?.confidence) ??
-      probabilities.get(choice) ??
-      finiteNumber(container?.confidence) ??
-      0,
+  return suggestionFrom(
+    choice,
+    probabilityMap(answer?.probabilities, knownSlugs),
+    answer?.confidence ?? container?.confidence,
+    container?.model,
   );
+}
 
+/**
+ * The suggestion both readers end on: the chosen topic, the runner-ups the
+ * distribution actually supports, and the confidence that decides whether the
+ * answer is a fact or a question.
+ */
+function suggestionFrom(
+  choice: string,
+  probabilities: Map<string, number>,
+  confidence: unknown,
+  model: unknown,
+): ClassifySuggestion {
   const ranked = [...probabilities.entries()]
     .filter(([slug]) => slug !== choice)
     .filter(([, probability]) => probability >= SECONDARY_TOPIC_MIN)
@@ -255,14 +751,48 @@ export function parseClassifyResponse(
     .slice(0, MAX_TOPICS_PER_ARTICLE - 1)
     .map(([slug]) => slug);
 
-  const model =
-    typeof container?.model === "string" && container.model ? container.model : undefined;
   return {
     primarySlug: choice,
     topicSlugs: [choice, ...ranked],
-    confidence,
-    ...(model ? { model } : {}),
+    confidence: clamp01(finiteNumber(confidence) ?? probabilities.get(choice) ?? 0),
+    ...(typeof model === "string" && model ? { model } : {}),
   };
+}
+
+/**
+ * Read an OpenAI Decisions API answer.
+ *
+ * It is the same decision, shaped differently: the questions were sent as a
+ * list, so the answers come back as a list, each naming its own question, and
+ * the probabilities are pairs rather than a map. OpenAI nests its failures
+ * under `error.message`, which the System One readers never see.
+ */
+export function parseOpenAIClassifyResponse(
+  raw: unknown,
+  knownSlugs: ReadonlySet<string>,
+): ClassifySuggestion {
+  const body = asRecord(raw);
+  if (!body) throw new ClassifyError("The classifier returned an unreadable response.");
+
+  const failure = asRecord(body.error);
+  if (failure && typeof failure.message === "string" && failure.message) {
+    throw new ClassifyError(failure.message);
+  }
+
+  const answers = Array.isArray(body.answers) ? body.answers : [];
+  // One question, one answer; the name is whatever the caller asked under.
+  const answer = answers.map(asRecord).find((entry) => entry?.type === "choice");
+  const choice = typeof answer?.choice === "string" ? answer.choice : undefined;
+  if (!choice || !knownSlugs.has(choice)) {
+    throw new ClassifyError("OpenAI did not choose one of the offered topics.");
+  }
+
+  return suggestionFrom(
+    choice,
+    probabilityPairs(answer?.probabilities, knownSlugs),
+    answer?.confidence,
+    body.model,
+  );
 }
 
 /** The first human-readable message, where each provider puts it. */
@@ -273,6 +803,9 @@ function providerError(body: Record<string, unknown>): string | undefined {
     const message = first && typeof first.message === "string" ? first.message : undefined;
     if (message) return message;
   }
+  if (typeof body.error === "string" && body.error) return body.error;
+  const nested = asRecord(body.error);
+  if (nested && typeof nested.message === "string" && nested.message) return nested.message;
   return typeof body.message === "string" && body.message ? body.message : undefined;
 }
 
@@ -435,24 +968,30 @@ export type ClassifyApiResult =
   | { ok: false; error: string };
 
 /**
- * The browser's only way to reach the classifier. The key, when the reader has
- * supplied their own, travels as a header to our own origin and is never
- * persisted server-side. `provider` reports which transport actually answered —
- * Cloudflare Workers AI, or the direct Jev API when Cloudflare could not.
+ * The browser's only way to reach the classifier. The reader's own choice of
+ * transport travels in the body of a same-origin request to our own endpoint —
+ * never to the transport itself, and never persisted anywhere server-side.
+ * `provider` reports which transport answered.
  */
 export async function requestClassification(input: {
   title: string;
   summary: string;
   topics: ApiTopic[];
-  key?: string;
+  classifier: ClassifyConfig;
+  /** Which decision to ask for. A story's topic, or a publication's folder. */
+  question?: ClassifyQuestion;
 }): Promise<ClassifyApiResult> {
   try {
-    const headers: Record<string, string> = { "content-type": "application/json" };
-    if (input.key) headers["x-jev-key"] = input.key;
     const res = await fetch("/api/classify", {
       method: "POST",
-      headers,
-      body: JSON.stringify({ title: input.title, summary: input.summary, topics: input.topics }),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: input.title,
+        summary: input.summary,
+        topics: input.topics,
+        question: input.question ?? "topic",
+        ...input.classifier,
+      }),
     });
     const data = (await res.json()) as {
       ok?: boolean;

@@ -306,18 +306,66 @@ an article's topics live in their own stores (`topics` / `classifications` in
 Classification is opt-in and local-first. When it is on, `lib/store.tsx` walks
 the stories that have no answer yet — or whose title/summary changed since they
 were classified — and sends each one's title and summary to `POST /api/classify`.
-The route holds the credential and makes the one outbound call to **Cloudflare
-Workers AI** (`typesafe/jev`), with a **closed** choice question built from the
-reader's own topic set; the browser never reaches the classifier directly. If
-the Cloudflare account cannot run the third-party model — an AI Gateway with no
-balance and no BYOK — the direct Jev API is used as a fallback when
-`JEV_API_KEY` is configured. This is never a background crawl: the input is the
-stored summary, or an already-cached body, and a story is never fetched in order
-to classify it.
+The route makes the one outbound call, with a **closed** choice question built
+from the reader's own topic set; the browser never reaches the classifier
+directly. This is never a background crawl: the input is the stored summary, or
+an already-cached body, and a story is never fetched in order to classify it.
 
-Jev answers with a slug and a confidence. Above the floor the topic is stored as
-`auto`; below it the same topic is stored as `needs_review`, shown to the reader
-as a question rather than a fact. The reader can correct the answer, which
+**Which classifier is the reader's choice, made in Settings.** There is no
+server-side configuration and no secret in the repository: the reader picks a
+transport, fills in what it asks for, and that configuration travels with the
+request. `CLASSIFY_PROVIDERS` in `lib/classify.ts` is the whole list, ordered by
+how widely used each one is, and each entry states what the reader fills in and
+where the call goes — the Settings dialog renders the list, the descriptions and
+the fields straight from the table, so a new decision API is one entry and no UI
+change.
+
+| Transport             | The reader fills in       | Notes                                                                                                         |
+| --------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| OpenAI                | base URL, model, API key  | The Decisions API, in limited preview. The only one that answers in its own format rather than System One's.  |
+| Cloudflare Workers AI | model, account ID + token | `@cf/cloudflare/clef-flash` (9B, fast) or `@cf/cloudflare/clef` (27B, accurate), in the reader's own account. |
+| TypeSafe (Jev)        | API key                   | `https://www.jevai.org/api/v1/decisions`, the hosted decision API.                                            |
+| Ollama                | model, then address       | Free, no key, and the title and summary never leave the machine.                                              |
+
+Three of the four speak the System One wire format — a state plus one closed
+choice question in, one slug and a confidence out — so the route, the shared
+parser and the confidence floor do not care which of them answered. OpenAI
+answers the same decision in its own shape: the state as one string, the question
+as an entry in a list, and the answer's probabilities as pairs. A transport that
+differs supplies its own `read` on its table entry, which is all the route needs
+to know. The default is still a local Ollama, because it is the one that needs no
+key and sends nothing anywhere; the order of the list is what a reader browses,
+not what a reader gets.
+
+**Two decisions, one shape.** A story gets a topic from the reader's own topic
+set; a publication gets a folder from the app's own seven. Both are one closed
+choice over a set that already exists, so they differ only in the prompt the
+server writes and the set they are asked over — the request names which one it
+wants, and the server still writes every word of the question. The folder
+decision is what files a feed in the subscribe dialog: when a classifier is
+configured, the pick is preselected and labelled as a suggestion, and a folder
+the reader has already chosen outranks it. Below the confidence floor, or with no
+classifier at all, nothing is offered — a weak guess is worse than an empty field.
+
+**Nothing about a local model is presumed.** Ollama reports what each pulled model
+can do in its `capabilities`, so `GET /api/classify/models` asks it and hands back
+only the ones that answer a decision — `clef-flash`, `clef`, `nimble`, whatever the
+reader happens to have. The Settings picker is built from that answer, so a reader
+with nothing pulled is told so rather than offered a model that would fail, and
+the model is a required field: there is no default to fall back on. The browser
+asks our own origin because Ollama's CORS policy only admits localhost origins.
+
+A transport the reader has not finished setting up is refused by the route with
+the names of the missing fields rather than called half-built. The configuration
+lives in local prefs only: it is the one piece of reading state that is a secret,
+and it is sent to this app's own endpoint rather than to the service itself.
+
+Whichever transport answered replies with a slug and a confidence.
+Above `CONFIDENCE_THRESHOLD` (0.6) the topic is stored as `auto`; below it the
+same topic is stored as `needs_review`, shown to the reader as a question rather
+than a fact — judged on the model's own `confidence`, not on the winning option's
+probability, because a twelve-way choice spreads probability thin even when the
+model is sure. The reader can correct the answer, which
 stores a `confirmed` record — and a confirmed or rejected record is never
 overwritten by a later automatic pass, however the story's text changes. A
 classification is therefore user state, kept in its own stores rather than on
@@ -325,15 +373,16 @@ the disposable article cache record (see [STORAGE.md](STORAGE.md)).
 
 The sweep is serial and paced — one request at a time, with a minimum gap
 between calls and a ceiling per rolling minute — and stops at the first
-failure, because Jev rate-limits per key and a reader's page should not hammer
-it. Enabling classification on a large library is therefore a slow background
-trickle, not a burst; a failure is surfaced in Settings with a Retry rather than
-swallowed. Classification does not change a stream row's `layout`.
+failure, because a hosted classifier rate-limits per key and a reader's page
+should not hammer it. Enabling classification on a large library is therefore a slow
+background trickle, not a burst; a failure is surfaced in Settings with a Retry
+rather than swallowed. Classification does not change a stream row's `layout`.
 
 Privacy: while classification is on, the only thing that leaves the device is a
-story's title and summary. It goes to this app's own endpoint, and then to
-Cloudflare Workers AI (or, as a fallback, the direct Jev API). No reading
-history, no subscription list, no full text, no Firefly account.
+story's title and summary. It goes to this app's own endpoint, and then to the
+transport the reader chose — nowhere at all when that is a local Ollama, and to a
+hosted service that bills per story otherwise. No reading history, no
+subscription list, no full text, no Firefly account.
 
 ## Reading state
 
@@ -391,20 +440,22 @@ app/
   page.tsx             resolves the edition date, renders the shell
   api/feed/route.ts    feed intake — server-side, so publishers need no CORS
   api/article/route.ts original-page extraction and revalidation
-  api/classify/route.ts the only route that calls Jev; holds the API key
+  api/classify/route.ts    the only route that calls a classifier; holds no keys
+  api/classify/models/     the decision models a local Ollama has, for Settings
 components/
   shell.tsx            the responsive three-column frame and mobile chrome
   nav-rail.tsx         navigation, sources, colophon
   stream-column.tsx    edition header, filter rail, five story layouts
   article-pane.tsx     reader: toolbar, progress, block renderer
   add-source.tsx       the subscribe dialog
-  settings.tsx         classification switch, Jev key, the topic set
+  settings.tsx         classification switch, the classifier picker, the topic set
+  hint.tsx             a one-line explanation for a small icon, on hover or click
   search-palette.tsx   ⌘K overlay
   shortcuts.tsx        the key legend
   plate.tsx            generative SVG artwork
 lib/
   store.tsx            all application state — one context, one hook
-  classify.ts          Jev request/response rules, the confidence floor
+  classify.ts          the classifier rules, and the transport table behind them
   sources.ts           real suggested publications and folders
   sample/              the invented sample edition
   feed-server.ts       XML → ParsedFeed

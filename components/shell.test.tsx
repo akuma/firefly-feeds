@@ -698,6 +698,101 @@ describe("the navigation", () => {
 });
 
 describe("subscribing", () => {
+  it("files the feed where the classifier says, when one is configured", async () => {
+    localStorage.setItem(
+      "firefly.feeds.v1",
+      JSON.stringify({
+        classify: true,
+        classifyConfig: {
+          provider: "ollama",
+          ollamaBaseUrl: "http://localhost:11434",
+          ollamaModel: "clef-flash:latest",
+          cloudflareModel: "",
+          cloudflareAccountId: "",
+          openaiBaseUrl: "https://api.openai.com/v1",
+          openaiModel: "gpt-6-luna-decisions",
+          keys: {},
+        },
+      }),
+    );
+    const original = globalThis.fetch;
+    const asked: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/classify")) {
+        asked.push(String(init?.body ?? ""));
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            classification: {
+              primarySlug: "science",
+              topicSlugs: ["science"],
+              confidence: 0.88,
+              model: "clef-flash:latest",
+            },
+            provider: "ollama",
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          feed: {
+            id: "xnew",
+            title: "Quanta Magazine",
+            host: "quantamagazine.org",
+            siteUrl: "https://quantamagazine.org",
+            feedUrl: "https://quantamagazine.org/feed/",
+            description: "Illuminating science.",
+            kind: "rss",
+            count: 1,
+          },
+          items: [{ id: "a", title: "An entry", summary: "s", body: [], minutes: 1 }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const repo = await import("@/lib/storage/repository");
+      const { user } = await mount();
+      await user.click(within(nav()).getByTitle("Add a feed or site"));
+      const panel = await screen.findByRole("dialog", { name: "Add source" });
+      await user.type(
+        within(panel).getByPlaceholderText("https://example.com/feed.xml"),
+        "quantamagazine.org/feed/",
+      );
+      await user.click(within(panel).getByRole("button", { name: "Find" }));
+      await within(panel).findByLabelText("Feed name");
+
+      // the folder the classifier picked is selected, and said out loud
+      await waitFor(() =>
+        expect(within(panel).getByText(/Suggested · Science/)).toBeInTheDocument(),
+      );
+      expect(within(panel).getByRole("button", { name: "Science" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+
+      // it was asked the folder question, over the app's own folders
+      expect(asked).toHaveLength(1);
+      expect(JSON.parse(asked[0])).toMatchObject({
+        question: "folder",
+        topics: expect.arrayContaining([{ slug: "science", label: "Science" }]),
+      });
+
+      // and the subscription is filed there
+      await user.click(within(panel).getByRole("button", { name: "Subscribe" }));
+      await waitFor(async () => {
+        const snapshot = await repo.loadAll();
+        expect(snapshot.sources.map((s) => s.folder)).toContain("science");
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("takes a custom name and files the feed unfiled unless a topic is picked", async () => {
     const original = globalThis.fetch;
     const payload = {
@@ -836,6 +931,89 @@ describe("subscribing", () => {
         "https://example.com/feed.xml",
       ) as HTMLInputElement;
       expect(input.value).toBe("");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("lets the reader pick the classifier, and asks that one for what it needs", async () => {
+    localStorage.setItem("firefly.feeds.v1", JSON.stringify({ classify: true }));
+    const { user } = await mount();
+
+    await user.click(within(nav()).getByLabelText("Settings"));
+    const panel = await screen.findByRole("dialog", { name: "Settings" });
+
+    // a local model is the default, and it asks for a model before an address
+    const picker = within(panel).getByLabelText("Classifier") as HTMLSelectElement;
+    expect(picker.value).toBe("ollama");
+    expect(within(panel).getByLabelText("Model")).toBeInTheDocument();
+    expect(within(panel).getByLabelText(/Ollama address/)).toBeInTheDocument();
+    expect(within(panel).queryByLabelText("API key")).not.toBeInTheDocument();
+
+    // the list is ordered by how widely used each one is
+    expect([...picker.options].map((option) => option.value)).toEqual([
+      "openai",
+      "cloudflare",
+      "typesafe",
+      "ollama",
+    ]);
+
+    // OpenAI is the one that answers in its own format, so it asks the most
+    await user.selectOptions(picker, "openai");
+    await waitFor(() => expect(within(panel).getByLabelText("API key")).toBeInTheDocument());
+    expect(within(panel).getByLabelText("Model")).toBeInTheDocument();
+    expect(within(panel).queryByLabelText(/Ollama address/)).not.toBeInTheDocument();
+    expect(within(panel).getByText(/limited preview/)).toBeInTheDocument();
+
+    // the choice is the reader's, so it survives a reload
+    const prefs = JSON.parse(localStorage.getItem("firefly.feeds.v1") ?? "{}");
+    expect(prefs.classifyConfig).toMatchObject({ provider: "openai" });
+  });
+
+  it("offers the decision models the local Ollama actually has, and none it does not", async () => {
+    localStorage.setItem("firefly.feeds.v1", JSON.stringify({ classify: true }));
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/classify/models")) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            models: ["clef-flash:latest", "clef:latest", "llama3:latest"],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ ok: true, items: [] }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const { user } = await mount();
+      await user.click(within(nav()).getByLabelText("Settings"));
+      const panel = await screen.findByRole("dialog", { name: "Settings" });
+
+      // whatever the machine reports becomes the picker's options, verbatim
+      await waitFor(() => {
+        const models = within(panel).getByLabelText("Model") as HTMLSelectElement;
+        expect([...models.options].map((option) => option.value)).toEqual([
+          "",
+          "clef-flash:latest",
+          "clef:latest",
+          "llama3:latest",
+        ]);
+      });
+
+      // and nothing is presumed: the empty option is what a fresh reader sees
+      const models = within(panel).getByLabelText("Model") as HTMLSelectElement;
+      expect(models.value).toBe("");
+      await user.selectOptions(models, "clef:latest");
+      await waitFor(() =>
+        expect(
+          JSON.parse(localStorage.getItem("firefly.feeds.v1") ?? "{}").classifyConfig,
+        ).toMatchObject({ ollamaModel: "clef:latest" }),
+      );
     } finally {
       globalThis.fetch = original;
     }
@@ -2342,6 +2520,82 @@ describe("article classification", () => {
     expect(within(stream()).queryByText("A new novel")).not.toBeInTheDocument();
   });
 
+  it("marks a low-confidence topic with an icon, not a word", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putTopics(defaultTopics(now));
+    await repo.putSource({
+      id: "srev",
+      url: "https://rev.example/feed.xml",
+      siteUrl: "https://rev.example",
+      title: "Review Source",
+      host: "rev.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    await repo.replaceArticles("srev", [
+      {
+        id: "srev~vague",
+        sourceId: "srev",
+        title: "Notes on a shifting season",
+        publishedAt: now,
+        fetchedAt: now,
+        summary: "Something happened, more or less.",
+        body: [{ kind: "p" as const, text: "Something happened, more or less." }],
+        minutes: 2,
+        layout: "standard" as const,
+        contentState: "full" as const,
+        extractionState: "idle" as const,
+      },
+    ]);
+    await repo.putClassification({
+      itemId: "srev~vague",
+      topicIds: ["ideas"],
+      primaryTopicId: "ideas",
+      confidence: 0.31,
+      status: "needs_review",
+      provider: "jev",
+      contentFingerprint: articleFingerprint(
+        "Notes on a shifting season",
+        "Something happened, more or less.",
+      ),
+      updatedAt: now,
+    });
+
+    const { user } = await mount();
+
+    // the kicker carries a small mark for the topic, an icon for the doubt,
+    // and no word for either
+    const row = stream().querySelector("[data-story]")!;
+    const kicker = row.querySelector("[data-t='kicker']")!;
+    expect(kicker.textContent).toContain("Ideas");
+    expect(kicker.textContent).not.toContain("Needs review");
+    expect(kicker.querySelector(".lucide-tag")).toBeTruthy();
+    expect(kicker.querySelector(".lucide-circle-help")).toBeTruthy();
+
+    // hovering the doubt explains it in the reader's terms, not the model's
+    const trigger = kicker.querySelector(".lucide-circle-help")!.closest("button")!;
+    // the icon says nothing on its own, so the button carries a name
+    expect(trigger).toHaveAccessibleName("Why this topic is uncertain");
+    await user.hover(trigger);
+    const hint = await screen.findByRole("tooltip");
+    expect(hint.textContent).toMatch(/wasn't sure/);
+    expect(hint.textContent).toMatch(/guess rather than a fact/);
+    expect(trigger).toHaveAttribute("aria-describedby", hint.id);
+
+    // and the reader carries both, beside the topic chips
+    await user.click(rows()[0]);
+    await waitFor(() =>
+      expect(reader().querySelector("[data-t='reader-topics']")).toBeInTheDocument(),
+    );
+    const topics = reader().querySelector("[data-t='reader-topics']")!;
+    expect(topics.textContent).not.toContain("Needs review");
+    expect(topics.querySelector(".lucide-circle-help")).toBeTruthy();
+    expect(topics.querySelector(".lucide-tag")).toBeTruthy();
+  });
+
   it("keeps a correction after a full remount", async () => {
     await seedClassifiedStories();
     const first = await mount();
@@ -2379,11 +2633,6 @@ describe("turning classification on", () => {
       const url = String(input);
       const method = init?.method ?? "GET";
       calls.push({ url, method });
-      if (url.includes("/api/classify") && method === "GET") {
-        return new Response(JSON.stringify({ ok: true, configured: true }), {
-          headers: { "content-type": "application/json" },
-        });
-      }
       if (url.includes("/api/classify")) {
         return new Response(
           JSON.stringify({

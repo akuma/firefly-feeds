@@ -14,25 +14,31 @@
 - 同一 feed 里的不同文章主题往往不同；只靠源 folder 不够。
 - **本 brief 的主交付是：对每篇文章做分类。**
 
-### 次要（可同 PR 或紧随其后）
+### 次要（已实现）
 
-- 添加 feed 时，用同一套 Jev 分类能力给源建议 folder（读者可改）。不替代文章级分类。
+- 添加 feed 时，用同一套决策模型给源建议 folder（读者可改，且读者已选的 folder 优先于模型建议）。**前提是已配好分类器**；没配、或置信度低于阈值时不给建议——一个没把握的猜测不如空着。
 
 ---
 
 ## 目标
 
-读者能为每篇文章得到主题标签，并按标签筛选浏览；分类由 **Jev** 完成；可纠正、可关闭；遵守 Firefly 的 local-first 与 editorial 气质。
+读者能为每篇文章得到主题标签，并按标签筛选浏览；分类由决策模型完成；可纠正、可关闭；遵守 Firefly 的 local-first 与 editorial 气质。
 
 Jev API: https://www.jevai.org/docs
+
+本地替代：Ollama 的 `clef-flash`（9B 决策模型，与 Jev / System One API 完全兼容）
+https://ollama.com/library/clef-flash
 
 ---
 
 ## 分类器（已定）
 
-- **引擎固定为 Jev**（TypeSafe 决策模型：封闭标签选择 + 置信度）。
-- 不引入其它分类引擎作为 v1 方案。
-- API key / 凭证仅存本地；出站可通过现有 `app/api/**` proxy，不引入 Firefly 账号，不把阅读历史默认上传到产品后端。
+- **引擎为决策模型**（TypeSafe 决策模型：封闭标签选择 + 置信度）。
+- **分类器由读者在设置里选**，不做文件/环境变量配置：`lib/classify.ts` 的 `CLASSIFY_PROVIDERS` 是一张表，每家声明「读者要填什么」和「请求发去哪」；设置弹窗直接按这张表渲染列表、说明和输入框，所以新增一家只是表里多一行，UI、路由、解析器、阈值门控都不用改。
+- 四家可选，按流行程度排序：**OpenAI**（Decisions API，限量预览，需 base URL / model / key，格式与其它家不同）、**Cloudflare Workers AI**（读者自己的 account）、**TypeSafe (Jev) 托管 API**（需 key，按次计费）、**本地 Ollama**（模型不预设：设置里列出的是从 Ollama 接口读到的、本机真正 pull 过的决策模型，读者自己选；免费免 key，标题摘要不出本机）。
+- 除 OpenAI 外三家共用 System One 线格式（一个封闭选择问题进，一个 slug + 置信度出）；OpenAI 用的是自己的形状（state 序列化成字符串、question 作为列表项、概率成对返回），所以它在表里多带一个 `read`，路由据此选择解析器。
+- 凭证只存在本地 prefs，随请求发到本站自己的 `/api/classify`，再由服务端转发；**不写入仓库、不做服务端配置**，整个应用可以零 secret 部署。未填完的分类器会被路由直接拒绝并提示缺哪几项，而不是带着空 credential 发出去。
+- 不引入 Firefly 账号，不把阅读历史默认上传到产品后端。
 
 ---
 
@@ -71,7 +77,7 @@ Jev API: https://www.jevai.org/docs
 
 ## 不做（v1）
 
-- 不用非 Jev 引擎做文章分类
+- 不引入非决策模型的引擎（例如让通用 LLM 自由生成标签）做文章分类
 - 不做官方跨设备同步产品化（字段可预留）
 - 不做云端兴趣画像
 - 不做自动长文改写进 edition
