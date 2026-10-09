@@ -15,6 +15,18 @@ import {
   providerLabel,
   withField,
 } from "@/lib/classify";
+import {
+  LLM_SERVICES,
+  findService,
+  llmFieldValue,
+  missingFields as llmMissingFields,
+  ollamaChatModelsUrl,
+  readOllamaChatModels,
+  serviceLabel,
+  withLlmField,
+  type LlmField,
+  type LlmServiceId,
+} from "@/lib/llm";
 import { useReader } from "@/lib/store";
 
 /**
@@ -37,6 +49,16 @@ export function Settings() {
   const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
   /** Whether Ollama could be asked at all — running, and letting this page in. */
   const [ollamaUnreachable, setOllamaUnreachable] = useState(false);
+
+  /* ---------------------------------------------------------- briefing */
+
+  const chosenLlm = findService(r.llmConfig.service) ?? LLM_SERVICES[0];
+  const llmReady = llmMissingFields(chosenLlm, r.llmConfig).length === 0;
+  const lastDigestService = serviceLabel(r.digestProvider);
+  /** The chat models the local Ollama has, or null while asking. */
+  const [ollamaChatModels, setOllamaChatModels] = useState<string[] | null>(null);
+  const [ollamaChatUnreachable, setOllamaChatUnreachable] = useState(false);
+  const ollamaChatDirect = chosenLlm.id === "ollama" && chosenLlm.direct?.(r.llmConfig) === true;
 
   // One label per transport, shared with the server so the two never drift.
   const lastProvider = providerLabel(r.classifyProvider);
@@ -96,6 +118,49 @@ export function Settings() {
   const fields = chosen.fields.map((field) =>
     field.key === "ollamaModel" && ollamaModels?.length
       ? { ...field, choices: ollamaModels.map((name) => ({ value: name, label: name })) }
+      : field,
+  );
+
+  // The same for the briefing's model picker: what a local Ollama can actually
+  // chat with is a fact only it knows, so the list is asked for rather than
+  // assumed. Debounced, because the address is a text field.
+  useEffect(() => {
+    if (chosenLlm.id !== "ollama") return;
+    const base = r.llmConfig.baseUrl;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setOllamaChatUnreachable(false);
+      const url = ollamaChatDirect
+        ? ollamaChatModelsUrl(base)
+        : `/api/digest/models?base=${encodeURIComponent(base)}`;
+      void fetch(url)
+        .then((res) => res.json())
+        .then((data: unknown) => {
+          if (cancelled) return;
+          // Two shapes: Ollama's own list, and the one our endpoint normalises
+          // it into when it has to ask on the reader's behalf.
+          const list = data as { ok?: boolean; models?: string[] };
+          setOllamaChatModels(
+            ollamaChatDirect ? readOllamaChatModels(data) : list.ok ? (list.models ?? []) : [],
+          );
+        })
+        .catch(() => {
+          // Not the same as an empty list: Ollama was never heard from, so the
+          // reader cannot act on this by pulling a model.
+          if (cancelled) return;
+          setOllamaChatModels([]);
+          setOllamaChatUnreachable(true);
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [chosenLlm.id, r.llmConfig.baseUrl, ollamaChatDirect]);
+
+  const llmFields = chosenLlm.fields.map((field) =>
+    field.key === "model" && chosenLlm.id === "ollama" && ollamaChatModels?.length
+      ? { ...field, choices: ollamaChatModels.map((name) => ({ value: name, label: name })) }
       : field,
   );
 
@@ -352,6 +417,209 @@ export function Settings() {
               )}
             </div>
           )}
+
+          {/* ------------------------------------------------------ briefing */}
+          <div className="mt-9 border-t border-rule pt-6">
+            <h2 className="display text-[24px] leading-[1.12] font-medium tracking-[-0.016em] text-ink">
+              Today&apos;s briefing
+            </h2>
+            <p className="mt-2.5 max-w-[54ch] text-[14.5px] leading-[1.5] text-ink3">
+              A short edition of today&apos;s unread stories, written from their own titles and
+              summaries. One a day, and rewritten only when you ask.
+            </p>
+
+            <div className="mt-6 flex items-center justify-between gap-4 border-t border-rule pt-5">
+              <div className="min-w-0">
+                <div className="text-[15.5px] leading-[1.3] text-ink">Write a daily briefing</div>
+                <p className="mt-1 max-w-[42ch] text-[13px] leading-[1.45] text-ink4">
+                  Sends today&apos;s unread headlines and summaries — up to 20 at once — to the
+                  model you chose, using your own key. A local Ollama sends nothing off this
+                  machine.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={r.digestEnabled}
+                aria-label="Write a daily briefing"
+                onClick={() => r.setDigestEnabled(!r.digestEnabled)}
+                className={clsx(
+                  "mono shrink-0 px-3 py-2 text-[9.5px] tracking-[0.14em] uppercase transition-colors",
+                  r.digestEnabled
+                    ? "bg-ink text-canvas"
+                    : "text-ink3 ring-1 ring-rule ring-inset hover:bg-hoverc hover:text-ink",
+                )}
+              >
+                {r.digestEnabled ? "On" : "Off"}
+              </button>
+            </div>
+
+            {r.digestEnabled && (
+              <div className="ff-fade mt-5">
+                <div className="mono flex flex-wrap items-center gap-x-2 gap-y-1 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles size={11} strokeWidth={1.6} />
+                    {ollamaChatUnreachable
+                      ? `${chosenLlm.label} unreachable`
+                      : llmReady
+                        ? `${chosenLlm.label} ready`
+                        : `${chosenLlm.label} needs setting up`}
+                  </span>
+                  {r.digestWorking && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span className="text-spark">Writing…</span>
+                    </>
+                  )}
+                  {lastDigestService && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>Last via {lastDigestService}</span>
+                    </>
+                  )}
+                </div>
+
+                <div className="mt-6">
+                  <label htmlFor="llm-service" className="label block text-ink4">
+                    Model provider
+                  </label>
+                  <div className="relative mt-2 border-b border-rulestrong pr-6 pb-2">
+                    <select
+                      id="llm-service"
+                      value={chosenLlm.id}
+                      onChange={(e) =>
+                        r.updateLlmConfig({ service: e.target.value as LlmServiceId })
+                      }
+                      className="mono w-full appearance-none bg-transparent text-[13px] text-ink2 outline-none"
+                    >
+                      {LLM_SERVICES.map((service) => (
+                        <option key={service.id} value={service.id}>
+                          {service.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown
+                      size={12}
+                      strokeWidth={1.6}
+                      aria-hidden
+                      className="pointer-events-none absolute right-0 bottom-3 text-ink4"
+                    />
+                  </div>
+                  <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                    {chosenLlm.blurb}
+                  </p>
+                </div>
+
+                <p className="mt-2.5 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                  Kept in this browser only, and sent to this app&apos;s own endpoint rather than to
+                  the service itself. A model of your own bills per edition, so a local one is the
+                  cheaper default.
+                </p>
+
+                {/* Whatever the chosen service asks for, rendered from its own
+                    entry in the table — so a new one needs no change here. */}
+                <div className="mt-6 flex flex-col gap-5">
+                  {llmFields.map((field) => {
+                    const id = `llm-${field.key}`;
+                    const unreachable =
+                      field.key === "model" && chosenLlm.id === "ollama" && ollamaChatUnreachable;
+                    const value = llmFieldValue(r.llmConfig, field as LlmField);
+                    const write = (next: string) =>
+                      r.updateLlmConfig(withLlmField(r.llmConfig, field as LlmField, next));
+                    return (
+                      <div key={field.key}>
+                        <label htmlFor={id} className="label block text-ink4">
+                          {field.label}
+                          {field.optional && <span className="ml-2 normal-case">(optional)</span>}
+                        </label>
+                        {unreachable ? (
+                          <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink3">
+                            Ollama could not be asked at that address. Either it is not running, or
+                            it has not admitted this page — a site on a domain needs{" "}
+                            <span className="mono">OLLAMA_ORIGINS</span> naming it.
+                          </p>
+                        ) : (
+                          <div className="relative mt-2 flex items-center gap-3 border-b border-rulestrong pb-2">
+                            {field.choices ? (
+                              <>
+                                <select
+                                  id={id}
+                                  value={value}
+                                  onChange={(e) => write(e.target.value)}
+                                  className="mono w-full appearance-none bg-transparent text-[13px] text-ink2 outline-none"
+                                >
+                                  <option value="">{field.placeholder}</option>
+                                  {field.choices.map((choice) => (
+                                    <option key={choice.value} value={choice.value}>
+                                      {choice.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <ChevronDown
+                                  size={12}
+                                  strokeWidth={1.6}
+                                  aria-hidden
+                                  className="pointer-events-none absolute right-0 bottom-2.5 text-ink4"
+                                />
+                              </>
+                            ) : (
+                              <input
+                                id={id}
+                                type={field.secret ? "password" : "text"}
+                                value={value}
+                                onChange={(e) => write(e.target.value)}
+                                spellCheck={false}
+                                autoComplete="off"
+                                placeholder={field.placeholder}
+                                className="mono min-w-0 flex-1 bg-transparent text-[13px] text-ink2 outline-none placeholder:text-ink4"
+                              />
+                            )}
+                            {field.secret && value && (
+                              <button
+                                type="button"
+                                onClick={() => write("")}
+                                className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {field.hint && (
+                          <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                            {field.hint}
+                          </p>
+                        )}
+                        {field.key === "model" &&
+                          chosenLlm.id === "ollama" &&
+                          !unreachable &&
+                          ollamaChatModels?.length === 0 && (
+                            <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                              No chat models found at that address. Pull one —{" "}
+                              <span className="mono">ollama pull llama3.2</span>, say — and it will
+                              appear here.
+                            </p>
+                          )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {r.digestError && (
+                  <div className="mt-5 flex items-start justify-between gap-4 border-l-2 border-spark py-1 pl-4">
+                    <p className="text-[13.5px] leading-[1.5] text-ink2">{r.digestError}</p>
+                    <button
+                      type="button"
+                      onClick={r.retryDigest}
+                      className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* ------------------------------------------------------- topics */}
           <div className="mt-9 flex items-center justify-between gap-4 border-t border-rule pt-6">

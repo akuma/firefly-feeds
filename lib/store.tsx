@@ -28,6 +28,17 @@ import {
   requestClassification,
   resolveClassification,
 } from "./classify";
+import { DEFAULT_LLM_CONFIG, findService, type LlmConfig } from "./llm";
+import {
+  dayKey,
+  digestIsStale,
+  DIGEST_MAX_PER_DAY,
+  DIGEST_MIN_CANDIDATES,
+  parseDigest,
+  requestDigest,
+  selectCandidates,
+  type DigestCandidate,
+} from "./digest";
 import { readingTime } from "./reading";
 import {
   articlesUnchanged,
@@ -47,6 +58,7 @@ import type {
   ArticleClassification,
   ArticleRecord,
   ArticleTopic,
+  DigestRecord,
   ReadingRecord,
   SourceRecord,
 } from "./storage/types";
@@ -158,6 +170,32 @@ type Ctx = {
   setTopicFilter: (id: string | null) => void;
   /** How many stories carry each topic, for the filter's counts. */
   topicCounts: Record<string, number>;
+
+  /** Today's briefing, when one has been written for the reader's day. */
+  digest: DigestRecord | null;
+  /** Whether a briefing is written at all. Off until the reader opts in. */
+  digestEnabled: boolean;
+  setDigestEnabled: (v: boolean) => void;
+  /** Which model writes it, and the key for it. Kept on this device only. */
+  llmConfig: LlmConfig;
+  /** Rewrite part of that setup — one field, or the service itself. */
+  updateLlmConfig: (patch: Partial<LlmConfig>) => void;
+  /** Today's unread stories: the briefing's raw material. */
+  digestCandidates: DigestCandidate[];
+  /** True when today's candidates differ from the ones it was written from. */
+  digestStale: boolean;
+  /** The last briefing failure, shown rather than swallowed. */
+  digestError: string | null;
+  digestWorking: boolean;
+  /** The service behind the last successful briefing, if any. */
+  digestProvider: string | null;
+  /** Manual rewrites left today. */
+  digestRunsLeft: number;
+  /** Write today's edition again, counting against the daily cap. */
+  regenerateDigest: () => void;
+  /** Clear a failure and let the sweep run again. */
+  retryDigest: () => void;
+
   settingsOpen: boolean;
   setSettingsOpen: (v: boolean) => void;
 
@@ -256,6 +294,24 @@ export function useReaderState(edition: Edition): Ctx {
   /** Which transport answered the last request. */
   const [classifyProvider, setClassifyProvider] = useState<ClassifyProviderId | null>(null);
   const [classifyNonce, setClassifyNonce] = useState(0);
+  const [digests, setDigests] = useState<DigestRecord[]>([]);
+  const [digestEnabled, setDigestEnabled] = useState(false);
+  const [llmConfig, setLlmConfig] = useState(DEFAULT_LLM_CONFIG);
+  // One field, or the service itself. A shallow merge is enough: the keys map
+  // is replaced whole, and `withLlmField` in lib/llm.ts is what writes one.
+  const updateLlmConfig = useCallback((patch: Partial<LlmConfig>) => {
+    setLlmConfig((current) => ({ ...current, ...patch }));
+  }, []);
+  const [digestError, setDigestError] = useState<string | null>(null);
+  const [digestWorking, setDigestWorking] = useState(false);
+  /** Which service wrote the last successful briefing. */
+  const [digestProvider, setDigestProvider] = useState<string | null>(null);
+  const [digestNonce, setDigestNonce] = useState(0);
+  /** Manual rewrites used today, so the daily cap survives a reload. */
+  const [digestRuns, setDigestRuns] = useState<{ day: string; count: number }>({
+    day: "",
+    count: 0,
+  });
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -297,6 +353,9 @@ export function useReaderState(edition: Edition): Ctx {
     if (typeof prefs.navOpen === "boolean") setNavOpen(prefs.navOpen);
     if (typeof prefs.classify === "boolean") setClassifyEnabled(prefs.classify);
     setClassifyConfig(readClassifyConfig(prefs));
+    if (typeof prefs.digest === "boolean") setDigestEnabled(prefs.digest);
+    setLlmConfig(readLlmConfigFromPrefs(prefs));
+    if (prefs.digestRuns) setDigestRuns(prefs.digestRuns);
   }, []);
 
   useEffect(() => {
@@ -308,6 +367,7 @@ export function useReaderState(edition: Edition): Ctx {
         reading: [],
         topics: [],
         classifications: [],
+        digests: [],
       };
       try {
         snapshot = await repo.loadAll();
@@ -322,6 +382,7 @@ export function useReaderState(edition: Edition): Ctx {
       setReading(snapshot.reading);
       setTopics(snapshot.topics);
       setClassifications(snapshot.classifications);
+      setDigests(snapshot.digests);
 
       // A remembered view is restored only if its source still exists.
       const remembered = loadPrefs().view;
@@ -365,8 +426,22 @@ export function useReaderState(edition: Edition): Ctx {
       view,
       classify: classifyEnabled,
       classifyConfig,
+      digest: digestEnabled,
+      llmConfig,
+      digestRuns,
     });
-  }, [ready, theme, font, navOpen, view, classifyEnabled, classifyConfig]);
+  }, [
+    ready,
+    theme,
+    font,
+    navOpen,
+    view,
+    classifyEnabled,
+    classifyConfig,
+    digestEnabled,
+    llmConfig,
+    digestRuns,
+  ]);
 
   /* ------------------------------------------------------ derive views */
 
@@ -950,6 +1025,154 @@ export function useReaderState(edition: Edition): Ctx {
 
   const setTopicFilterValue = useCallback((id: string | null) => setTopicFilter(id), []);
 
+  /* ---------------------------------------------------------- briefing */
+
+  /*
+   * Today's briefing: one edition per day, written from the stories a reader
+   * already has. The sweep is lazier than classification's — one call a day,
+   * not one per story — and it only ever fires while the reader is on Today.
+   * A reader who never opens Today spends nothing.
+   */
+  const digestCandidates = useMemo(
+    () => selectCandidates(stories, state.read),
+    [stories, state.read],
+  );
+
+  const todayDigest = useMemo(() => {
+    const day = dayKey(now);
+    return digests.find((record) => record.day === day) ?? null;
+  }, [digests, now]);
+
+  /**
+   * A candidate set that has moved on marks the edition stale rather than
+   * rewriting it: a reader who has already read today's briefing should not
+   * find it changed underneath them, and "rewrite on every refresh" is how a
+   * paid key gets spent.
+   */
+  const digestStale = useMemo(
+    () => digestIsStale(todayDigest ?? undefined, digestCandidates),
+    [todayDigest, digestCandidates],
+  );
+
+  const digestRunsLeft = useMemo(() => {
+    const used = digestRuns.day === dayKey(now) ? digestRuns.count : 0;
+    return Math.max(0, DIGEST_MAX_PER_DAY - used);
+  }, [digestRuns, now]);
+
+  const digestInFlight = useRef(false);
+  /** Set by a manual rewrite, cleared by the sweep that consumes it. */
+  const digestForce = useRef(false);
+  // Send times of recent calls, sharing classification's politeness budget.
+  const digestTimes = useRef<number[]>([]);
+  const digestEnabledRef = useRef(digestEnabled);
+  useEffect(() => {
+    digestEnabledRef.current = digestEnabled;
+  });
+
+  /** Manual rewrites are what the daily cap counts. */
+  const noteDigestRun = useCallback(() => {
+    const day = dayKey();
+    setDigestRuns((current) =>
+      current.day === day ? { day, count: current.count + 1 } : { day, count: 1 },
+    );
+  }, []);
+
+  const writeDigest = useCallback(
+    async (force: boolean) => {
+      if (digestCandidates.length < DIGEST_MIN_CANDIDATES) return;
+      digestInFlight.current = true;
+      setDigestWorking(true);
+      try {
+        // Pace the request with classification's own delay, so the two AI
+        // features cannot add up to a burst from the reader's page.
+        const wait = classifyDelay(digestTimes.current, Date.now());
+        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+        if (!digestEnabledRef.current) return;
+        const at = Date.now();
+        digestTimes.current = [
+          ...digestTimes.current.filter((time) => at - time < CLASSIFY_WINDOW_MS),
+          at,
+        ];
+        if (force) noteDigestRun();
+
+        const result = await requestDigest({ candidates: digestCandidates, llm: llmConfig });
+        if (!result.ok) {
+          setDigestError(result.error);
+          return;
+        }
+        setDigestProvider(result.provider ?? null);
+        const ids = new Set(digestCandidates.map((candidate) => candidate.id));
+        const picks = parseDigest(result.text, ids);
+        // A reply with nothing usable in it is a failure, shown as one — half an
+        // edition would be worse than none.
+        if (picks.length === 0) {
+          setDigestError("The model's answer could not be used.");
+          return;
+        }
+        const record: DigestRecord = {
+          day: dayKey(),
+          picks: picks.map((pick) => pick.id),
+          gists: Object.fromEntries(picks.map((pick) => [pick.id, pick.gist])),
+          reasons: Object.fromEntries(picks.map((pick) => [pick.id, pick.why])),
+          candidates: digestCandidates.map((candidate) => candidate.id),
+          provider: result.provider ?? llmConfig.service,
+          ...(result.model ? { model: result.model } : {}),
+          updatedAt: Date.now(),
+        };
+        setDigests((current) => [...current.filter((d) => d.day !== record.day), record]);
+        void repo.putDigest(record);
+      } catch (error) {
+        // A malformed answer is a visible failure, not a silent one.
+        setDigestError(
+          error instanceof Error ? error.message : "Today's briefing could not be written.",
+        );
+      } finally {
+        digestInFlight.current = false;
+        setDigestWorking(false);
+      }
+    },
+    [digestCandidates, llmConfig, noteDigestRun],
+  );
+
+  const regenerateDigest = useCallback(() => {
+    if (digestRunsLeft <= 0) return;
+    digestForce.current = true;
+    setDigestNonce((n) => n + 1);
+  }, [digestRunsLeft]);
+
+  const retryDigest = useCallback(() => {
+    setDigestError(null);
+    // A failed rewrite is retried as a rewrite; a failed first write as a first
+    // write, so it does not spend one of the day's manual rewrites.
+    if (todayDigest && digestRunsLeft > 0) digestForce.current = true;
+    setDigestNonce((n) => n + 1);
+  }, [todayDigest, digestRunsLeft]);
+
+  /* oxlint-disable react/set-state-in-effect, react/exhaustive-effect-dependencies */
+  useEffect(() => {
+    if (!ready || !digestEnabled || digestError) return;
+    if (view !== "today") return;
+    if (digestInFlight.current) return;
+    const forced = digestForce.current;
+    digestForce.current = false;
+    // One edition a day: today's is written once, and rewritten only when asked.
+    if (!forced && todayDigest) return;
+    if (digestCandidates.length < DIGEST_MIN_CANDIDATES) return;
+    if (forced && digestRunsLeft <= 0) return;
+    void writeDigest(forced);
+  }, [
+    ready,
+    digestEnabled,
+    digestError,
+    digestNonce,
+    view,
+    todayDigest,
+    digestCandidates,
+    digestRunsLeft,
+    writeDigest,
+  ]);
+  /* oxlint-enable react/set-state-in-effect, react/exhaustive-effect-dependencies */
+
   /* ------------------------------------------------------------- filter */
 
   /*
@@ -1369,6 +1592,19 @@ export function useReaderState(edition: Edition): Ctx {
     topicFilter,
     setTopicFilter: setTopicFilterValue,
     topicCounts,
+    digest: todayDigest,
+    digestEnabled,
+    setDigestEnabled,
+    llmConfig,
+    updateLlmConfig,
+    digestCandidates,
+    digestStale,
+    digestError,
+    digestWorking,
+    digestProvider,
+    digestRunsLeft,
+    regenerateDigest,
+    retryDigest,
     settingsOpen,
     setSettingsOpen,
     addOpen,
@@ -1443,6 +1679,20 @@ function readClassifyConfig(prefs: Prefs): ClassifyConfig {
   return findProvider(merged.provider)
     ? merged
     : { ...merged, provider: DEFAULT_CLASSIFY_CONFIG.provider };
+}
+
+/**
+ * The reader's model setup out of local prefs, with the defaults filled in for
+ * anything an older build of this feature left out. A service the table no
+ * longer offers cannot be shown as chosen, so it falls back to the default
+ * rather than leaving Settings describing one thing while the briefing does
+ * another — the same rule the classifier's config follows.
+ */
+function readLlmConfigFromPrefs(prefs: Prefs): LlmConfig {
+  const stored = prefs.llmConfig;
+  if (!stored) return DEFAULT_LLM_CONFIG;
+  const merged = { ...DEFAULT_LLM_CONFIG, ...stored, keys: { ...stored.keys } };
+  return findService(merged.service) ? merged : { ...merged, service: DEFAULT_LLM_CONFIG.service };
 }
 
 /**

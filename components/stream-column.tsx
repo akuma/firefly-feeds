@@ -17,6 +17,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { IconButton } from "./brand";
+import { Briefing } from "./briefing";
 import { Hint, LOW_CONFIDENCE_HINT } from "./hint";
 import { Firefly, Media, hasArt } from "./plate";
 import { agoLabel } from "@/lib/reading";
@@ -674,6 +675,7 @@ export function StreamColumn() {
       <StreamHeader count={filtered.length} minutes={minutes} sources={sources} />
 
       <div ref={listRef} className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {r.ready && <Briefing />}
         {!r.ready ? (
           <div className="flex flex-col items-center gap-4 px-8 py-24">
             <span className="label text-ink4">Opening the edition</span>

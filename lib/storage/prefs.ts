@@ -1,4 +1,5 @@
 import type { ClassifyConfig } from "../classify";
+import type { LlmConfig } from "../llm";
 import type { ViewId } from "../types";
 
 /**
@@ -30,6 +31,22 @@ export type Prefs = {
    * own `/api/classify` rather than to the API itself.
    */
   classifyConfig?: ClassifyConfig;
+  /**
+   * Today's briefing is off until the reader turns it on, for the same reason
+   * classification is: it is the other part of the app that sends any of the
+   * reader's data off the device.
+   */
+  digest?: boolean;
+  /**
+   * Which model writes the briefing, and the key for it. Same rule as the
+   * classifier's: this device only, sent to this app's own endpoint.
+   */
+  llmConfig?: LlmConfig;
+  /**
+   * Manual rewrites used today, so the daily cap survives a reload. A scalar
+   * with a date beside it, which is exactly the size of thing prefs exist for.
+   */
+  digestRuns?: { day: string; count: number };
 };
 
 export function loadPrefs(): Prefs {

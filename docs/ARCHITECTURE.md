@@ -417,6 +417,71 @@ transport the reader chose — nowhere at all when that is a local Ollama, and t
 hosted service that bills per story otherwise. No reading history, no
 subscription list, no full text, no Firefly account.
 
+## Today's briefing
+
+The briefing answers the one question folders and topics cannot: _which of
+today's stories are worth my time?_ It is opt-in and off by default, for the same
+reason classification is — it is the other part of the app that sends any of the
+reader's data off the device.
+
+**One edition a day, written from what is already here.** When the reader opens
+Today and their own calendar day has no edition, `lib/store.tsx` sends the day's
+unread stories — real subscriptions only, never the sample edition, at most
+twenty, judged on the title and the summary already stored — to the model chosen
+in Settings. Nothing is fetched to make the prompt better. The answer is up to
+five stories, each with one line on what it is and one on why it might be worth
+reading. Then it is left alone: stories arriving later mark the edition stale
+with a count of what is new, and only a reader who asks rewrites it. A manual
+rewrite is capped at six a day, so a paid key cannot be spent by a stray click.
+
+**The prompt is written in one place.** `buildDigestMessages` in `lib/digest.ts`
+holds every word of the instructions, and both ways of reaching a model use it —
+`POST /api/digest` builds the messages server-side, exactly as `/api/classify`
+writes its question, and a local Ollama is called from the browser with the same
+function because our own server cannot see the reader's machine. A request that
+brought its own instructions would be a general LLM proxy with our domain on it.
+
+**The model is the reader's own.** There is no server-side configuration and no
+secret in the repository: the reader picks a service in Settings, fills in what it
+asks for, and that configuration travels with the request. `LLM_SERVICES` in
+`lib/llm.ts` is the whole list — a local Ollama, and a short set of services that
+carry their own address (OpenAI, Anthropic, DeepSeek, Moonshot, Qwen, GLM), so a
+reader picks one and types only a model and a key. Everything else goes through
+"custom", where the reader chooses which of the two wire formats the address
+speaks — OpenAI-compatible `/chat/completions`, or Anthropic-compatible
+`/v1/messages` — and types the address. One entry covers every compatible
+service, which is a cheaper promise than keeping a dozen addresses current.
+
+Two details of the formats are worth knowing before touching the table: an
+Anthropic call carries the system prompt as a top-level field rather than as a
+message and requires `max_tokens`, and its answer comes back as blocks of which
+only some are prose. A local Ollama speaks the OpenAI shape under `/v1` while the
+address a reader points at is its root, which is why that one entry carries its
+own path. Everything else about the two formats is the same request.
+
+**The answer is checked before it is shown.** The model is given ids and asked
+to copy them back, and a reply is accepted only where every id is one it was
+given, each line is a sentence within its limit, and at least one line survives.
+That is what keeps a gist a summary of a real story rather than a plausible
+sentence about nothing: the words are the model's, the facts are the summary's,
+and the id is what ties the two together. A gist is deliberately one sentence —
+enough to decide whether to open the story, not enough to read in its place.
+
+**Cost is capped on the way in, which is why the endpoint has no rate limiter.**
+At most twenty candidates of three hundred characters each, at most eight hundred
+tokens out, sixty seconds at most: what a request can cost is knowable in
+advance, and there is no legitimate burst to throttle — one edition a day is the
+whole traffic. The daily cap on manual rewrites is on the client, where the
+mistake is made. A local Ollama is called straight from the browser — it takes no
+key, so there is nothing to keep off the page — and everything else goes through
+this app's own endpoint.
+
+Privacy: while a briefing is on, the only thing that leaves the device is the
+title and summary of the day's unread stories, up to twenty at a time, once a day
+and on the reader's own request. It goes to this app's own endpoint, and then to
+the service the reader chose — nowhere at all when that is a local Ollama. No
+reading history, no subscription list, no full text, no Firefly account.
+
 ## Reading state
 
 **Reaching the end of a story marks it read. Nothing else does automatically.**

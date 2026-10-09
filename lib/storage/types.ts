@@ -148,6 +148,40 @@ export type ArticleClassification = {
   deletedAt?: number;
 };
 
+/**
+ * One edition of Today's briefing, keyed by the reader's own calendar day.
+ *
+ * Derived rather than authored: it can be written again from the stories a
+ * reader already has, which is why it stays out of the changeset — a new device
+ * writes its own edition rather than downloading somebody else's prose.
+ *
+ * The picks and the prose travel in parallel fields rather than as one nested
+ * shape, for the same reason a classification stores ids and not the
+ * suggestion: this is a record of what happened, and the words are metadata
+ * about ids that are the real content.
+ */
+export type DigestRecord = {
+  /** `YYYY-MM-DD` in the reader's own day. One edition per day. */
+  day: string;
+  /** The chosen story ids, in reading order. */
+  picks: string[];
+  /** What each picked story is, keyed by story id. */
+  gists: Record<string, string>;
+  /** Why each one was picked, keyed by story id. */
+  reasons: Record<string, string>;
+  /**
+   * The stories it was written from. A candidate that is not here arrived
+   * afterwards, which is the only case where rewriting could add anything —
+   * a story that has since been read and dropped out does not make an edition
+   * the reader has already read wrong.
+   */
+  candidates: string[];
+  /** The LLM service that wrote it. */
+  provider: string;
+  model?: string;
+  updatedAt: number;
+};
+
 /** What a sync client needs: everything that changed after a watermark. */
 export type Changeset = {
   watermark: number;

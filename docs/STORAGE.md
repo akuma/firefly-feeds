@@ -39,7 +39,7 @@ kebab-case of the package: `firefly-feeds`. A localStorage key is a flat
 namespace shared with anything else on the origin, so it takes the dotted,
 versioned form: `firefly.feeds.v1`.
 
-## Five stores, five lifetimes
+## Six stores, six lifetimes
 
 The mistake a reader's storage usually makes is keeping these in one record.
 
@@ -50,6 +50,7 @@ The mistake a reader's storage usually makes is keeping these in one record.
 | `articles`        | cached bodies                    | large, disposable             | **never**                                     |
 | `topics`          | the reader's article topics      | tiny, durable                 | **yes**                                       |
 | `classifications` | one topic per story              | small, low write rate         | **yes**                                       |
+| `digests`         | one edition of Today's briefing  | tiny, derived                 | **never**                                     |
 | `meta`            | the seeding flag                 | —                             | no                                            |
 
 Cached prose is re-fetchable; your reading state is not. Keeping them apart means
@@ -68,6 +69,13 @@ mutable record, so the removal can replicate.
 exempt** (`replaceArticles(sourceId, items, keep)`). Pruning can never remove
 something you deliberately kept.
 
+**`digests` is derived state, not user state.** A briefing is written again from
+stories the device already has, so it is worth keeping between sessions and not
+worth replicating: a new device writes its own edition rather than downloading
+somebody else's prose. It is keyed by the reader's own calendar day and written
+over the previous edition for that day — no tombstone, because there is nothing
+to propagate.
+
 ## Why IndexedDB, and why localStorage survives anyway
 
 localStorage is synchronous, string-only, capped at about 5MB, and has no
@@ -76,8 +84,8 @@ reading one source means parsing all of them. IndexedDB gives asynchronous
 writes, structured records, real indexes (articles are queried by `sourceId`),
 transactions, and a quota measured as a fraction of free disk.
 
-**One thing stays in localStorage**: `firefly.feeds.v1`, holding exactly four
-scalars.
+**One thing stays in localStorage**: `firefly.feeds.v1`, holding a handful of
+scalars and no article content.
 
 ```ts
 type Prefs = {
@@ -85,6 +93,11 @@ type Prefs = {
   font?: number; // reader text size, 0-3
   navOpen?: boolean;
   view?: ViewId; // which column you were last in
+  classify?: boolean; // article classification, opt-in
+  classifyConfig?: ClassifyConfig; // the reader's classifier, and its key
+  digest?: boolean; // Today's briefing, opt-in
+  llmConfig?: LlmConfig; // the reader's model, and its key
+  digestRuns?: { day: string; count: number }; // manual rewrites used today
 };
 ```
 
@@ -122,8 +135,10 @@ mergeChangeset(changeset) → void                   // last write wins, ties �
 
 They are unused by the interface today and are not dead code — they are the
 contract. `articles` is absent from both by design, because cached bodies are
-re-fetchable rather than user data. `topics` and `classifications` are present
-for the same reason `reading` is: they are the reader's own, not a cache.
+re-fetchable rather than user data, and `digests` is absent for the same reason:
+a briefing is written again from what a device already has. `topics` and
+`classifications` are present for the same reason `reading` is: they are the
+reader's own, not a cache.
 
 Conflict resolution is deliberately **last-write-wins on a single timestamp**:
 correct enough for read flags, and honest about not being a CRDT.

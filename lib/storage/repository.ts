@@ -4,6 +4,7 @@ import type {
   ArticleRecord,
   ArticleTopic,
   Changeset,
+  DigestRecord,
   ReadingRecord,
   SourceRecord,
   StorageUsage,
@@ -24,6 +25,8 @@ import type {
  *   topics           the reader's article topics. Small, durable, synced.
  *   classifications  one topic per story. Small, synced, and always kept apart
  *                    from the body cache so a source refresh cannot touch it.
+ *   digests          one edition of Today's briefing per day. Small, derived,
+ *                    never synced — a new device writes its own.
  */
 
 export type Snapshot = {
@@ -32,6 +35,7 @@ export type Snapshot = {
   reading: ReadingRecord[];
   topics: ArticleTopic[];
   classifications: ArticleClassification[];
+  digests: DigestRecord[];
 };
 
 const EMPTY: Snapshot = {
@@ -40,17 +44,19 @@ const EMPTY: Snapshot = {
   reading: [],
   topics: [],
   classifications: [],
+  digests: [],
 };
 
 export async function loadAll(): Promise<Snapshot> {
   if (!available()) return EMPTY;
   const database = await db();
-  const [sources, articles, reading, topics, classifications] = await Promise.all([
+  const [sources, articles, reading, topics, classifications, digests] = await Promise.all([
     database.getAll("sources"),
     database.getAll("articles"),
     database.getAll("reading"),
     database.getAll("topics"),
     database.getAll("classifications"),
+    database.getAll("digests"),
   ]);
   return {
     sources: sources.filter((s) => !s.deletedAt),
@@ -58,6 +64,7 @@ export async function loadAll(): Promise<Snapshot> {
     reading,
     topics: topics.filter((t) => !t.deletedAt),
     classifications: classifications.filter((c) => !c.deletedAt),
+    digests,
   };
 }
 
@@ -188,6 +195,19 @@ export async function removeClassification(itemId: string): Promise<void> {
     tx.store.put({ ...existing, deletedAt: Date.now(), updatedAt: Date.now() });
   }
   await tx.done;
+}
+
+/* ------------------------------------------------------------- digests */
+
+/**
+ * Today's edition, written over the previous one for the same day.
+ *
+ * Overwritten rather than tombstoned: a digest is derived from stories the
+ * device already has, so it has nothing to replicate and nothing to preserve.
+ */
+export async function putDigest(record: DigestRecord): Promise<void> {
+  if (!available()) return;
+  await (await db()).put("digests", record);
 }
 
 /* ------------------------------------------------------------------ sync */

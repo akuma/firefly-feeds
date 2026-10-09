@@ -2953,3 +2953,172 @@ describe("turning classification on", () => {
     }
   });
 });
+
+/** Three real stories: below that there is no edition to write. */
+async function seedDigestStories() {
+  const repo = await import("@/lib/storage/repository");
+  const now = Date.now();
+  await repo.putSource({
+    id: "sdig",
+    url: "https://dig.example/feed.xml",
+    siteUrl: "https://dig.example",
+    title: "Digest Source",
+    host: "dig.example",
+    folder: "news",
+    addedAt: now,
+    fetchedAt: now,
+    updatedAt: now,
+  });
+  const stories = [
+    { id: "sdig~one", title: "A first story", summary: "The first summary." },
+    { id: "sdig~two", title: "A second story", summary: "The second summary." },
+    { id: "sdig~three", title: "A third story", summary: "The third summary." },
+  ];
+  await repo.replaceArticles(
+    "sdig",
+    stories.map((story, i) => ({
+      id: story.id,
+      sourceId: "sdig",
+      title: story.title,
+      publishedAt: now - i * 60_000,
+      fetchedAt: now,
+      summary: story.summary,
+      body: [{ kind: "p" as const, text: story.summary }],
+      minutes: 2,
+      layout: "standard" as const,
+      contentState: "full" as const,
+      extractionState: "idle" as const,
+    })),
+  );
+}
+
+/** A local model, already set up: no key, and nothing off the machine. */
+const LLM_PREFS = {
+  digest: true,
+  llmConfig: {
+    service: "ollama",
+    wire: "openai",
+    baseUrl: "",
+    models: { ollama: "llama3.2" },
+    keys: {},
+  },
+};
+
+function digestAnswer() {
+  return new Response(
+    JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify([
+              {
+                id: "sdig~two",
+                gist: "A gist about the second story.",
+                why: "It explains the week.",
+              },
+              {
+                id: "sdig~one",
+                gist: "A gist about the first story.",
+                why: "It has the numbers.",
+              },
+            ]),
+          },
+        },
+      ],
+    }),
+    { headers: { "content-type": "application/json" } },
+  );
+}
+
+/** Only the requests this feature could have made. */
+function digestSpy() {
+  const seen: { url: string; body: string }[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/v1/chat/completions") || url.includes("/api/digest")) {
+      seen.push({ url, body: String(init?.body ?? "") });
+      return digestAnswer();
+    }
+    return new Response(JSON.stringify({ ok: true, items: [] }), {
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  return { seen, restore: () => (globalThis.fetch = original) };
+}
+
+describe("today's briefing", () => {
+  it("writes the edition from the stories it has, and says where the words came from", async () => {
+    localStorage.setItem("firefly.feeds.v1", JSON.stringify(LLM_PREFS));
+    await seedDigestStories();
+    const spy = digestSpy();
+
+    try {
+      await mount();
+      await waitFor(() =>
+        expect(stream().querySelector("[data-t='briefing']")).toBeInTheDocument(),
+      );
+      const block = stream().querySelector<HTMLElement>("[data-t='briefing']")!;
+
+      // the two lines that make a gist a summary and not a substitute
+      expect(within(block).getByText("A gist about the second story.")).toBeInTheDocument();
+      expect(within(block).getByText("It explains the week.")).toBeInTheDocument();
+      expect(within(block).getByText(/Nothing fetched, nothing invented/)).toBeInTheDocument();
+
+      // a local model is called straight from the browser, not through our
+      // endpoint — our own server cannot see the reader's machine
+      expect(spy.seen).toHaveLength(1);
+      expect(spy.seen[0].url).toBe("http://localhost:11434/v1/chat/completions");
+      // and it is given the stories, not a question of its own
+      const sent = JSON.parse(spy.seen[0].body);
+      expect(sent.messages[1].content).toContain("A first story");
+      expect(sent.messages[1].content).toContain("A third story");
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it("leaves an edition the reader has already read alone", async () => {
+    localStorage.setItem("firefly.feeds.v1", JSON.stringify(LLM_PREFS));
+    await seedDigestStories();
+    const repo = await import("@/lib/storage/repository");
+    const { dayKey } = await import("@/lib/digest");
+    await repo.putDigest({
+      day: dayKey(),
+      picks: ["sdig~one"],
+      gists: { "sdig~one": "A written gist." },
+      reasons: { "sdig~one": "A written reason." },
+      candidates: ["sdig~one", "sdig~two", "sdig~three"],
+      provider: "ollama",
+      model: "llama3.2",
+      updatedAt: Date.now(),
+    });
+    const spy = digestSpy();
+
+    try {
+      await mount();
+      await waitFor(() =>
+        expect(stream().querySelector("[data-t='briefing']")).toBeInTheDocument(),
+      );
+      const block = stream().querySelector<HTMLElement>("[data-t='briefing']")!;
+      expect(within(block).getByText("A written gist.")).toBeInTheDocument();
+      // one edition a day: nothing is rewritten behind the reader's back
+      expect(spy.seen).toHaveLength(0);
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it("is off until the reader asks for it", async () => {
+    await seedDigestStories();
+    const spy = digestSpy();
+
+    try {
+      await mount();
+      expect(stream().querySelector("[data-t='briefing']")).toBeNull();
+      expect(spy.seen).toHaveLength(0);
+    } finally {
+      spy.restore();
+    }
+  });
+});

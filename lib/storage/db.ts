@@ -4,6 +4,7 @@ import type {
   ArticleClassification,
   ArticleRecord,
   ArticleTopic,
+  DigestRecord,
   MetaRecord,
   ReadingRecord,
   SourceRecord,
@@ -17,11 +18,12 @@ import type {
 
 const DB_NAME = "firefly-feeds";
 /**
- * 2 added the classification stores. The change is additive — the v1 stores
- * are untouched — so an existing database keeps its subscriptions, read flags
- * and cached bodies and simply gains two empty stores.
+ * 2 added the classification stores. 3 added the briefing store. Both changes
+ * are additive — the earlier stores are untouched — so an existing database
+ * keeps its subscriptions, read flags and cached bodies and simply gains one
+ * more empty store.
  */
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const SEEDED = "seed:initialised";
 
 export interface FireflyDB extends DBSchema {
@@ -48,6 +50,11 @@ export interface FireflyDB extends DBSchema {
   classifications: {
     key: string;
     value: ArticleClassification;
+    indexes: { "by-updated": number };
+  };
+  digests: {
+    key: string;
+    value: DigestRecord;
     indexes: { "by-updated": number };
   };
   meta: {
@@ -110,6 +117,13 @@ async function connect(): Promise<IDBPDatabase<FireflyDB>> {
           keyPath: "itemId",
         });
         classifications.createIndex("by-updated", "updatedAt");
+      }
+
+      if (oldVersion < 3) {
+        // One record per day rather than per story, because a briefing is an
+        // edition: it is read as a whole and rewritten as a whole.
+        const digests = instance.createObjectStore("digests", { keyPath: "day" });
+        digests.createIndex("by-updated", "updatedAt");
       }
     },
   });
