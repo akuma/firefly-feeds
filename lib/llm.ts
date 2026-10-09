@@ -133,11 +133,16 @@ export const ANTHROPIC_VERSION = "2023-06-01";
 export const LLM_TEMPERATURE = 0.3;
 
 /**
- * Five gists and five reasons, and a ceiling on a runaway answer. It is half of
- * this feature's cost control — `DIGEST_MAX_CANDIDATES` in `lib/digest.ts` is
- * the other half.
+ * Enough for the answer, and for the deliberation that precedes it.
+ *
+ * A thinking model spends part of its allowance reasoning before it writes
+ * anything, and that reasoning is billed against `max_tokens` like the answer is
+ * — measured on a three-story prompt, about two thirds of the completion was
+ * deliberation. A budget that only fits the answer is a budget the thinking
+ * eats: the call succeeds, `content` is empty, and the reader is told the model
+ * said nothing. So the ceiling sits above both, and is still a ceiling.
  */
-export const LLM_MAX_TOKENS = 800;
+export const LLM_MAX_TOKENS = 3000;
 
 /**
  * A current model id per service, as a placeholder and nothing more.
@@ -254,6 +259,9 @@ function openAIBody(config: LlmConfig, messages: readonly LlmMessage[]) {
     model: modelFor(config),
     temperature: LLM_TEMPERATURE,
     max_tokens: LLM_MAX_TOKENS,
+    // Asked for rather than assumed: a gateway that streams by default answers
+    // in event-stream chunks, which is not a reply this app can read.
+    stream: false,
     messages: messages.map((message) => ({ ...message })),
   };
 }
@@ -321,8 +329,7 @@ function textOf(value: unknown): string {
     .join("");
 }
 
-/**
- * The text out of an answer, in whichever shape the format uses.
+/** The text out of an answer, in whichever shape the format uses.
  *
  * Reading belongs to the format rather than to the service, which is why it is
  * a function of the wire and not a field on the table: "custom" is Anthropic-
@@ -344,6 +351,73 @@ export function readLlmText(raw: unknown, wire: LlmWire): string {
   const first = asRecord(choices[0]);
   const message = asRecord(first?.message);
   return textOf(message?.content ?? first?.text);
+}
+
+/**
+ * What "the model said nothing" means, when the reply says more than that.
+ *
+ * An empty answer is usually not an empty model: a thinking model writes its
+ * deliberation into a field of its own, and a budget it exhausts leaves the
+ * answer blank with the reasoning still in the reply. Telling a reader their
+ * model "returned nothing" when it in fact ran out of room is the one error
+ * that sends them to the wrong place.
+ */
+export function llmSilence(raw: unknown, wire: LlmWire): string {
+  const body = asRecord(raw);
+  if (wire === "anthropic") {
+    const blocks = Array.isArray(body?.content) ? body.content : [];
+    const thought = blocks.map(asRecord).some((block) => block?.type === "thinking");
+    if (thought) return THOUGHT_BUDGET;
+  } else {
+    const first = asRecord(Array.isArray(body?.choices) ? body.choices[0] : undefined);
+    const message = asRecord(first?.message);
+    const thought =
+      textOf(message?.reasoning) !== "" ||
+      textOf(message?.reasoning_content) !== "" ||
+      first?.finish_reason === "length";
+    if (thought) return THOUGHT_BUDGET;
+  }
+  return "The model returned nothing.";
+}
+
+const THOUGHT_BUDGET = "The model spent its allowance thinking and never reached the answer.";
+
+/**
+ * Read one upstream reply, in whatever shape it arrived.
+ *
+ * Both ways of calling a model come through here, so "what did the model say"
+ * is decided once: a reply that is not JSON is reported as unreadable rather
+ * than as empty, and an empty one says which kind of empty it was.
+ */
+export async function readLlmReply(
+  res: Response,
+  service: LlmService,
+  config: LlmConfig,
+): Promise<{ ok: true; text: string } | { ok: false; error: string; status: number }> {
+  const wire = effectiveWire(service, config);
+  const bodyText = await res.text().catch(() => "");
+  let raw: unknown = null;
+  try {
+    raw = JSON.parse(bodyText);
+  } catch {
+    raw = null;
+  }
+
+  if (!res.ok) {
+    return { ok: false, error: llmFailure(service, config, res.status, raw), status: res.status };
+  }
+  const answer = readLlmText(raw, wire);
+  if (answer) return { ok: true, text: answer };
+  if (raw === null) {
+    return {
+      ok: false,
+      error: bodyText
+        ? `${service.label} answered in something this app cannot read.`
+        : "The model sent an empty response.",
+      status: 502,
+    };
+  }
+  return { ok: false, error: llmSilence(raw, wire), status: 502 };
 }
 
 /** The first human-readable message in an upstream error body. */
@@ -376,9 +450,14 @@ export function llmFailure(
   if (status === 401 || status === 403) return `${service.label} refused the key.`;
   if (status === 429) return `${service.label} is rate limiting requests.`;
   if (status === 404) {
-    return config.service === CUSTOM_SERVICE
-      ? "That address does not answer chat completions. Check the base URL."
-      : `${service.label} did not answer at its usual address.`;
+    // An upstream that says why beats either explanation we could give: a 404
+    // is as often a model that is not there as an endpoint that is not.
+    return (
+      llmErrorText(raw) ??
+      (config.service === CUSTOM_SERVICE
+        ? "That address does not answer chat completions. Check the base URL."
+        : `${service.label} did not answer at its usual address.`)
+    );
   }
   return llmErrorText(raw) ?? `${service.label} refused the request.`;
 }

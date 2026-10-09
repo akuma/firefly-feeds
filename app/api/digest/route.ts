@@ -7,13 +7,11 @@ import {
   type DigestCandidate,
 } from "@/lib/digest";
 import {
-  effectiveWire,
   findService,
-  llmFailure,
   missingFields,
   modelFor,
   readLlmConfig,
-  readLlmText,
+  readLlmReply,
   type LlmConfig,
   type LlmService,
 } from "@/lib/llm";
@@ -112,21 +110,19 @@ async function callService(
       body: JSON.stringify(call.body),
       signal: AbortSignal.timeout(DIGEST_TIMEOUT_MS),
     });
-    const raw: unknown = await res.json().catch(() => null);
-    if (!res.ok) {
+    // Read here rather than in the route, so "what did the model say" is
+    // decided once and an unreadable reply is never reported as an empty one.
+    const reply = await readLlmReply(res, service, config);
+    if (!reply.ok) {
       return Response.json(
-        { ok: false, error: llmFailure(service, config, res.status, raw) },
-        { status: res.status === 429 ? 429 : 502 },
+        { ok: false, error: reply.error },
+        { status: reply.status === 429 ? 429 : 502 },
       );
-    }
-    const text = readLlmText(raw, effectiveWire(service, config));
-    if (!text) {
-      return Response.json({ ok: false, error: "The model returned nothing." }, { status: 502 });
     }
     return Response.json(
       {
         ok: true,
-        text,
+        text: reply.text,
         provider: service.id,
         ...(modelFor(config) ? { model: modelFor(config) } : {}),
       },

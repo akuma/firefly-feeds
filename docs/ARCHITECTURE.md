@@ -468,10 +468,15 @@ and the id is what ties the two together. A gist is deliberately one sentence �
 enough to decide whether to open the story, not enough to read in its place.
 
 **Cost is capped on the way in, which is why the endpoint has no rate limiter.**
-At most twenty candidates of three hundred characters each, at most eight hundred
-tokens out, sixty seconds at most: what a request can cost is knowable in
-advance, and there is no legitimate burst to throttle — one edition a day is the
-whole traffic. The daily cap on manual rewrites is on the client, where the
+At most twenty candidates of three hundred characters each, at most three
+thousand tokens out, sixty seconds at most: what a request can cost is knowable
+in advance, and there is no legitimate burst to throttle — one edition a day is
+the whole traffic. The output ceiling is as high as it is because a thinking
+model bills its deliberation against it — measured on a three-story prompt, about
+two thirds of the completion was reasoning — and a budget that only fits the
+answer is one the thinking eats, leaving an empty `content` behind a call that
+succeeded. An empty answer therefore says which kind of empty it was: out of
+room, or actually nothing. The daily cap on manual rewrites is on the client, where the
 mistake is made. A local Ollama is called straight from the browser — it takes no
 key, so there is nothing to keep off the page — and everything else goes through
 this app's own endpoint.

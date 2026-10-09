@@ -1,10 +1,8 @@
 import { blocksToText } from "./feed-html";
 import {
-  effectiveWire,
   findService,
-  llmFailure,
   llmFieldValue,
-  readLlmText,
+  readLlmReply,
   serviceReady,
   type LlmConfig,
   type LlmMessage,
@@ -276,7 +274,6 @@ export async function requestDigest(input: {
   }
 
   const messages = buildDigestMessages(input.candidates);
-  const wire = effectiveWire(service, input.llm);
   const direct = service.direct?.(input.llm) === true;
 
   try {
@@ -288,13 +285,9 @@ export async function requestDigest(input: {
         body: JSON.stringify(call.body),
         signal: AbortSignal.timeout(DIGEST_TIMEOUT_MS),
       });
-      const raw: unknown = await res.json().catch(() => null);
-      if (!res.ok) {
-        return { ok: false, error: llmFailure(service, input.llm, res.status, raw) };
-      }
-      const answer = readLlmText(raw, wire);
-      if (!answer) return { ok: false, error: "The model returned nothing." };
-      return { ok: true, text: answer, provider: service.id };
+      const reply = await readLlmReply(res, service, input.llm);
+      if (!reply.ok) return { ok: false, error: reply.error };
+      return { ok: true, text: reply.text, provider: service.id };
     }
 
     const res = await fetch("/api/digest", {

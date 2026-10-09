@@ -9,9 +9,11 @@ import {
   findService,
   llmFailure,
   llmFieldValue,
+  llmSilence,
   missingFields,
   modelFor,
   readLlmConfig,
+  readLlmReply,
   readLlmText,
   readOllamaChatModels,
   serviceReady,
@@ -108,6 +110,9 @@ describe("the two request shapes", () => {
       max_tokens: expect.any(Number),
       messages: MESSAGES,
     });
+    // Asked for rather than assumed: a gateway that streams by default would
+    // answer in chunks this app cannot read.
+    expect((call.body as { stream?: boolean }).stream).toBe(false);
   });
 
   it("moves the system prompt out of the messages for Anthropic", () => {
@@ -188,12 +193,85 @@ describe("reading an answer", () => {
     // endpoint on an address we chose is ours.
     expect(llmFailure(custom, configFor(CUSTOM_SERVICE), 404, null)).toMatch(/base URL/);
     expect(llmFailure(openai, configFor("openai"), 404, null)).not.toMatch(/base URL/);
+    // …but an upstream that says which one it was is worth more than either.
+    expect(
+      llmFailure(openai, configFor("openai"), 404, {
+        error: "model 'no-such-model' not found, try pulling it first",
+      }),
+    ).toMatch(/not found/);
     expect(llmFailure(openai, configFor("openai"), 429, null)).toMatch(/rate limiting/);
     // Anything else takes the upstream's own words, so the reader is not left
     // guessing at a generic refusal.
     expect(
       llmFailure(openai, configFor("openai"), 400, { error: { message: "model not found" } }),
     ).toBe("model not found");
+  });
+
+  it("says when the model spent its allowance thinking instead of answering", () => {
+    // A thinking model bills its deliberation against max_tokens, so a budget
+    // it exhausts leaves content empty with the reasoning still in the reply —
+    // which is "ran out of room", not "returned nothing".
+    expect(
+      llmSilence(
+        { choices: [{ message: { content: "", reasoning: "hmm" }, finish_reason: "length" }] },
+        "openai",
+      ),
+    ).toMatch(/thinking/);
+    expect(
+      llmSilence(
+        {
+          content: [
+            { type: "thinking", thinking: "hmm" },
+            { type: "text", text: "" },
+          ],
+        },
+        "anthropic",
+      ),
+    ).toMatch(/thinking/);
+    expect(
+      llmSilence({ choices: [{ message: { content: "" }, finish_reason: "stop" }] }, "openai"),
+    ).toBe("The model returned nothing.");
+  });
+
+  it("distinguishes a reply it cannot read from one that said nothing", async () => {
+    const service = findService("openai")!;
+    const config = configFor("openai");
+
+    // A gateway that streams by default, or answers in HTML, is not a silent
+    // model — and saying so sends the reader to the wrong place.
+    const unreadable = await readLlmReply(
+      new Response('data: {"choices":[]}', { status: 200 }),
+      service,
+      config,
+    );
+    expect(unreadable.ok).toBe(false);
+    if (!unreadable.ok) expect(unreadable.error).toMatch(/cannot read/);
+
+    const blank = await readLlmReply(new Response("", { status: 200 }), service, config);
+    expect(blank.ok).toBe(false);
+    if (!blank.ok) expect(blank.error).toMatch(/empty response/);
+
+    const spent = await readLlmReply(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "", reasoning: "hmm" }, finish_reason: "length" }],
+        }),
+        { status: 200 },
+      ),
+      service,
+      config,
+    );
+    expect(spent.ok).toBe(false);
+    if (!spent.ok) expect(spent.error).toMatch(/thinking/);
+
+    const fine = await readLlmReply(
+      new Response(JSON.stringify({ choices: [{ message: { content: "Five." } }] }), {
+        status: 200,
+      }),
+      service,
+      config,
+    );
+    expect(fine).toEqual({ ok: true, text: "Five." });
   });
 });
 
