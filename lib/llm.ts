@@ -91,6 +91,17 @@ export type LlmService = {
    * address a reader points at is its root, so the `/v1` belongs to the path.
    */
   path?: string;
+  /**
+   * What tells this service not to deliberate, when it can be told at all.
+   *
+   * A thinking model bills its reasoning against `max_tokens`, so an allowance
+   * that fits the answer can still lose all of it to the thinking before the
+   * answer — and this feature needs no reasoning, only five choices and ten
+   * short lines. DeepSeek's is documented as `thinking.type`; a service that
+   * cannot be told is left to the budget and to an error that says which kind
+   * of empty it was.
+   */
+  thinkOff?: Record<string, unknown>;
   fields: readonly LlmField[];
   call(config: LlmConfig, messages: readonly LlmMessage[]): ProviderCall;
   /**
@@ -154,7 +165,7 @@ export const LLM_MAX_TOKENS = 3000;
 const MODEL_HINT: Record<Exclude<LlmServiceId, "ollama" | typeof CUSTOM_SERVICE>, string> = {
   openai: "gpt-4o-mini",
   anthropic: "claude-sonnet-4-5",
-  deepseek: "deepseek-chat",
+  deepseek: "deepseek-flash",
   moonshot: "moonshot-v1-8k",
   qwen: "qwen-plus",
   glm: "glm-4-air",
@@ -294,9 +305,12 @@ function serviceCall(
   messages: readonly LlmMessage[],
 ): ProviderCall {
   const anthropic = effectiveWire(service, config) === "anthropic";
+  const body = anthropic ? anthropicBody(config, messages) : openAIBody(config, messages);
   return {
     url: endpointFor(service, config),
-    body: anthropic ? anthropicBody(config, messages) : openAIBody(config, messages),
+    // Whatever this service needs to answer rather than deliberate, on top of
+    // the shape its format already has.
+    body: { ...body, ...service.thinkOff },
     headers: anthropic
       ? {
           "x-api-key": credential(config, config.service),
@@ -507,6 +521,10 @@ export const LLM_SERVICES: readonly LlmService[] = (
       blurb: "DeepSeek's chat models, on their OpenAI-compatible endpoint.",
       wire: "openai",
       baseUrl: "https://api.deepseek.com/v1",
+      // DeepSeek thinks by default and bills the reasoning against max_tokens,
+      // and its models do not need it to pick five stories and write ten
+      // sentences. The documented switch is `thinking.type`.
+      thinkOff: { thinking: { type: "disabled" } },
     },
     {
       id: "moonshot",

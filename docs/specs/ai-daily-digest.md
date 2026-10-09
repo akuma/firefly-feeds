@@ -240,7 +240,7 @@ Settings 不用为它写死任何一家。读者看到的是一串服务，点�
 - **key 与 model 都按服务各存一把**，key 是密码字段，换服务不用重输。
 
 模型是**必填的自由文本**，不是下拉：模型名变得比我们发版快，写死的列表过期之后是一条
-死路，而占位符（如 `deepseek-chat`）已经够暗示格式。填错的代价由 7.4 的 400 文案承担。
+死路，而占位符（如 `deepseek-flash`）已经够暗示格式。填错的代价由 7.4 的 400 文案承担。
 
 本地 Ollama 是默认项：无 key、不出本机，模型列表从 Ollama 自己读，只列会聊天的。
 
@@ -369,7 +369,7 @@ export function endpointFor(provider: LlmProvider, config: LlmConfig): string;
 `onReadersNetwork` 也直接拿来判断 Ollama 能否直连。
 
 > 实现注：模型名改成按服务存（`models` map，与 `keys` 同形）。草图里的单一 `model`
-> 在切换服务时会把 `deepseek-chat` 带到 OpenAI 上——分类那边是 `ollamaModel` /
+> 在切换服务时会把 `deepseek-flash` 带到 OpenAI 上——分类那边是 `ollamaModel` /
 > `openaiModel` 各存各的，这里用 map 达到同一件事，换服务回来不用重输。另外给
 > `path` 留了一个字段：Ollama 说的是 OpenAI 格式，但它在 `/v1/chat/completions`，
 > 而读者填的是它的根地址。
@@ -396,7 +396,7 @@ OpenRouter / Groq / Gemini 这类同样出名但不进表：它们全是 OpenAI 
 走「自定义」一个条目就够——每单列一家，就多一个要我们盯着变更的承诺。
 
 **模型占位符**：每家在表里带一个当前型号作为 placeholder（OpenAI `gpt-4o-mini`、
-Anthropic `claude-sonnet-4-5`、DeepSeek `deepseek-chat`、Kimi `moonshot-v1-8k`、
+Anthropic `claude-sonnet-4-5`、DeepSeek `deepseek-flash`、Kimi `moonshot-v1-8k`、
 Qwen `qwen-plus`、GLM `glm-4-air`）。它只是格式暗示，不是推荐——模型名变得比我们发版快，
 所以读者永远可以改，我们也永远不用为了更新型号发版。
 
@@ -434,6 +434,11 @@ Qwen `qwen-plus`、GLM `glm-4-air`）。它只是格式暗示，不是推荐—�
 - `max_tokens: 3000`——**思考型模型的「思考」也计在预算里**（实测一个 3 条候选的请求，
   约 2/3 的输出是 reasoning），800 会被思考吃光：调用成功、`content` 为空、然后报一句
   误导人的「模型没说话」。3000 覆盖思考与正文，同时仍是失控输出的硬上限。
+- **能关思考的就关**：表里的 `thinkOff` 声明「这家怎么关思考」，DeepSeek 发
+  `thinking: {type: "disabled"}`（官方文档：它默认 `enabled`，且 reasoning 与 answer
+  共享同一个 token 配额）。每家叫法不同、不声明就不发——给不认识的服务发未知字段是
+  纯冒险。Ollama 这边实测 `think:false` 与 `chat_template_kwargs` 都无效，故不发，靠预算
+  与真实错误兜底。
 - 输入侧封顶：20 条 ×（300 + 300）字符。
 - 超时 **60s**：生成比决策慢一个量级，分类那 20s 不够。
 - 上面两条加上 `max_tokens` 就是全部成本控制——单次请求的最坏开销由此确定，所以服务端

@@ -459,6 +459,17 @@ only some are prose. A local Ollama speaks the OpenAI shape under `/v1` while th
 address a reader points at is its root, which is why that one entry carries its
 own path. Everything else about the two formats is the same request.
 
+**A model that thinks is told not to, wherever it can be told.** A thinking
+model bills its deliberation against the same `max_tokens` as its answer, so an
+allowance that fits the answer can lose all of it to the reasoning before the
+answer: the call succeeds and `content` comes back empty. This feature needs no
+reasoning — five choices and ten short lines. DeepSeek's switch is documented as
+`thinking.type`, defaults to `enabled`, and is sent by its entry; a service that
+cannot be told is left to the budget and to an error that says which kind of
+empty it was. The switch is declared per service rather than guessed at, because
+every provider spells it differently and an unknown field is a risk taken for
+nothing.
+
 **The answer is checked before it is shown.** The model is given ids and asked
 to copy them back, and a reply is accepted only where every id is one it was
 given, each line is a sentence within its limit, and at least one line survives.

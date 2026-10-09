@@ -127,6 +127,23 @@ describe("the two request shapes", () => {
     expect(body.messages.map((m) => m.role)).toEqual(["user"]);
     expect(body.max_tokens).toBeGreaterThan(0);
   });
+
+  it("asks a model that thinks by default not to think here", () => {
+    // DeepSeek's thinking is on unless it is turned off, and its reasoning is
+    // billed against the same allowance as the answer — which is how an answer
+    // that fits comes back empty.
+    const deepseek = findService("deepseek")!.call(
+      configFor("deepseek", { models: { deepseek: "deepseek-flash" } }),
+      MESSAGES,
+    );
+    expect(deepseek.body).toMatchObject({ thinking: { type: "disabled" } });
+    // And nothing of the sort is sent anywhere it was not declared: an unknown
+    // field is a risk taken for nothing on a service that never asked for it.
+    const openai = findService("openai")!.call(configFor("openai"), MESSAGES);
+    expect(openai.body).not.toHaveProperty("thinking");
+    const custom = findService(CUSTOM_SERVICE)!.call(configFor(CUSTOM_SERVICE), MESSAGES);
+    expect(custom.body).not.toHaveProperty("thinking");
+  });
 });
 
 describe("keeping the reader's own values", () => {
