@@ -359,17 +359,24 @@ asks our own origin because Ollama's CORS policy only admits localhost origins.
 holds for the hosted APIs, whose credentials must not reach the page. A local
 Ollama is the exception: it takes no credential, so there is nothing to keep off
 the page, and it is the one transport our own server cannot reach on the reader's
-behalf. So when the Ollama address is on the reader's network _and_ the page is
-served from it, the browser calls Ollama itself — same request the server would
-have built, same parser, one fewer hop. The reader's own machine is where the
-request leaves from, which is the only place it can.
+behalf. So when the Ollama address is on the reader's network the browser calls
+Ollama itself — same request the server would have built, same parser, one fewer
+hop.
 
-Two things follow. The deployed site can reach a local model too, but only once
-the reader has admitted it: Ollama's CORS policy answers a `localhost` origin and
-refuses any other, so `OLLAMA_ORIGINS` has to name the site — without it the
-failure says exactly that. On the macOS app that is `launchctl setenv
-OLLAMA_ORIGINS "https://feeds.fireflylabs.studio,http://localhost:3000"` followed
-by quitting and reopening Ollama, since a new value only reaches a new process. And a direct call passes neither the Worker's rate
+Where the page was served from is not a condition. The request leaves from the
+reader's machine either way, so a page on a deployed domain reaches `localhost`
+exactly as a locally served one does; what the origin decides is only whether
+Ollama's CORS policy admits the page.
+
+The deployed site reaches a local model, but only once the reader has admitted it:
+Ollama answers a loopback origin and refuses a page on a domain, so
+`OLLAMA_ORIGINS` has to name the site. Without it the picker says it could not
+ask Ollama and names that setting, rather than reporting a model list the reader
+does have as missing — an unreachable Ollama and an Ollama with no decision
+models are different problems, and only one of them is fixed by `ollama pull`. On
+the macOS app that is `launchctl setenv OLLAMA_ORIGINS
+"https://feeds.fireflylabs.studio"` followed by quitting and reopening Ollama,
+since a new value only reaches a new process. And a direct call passes neither the Worker's rate
 limiter nor its origin guard; the client-side pacing is what throttles it, and
 Ollama's own CORS policy is what stops anyone else's page from doing the same.
 

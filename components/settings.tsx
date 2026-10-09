@@ -7,7 +7,6 @@ import {
   canCallDirectly,
   CLASSIFY_PROVIDERS,
   ollamaTagsUrl,
-  onReadersNetwork,
   readOllamaModels,
   type ClassifyProviderId,
   fieldValue,
@@ -36,6 +35,8 @@ export function Settings() {
   const [draft, setDraft] = useState("");
   /** The decision models the local Ollama has, or null while asking. */
   const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
+  /** Whether Ollama could be asked at all — running, and letting this page in. */
+  const [ollamaUnreachable, setOllamaUnreachable] = useState(false);
 
   // One label per transport, shared with the server so the two never drift.
   const lastProvider = providerLabel(r.classifyProvider);
@@ -43,24 +44,19 @@ export function Settings() {
   const ready = missingFields(chosen, r.classifyConfig).length === 0;
 
   /*
-   * A local Ollama is only reachable when this copy of Firefly runs beside the
-   * reader. Deployed, the request goes out from a server on the internet, where
-   * `localhost` means that server — so a local address can never answer, and
-   * asking for its models would read as "you have none" rather than the truth.
+   * A local Ollama is asked for directly: the request leaves from the reader's
+   * machine, which is the only place that can reach it. Where the page itself was
+   * served from makes no difference to that — only to whether Ollama's CORS
+   * policy admits the page, which is what `ollamaUnreachable` reports.
    */
-  const besideReader = onReadersNetwork(window.location.origin);
-  const ollamaOutOfReach =
-    chosen.id === "ollama" && !besideReader && onReadersNetwork(r.classifyConfig.ollamaBaseUrl);
-  // Beside the reader, the model list is asked for directly — the same request
-  // our own endpoint would have made, minus the round trip it cannot complete.
-  const ollamaDirect =
-    chosen.id === "ollama" && canCallDirectly(chosen, r.classifyConfig, window.location.origin);
+  const ollamaDirect = chosen.id === "ollama" && canCallDirectly(chosen, r.classifyConfig);
+  const ollamaTrouble = chosen.id === "ollama" && ollamaUnreachable;
 
   // What a local Ollama can actually answer with is a fact only it knows, so the
   // picker asks rather than assuming. Debounced, because the address is a text
   // field and every keystroke would otherwise be a request.
   useEffect(() => {
-    if (chosen.id !== "ollama" || ollamaOutOfReach) return;
+    if (chosen.id !== "ollama") return;
     const base = r.classifyConfig.ollamaBaseUrl;
     let cancelled = false;
     const timer = setTimeout(() => {
@@ -69,6 +65,7 @@ export function Settings() {
       const url = ollamaDirect
         ? ollamaTagsUrl(base)
         : `/api/classify/models?base=${encodeURIComponent(base)}`;
+      setOllamaUnreachable(false);
       void fetch(url)
         .then((res) => res.json())
         .then((data: unknown) => {
@@ -81,14 +78,18 @@ export function Settings() {
           );
         })
         .catch(() => {
-          if (!cancelled) setOllamaModels([]);
+          // Not the same as an empty list: Ollama was never heard from, so the
+          // reader cannot act on this by pulling a model.
+          if (cancelled) return;
+          setOllamaModels([]);
+          setOllamaUnreachable(true);
         });
     }, 400);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [chosen.id, r.classifyConfig.ollamaBaseUrl, ollamaOutOfReach, ollamaDirect]);
+  }, [chosen.id, r.classifyConfig.ollamaBaseUrl, ollamaDirect]);
 
   // A field whose choices are only known at runtime gets them here, so the table
   // stays a static description and the dialog stays a generic renderer.
@@ -172,8 +173,8 @@ export function Settings() {
               <div className="mono flex flex-wrap items-center gap-x-2 gap-y-1 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                 <span className="flex items-center gap-1.5">
                   <Sparkles size={11} strokeWidth={1.6} />
-                  {ollamaOutOfReach
-                    ? `${chosen.label} out of reach`
+                  {ollamaTrouble
+                    ? `${chosen.label} unreachable`
                     : ready
                       ? `${chosen.label} ready`
                       : `${chosen.label} needs setting up`}
@@ -242,13 +243,7 @@ export function Settings() {
               <div className="mt-6 flex flex-col gap-5">
                 {fields.map((field) => {
                   const id = `classify-${field.key}`;
-                  /*
-                   * The one field a hosted deployment cannot offer: the machine
-                   * the models live on is not the machine the request leaves
-                   * from. The address below stays editable, which is the way
-                   * out — point it somewhere publicly reachable.
-                   */
-                  const unreachable = field.key === "ollamaModel" && ollamaOutOfReach;
+                  const unreachable = field.key === "ollamaModel" && ollamaTrouble;
                   return (
                     <div key={field.key}>
                       <label htmlFor={id} className="label block text-ink4">
@@ -257,10 +252,9 @@ export function Settings() {
                       </label>
                       {unreachable ? (
                         <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink3">
-                          This copy of Firefly runs on a server, so it cannot reach an Ollama on
-                          this machine — <span className="mono">localhost</span> here means the
-                          server, not you. Point the address below at one that is publicly
-                          reachable, or run Firefly on your own machine.
+                          Ollama could not be asked at that address. Either it is not running, or it
+                          has not admitted this page — a site on a domain needs{" "}
+                          <span className="mono">OLLAMA_ORIGINS</span> naming it.
                         </p>
                       ) : (
                         <div className="relative mt-2 flex items-center gap-3 border-b border-rulestrong pb-2">

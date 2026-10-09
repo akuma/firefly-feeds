@@ -561,18 +561,18 @@ export const CLASSIFY_PROVIDERS: readonly ClassifyProvider[] = [
  * Whether the browser may call this transport itself, rather than asking our own
  * endpoint to.
  *
- * Both halves matter. The transport has to be one that needs no credential and
- * sits on the reader's own network — a local Ollama, the one case our server
- * cannot reach for the reader. And the page itself has to be served from that
- * network, because a browser on a deployed origin cannot reach `localhost` any
- * more than a Worker can.
+ * True only for a transport that needs no credential and sits on the reader's own
+ * network — a local Ollama, the one case our server cannot reach on the reader's
+ * behalf.
+ *
+ * The page's own origin is deliberately not consulted. The request leaves from
+ * the reader's machine either way, so a page served from a deployed domain can
+ * reach `localhost` exactly as a locally served one can; what the origin decides
+ * is only whether Ollama's CORS policy admits it, and that is a setting on
+ * Ollama's side, not a condition here.
  */
-export function canCallDirectly(
-  provider: ClassifyProvider,
-  config: ClassifyConfig,
-  origin: string,
-): boolean {
-  return provider.direct?.(config) === true && onReadersNetwork(origin);
+export function canCallDirectly(provider: ClassifyProvider, config: ClassifyConfig): boolean {
+  return provider.direct?.(config) === true;
 }
 
 /** The credential the reader kept for one transport, trimmed. */
@@ -1036,8 +1036,7 @@ export async function requestClassification(input: {
   const question = input.question ?? "topic";
   // A local model is reached straight from here; everything else still goes
   // through our own endpoint, which is what keeps a credential off the page.
-  const direct =
-    provider !== undefined && canCallDirectly(provider, input.classifier, window.location.origin);
+  const direct = provider !== undefined && canCallDirectly(provider, input.classifier);
   const knownSlugs = new Set(input.topics.map((topic) => topic.slug));
 
   try {

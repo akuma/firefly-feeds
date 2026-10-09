@@ -2669,11 +2669,11 @@ describe("article classification", () => {
       globalThis.fetch = original;
     }
   });
-
-  it("says a hosted copy cannot reach a local Ollama, instead of blaming the reader", async () => {
-    // This is the deployed case: the app is served from a domain, so the request
-    // to `localhost:11434` would leave from Cloudflare's edge, not from here.
-    const original = window.location;
+  it("asks a local Ollama directly from a deployed page, and says so when CORS stops it", async () => {
+    // The page is served from a domain, but the browser is still on the reader's
+    // machine — so it can reach localhost. What the domain changes is only
+    // whether Ollama's CORS policy lets the page in.
+    const originalLocation = window.location;
     Object.defineProperty(window, "location", {
       configurable: true,
       writable: true,
@@ -2687,7 +2687,7 @@ describe("article classification", () => {
         classifyConfig: {
           provider: "ollama",
           ollamaBaseUrl: "http://localhost:11434",
-          ollamaModel: "clef-flash:latest",
+          ollamaModel: "",
           cloudflareModel: "",
           cloudflareAccountId: "",
           openaiBaseUrl: "https://api.openai.com/v1",
@@ -2697,14 +2697,22 @@ describe("article classification", () => {
       }),
     );
     const asked: string[] = [];
-    const realFetch = globalThis.fetch;
+    const original = globalThis.fetch;
+    // Ollama refuses the page, the way it does until OLLAMA_ORIGINS names it
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/classify/models")) {
-        asked.push(url);
-        return new Response(JSON.stringify({ ok: true, models: ["clef-flash:latest"] }), {
-          headers: { "content-type": "application/json" },
-        });
+      asked.push(url);
+      // Ollama admits 127.0.0.1 by default but not a page on a domain
+      if (url.includes("localhost:11434")) {
+        throw new TypeError("Failed to fetch");
+      }
+      if (url.includes("11434/api/tags")) {
+        return new Response(
+          JSON.stringify({
+            models: [{ name: "clef-flash:latest", capabilities: ["decision"] }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
       }
       return new Response(JSON.stringify({ ok: true, items: [] }), {
         headers: { "content-type": "application/json" },
@@ -2716,34 +2724,32 @@ describe("article classification", () => {
       await user.click(within(nav()).getByLabelText("Settings"));
       const panel = await screen.findByRole("dialog", { name: "Settings" });
 
-      // the picker is replaced by the reason, not by "you have no models"
+      // still asked directly, not through our own endpoint
+      await waitFor(() => expect(asked.some((url) => url.includes("11434/api/tags"))).toBe(true));
+      expect(asked.some((url) => url.includes("/api/classify/models"))).toBe(false);
+
+      // and told the two things that could be wrong, rather than "you have no
+      // models" — which is what a reader who has pulled one would be told
       await waitFor(() =>
-        expect(
-          within(panel).getByText(/cannot reach an Ollama on this machine/),
-        ).toBeInTheDocument(),
+        expect(within(panel).getByText(/Ollama could not be asked/)).toBeInTheDocument(),
       );
+      expect(within(panel).getByText(/OLLAMA_ORIGINS/)).toBeInTheDocument();
       expect(within(panel).queryByText(/No decision models found/)).not.toBeInTheDocument();
-      expect(within(panel).queryByLabelText("Model")).not.toBeInTheDocument();
-      expect(within(panel).getByText(/Ollama out of reach/)).toBeInTheDocument();
+      expect(within(panel).getByText(/Ollama unreachable/)).toBeInTheDocument();
 
-      // and the doomed request is never made
-      expect(asked).toEqual([]);
-
-      // the address stays editable, which is the way out
+      // the address is still editable, so pointing it somewhere Ollama admits
+      // — or admitting this page — is the way out
       await user.clear(within(panel).getByLabelText(/Ollama address/));
-      await user.type(within(panel).getByLabelText(/Ollama address/), "https://ollama.example.com");
+      await user.type(within(panel).getByLabelText(/Ollama address/), "http://127.0.0.1:11434");
       await waitFor(() =>
-        expect(
-          within(panel).queryByText(/cannot reach an Ollama on this machine/),
-        ).not.toBeInTheDocument(),
+        expect(within(panel).queryByText(/Ollama could not be asked/)).not.toBeInTheDocument(),
       );
-      await waitFor(() => expect(asked).toHaveLength(1));
     } finally {
-      globalThis.fetch = realFetch;
+      globalThis.fetch = original;
       Object.defineProperty(window, "location", {
         configurable: true,
         writable: true,
-        value: original,
+        value: originalLocation,
       });
     }
   });
