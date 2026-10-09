@@ -697,6 +697,21 @@ describe("the navigation", () => {
   });
 });
 
+/** An Ollama answer, in the shape Ollama itself sends back. */
+function ollamaAnswer(slug: string, confidence: number) {
+  return {
+    model: "clef-flash:latest",
+    answers: {
+      topic: {
+        type: "choice",
+        choice: slug,
+        confidence,
+        probabilities: { [slug]: confidence },
+      },
+    },
+  };
+}
+
 describe("subscribing", () => {
   it("files the feed where the classifier says, when one is configured", async () => {
     localStorage.setItem(
@@ -719,21 +734,13 @@ describe("subscribing", () => {
     const asked: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes("/api/classify")) {
+      // a local model is reached straight from the browser, not through our own
+      // endpoint — so what Ollama would have received is what is checked here
+      if (url.includes("11434/v1/systemone")) {
         asked.push(String(init?.body ?? ""));
-        return new Response(
-          JSON.stringify({
-            ok: true,
-            classification: {
-              primarySlug: "science",
-              topicSlugs: ["science"],
-              confidence: 0.88,
-              model: "clef-flash:latest",
-            },
-            provider: "ollama",
-          }),
-          { headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify(ollamaAnswer("science", 0.88)), {
+          headers: { "content-type": "application/json" },
+        });
       }
       return new Response(
         JSON.stringify({
@@ -777,10 +784,17 @@ describe("subscribing", () => {
 
       // it was asked the folder question, over the app's own folders
       expect(asked).toHaveLength(1);
-      expect(JSON.parse(asked[0])).toMatchObject({
-        question: "folder",
-        topics: expect.arrayContaining([{ slug: "science", label: "Science" }]),
-      });
+      const sent = JSON.parse(asked[0]);
+      expect(Object.keys(sent.questions)).toEqual(["folder"]);
+      expect(Object.keys(sent.questions.folder.criteria)).toEqual([
+        "news",
+        "science",
+        "technology",
+        "ai",
+        "culture",
+        "design",
+        "independent",
+      ]);
 
       // and the subscription is filed there
       await user.click(within(panel).getByRole("button", { name: "Subscribe" }));
@@ -975,11 +989,17 @@ describe("subscribing", () => {
     const original = globalThis.fetch;
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/classify/models")) {
+      // Asked straight from the browser, because this page is served beside the
+      // reader — so it is Ollama's own shape that comes back, capability flags
+      // and all.
+      if (url.includes("11434/api/tags")) {
         return new Response(
           JSON.stringify({
-            ok: true,
-            models: ["clef-flash:latest", "clef:latest", "llama3:latest"],
+            models: [
+              { name: "clef-flash:latest", capabilities: ["decision", "vision"] },
+              { name: "clef:latest", capabilities: ["decision"] },
+              { name: "llama3:latest", capabilities: ["completion"] },
+            ],
           }),
           { headers: { "content-type": "application/json" } },
         );
@@ -994,14 +1014,14 @@ describe("subscribing", () => {
       await user.click(within(nav()).getByLabelText("Settings"));
       const panel = await screen.findByRole("dialog", { name: "Settings" });
 
-      // whatever the machine reports becomes the picker's options, verbatim
+      // whatever the machine reports becomes the picker's options, verbatim —
+      // and a model that cannot answer a decision is not offered at all
       await waitFor(() => {
         const models = within(panel).getByLabelText("Model") as HTMLSelectElement;
         expect([...models.options].map((option) => option.value)).toEqual([
           "",
           "clef-flash:latest",
           "clef:latest",
-          "llama3:latest",
         ]);
       });
 
@@ -2596,6 +2616,60 @@ describe("article classification", () => {
     expect(topics.querySelector(".lucide-tag")).toBeTruthy();
   });
 
+  it("calls a local Ollama straight from the browser, not through our endpoint", async () => {
+    await seedInitialRealStories();
+    localStorage.setItem(
+      "firefly.feeds.v1",
+      JSON.stringify({
+        classify: true,
+        classifyConfig: {
+          provider: "ollama",
+          ollamaBaseUrl: "http://localhost:11434",
+          ollamaModel: "clef-flash:latest",
+          cloudflareModel: "",
+          cloudflareAccountId: "",
+          openaiBaseUrl: "https://api.openai.com/v1",
+          openaiModel: "gpt-6-luna-decisions",
+          keys: {},
+        },
+      }),
+    );
+    const seen: { url: string; body: string }[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("11434")) {
+        seen.push({ url, body: String(init?.body ?? "") });
+        return new Response(JSON.stringify(ollamaAnswer("technology", 0.93)), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, items: [] }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const { user } = await mount();
+      await user.click(within(nav()).getByLabelText("Settings"));
+      const panel = await screen.findByRole("dialog", { name: "Settings" });
+      await user.click(within(panel).getByRole("switch", { name: "Classify new stories" }));
+
+      // the story is classified without our endpoint ever being asked
+      await waitFor(() =>
+        expect(within(stream()).getAllByText("Technology").length).toBeGreaterThan(0),
+      );
+      expect(seen).toHaveLength(1);
+      expect(seen[0].url).toBe("http://localhost:11434/v1/systemone");
+      // and the request is the same decision the server would have built
+      const sent = JSON.parse(seen[0].body);
+      expect(Object.keys(sent.questions)).toEqual(["topic"]);
+      expect(sent.state.topics.length).toBeGreaterThan(0);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("says a hosted copy cannot reach a local Ollama, instead of blaming the reader", async () => {
     // This is the deployed case: the app is served from a domain, so the request
     // to `localhost:11434` would leave from Cloudflare's edge, not from here.
@@ -2705,12 +2779,34 @@ describe("article classification", () => {
 describe("turning classification on", () => {
   it("sends nothing while it is off, then classifies from the settings switch", async () => {
     await seedInitialRealStories();
+    // a configured local model, so the sweep has something to ask
+    localStorage.setItem(
+      "firefly.feeds.v1",
+      JSON.stringify({
+        classifyConfig: {
+          provider: "ollama",
+          ollamaBaseUrl: "http://localhost:11434",
+          ollamaModel: "clef-flash:latest",
+          cloudflareModel: "",
+          cloudflareAccountId: "",
+          openaiBaseUrl: "https://api.openai.com/v1",
+          openaiModel: "gpt-6-luna-decisions",
+          keys: {},
+        },
+      }),
+    );
     const calls: { url: string; method: string }[] = [];
     const original = globalThis.fetch;
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
       calls.push({ url, method });
+      // beside the reader, a local model is called straight from the browser
+      if (url.includes("11434/v1/systemone")) {
+        return new Response(JSON.stringify(ollamaAnswer("technology", 0.93)), {
+          headers: { "content-type": "application/json" },
+        });
+      }
       if (url.includes("/api/classify")) {
         return new Response(
           JSON.stringify({
@@ -2732,9 +2828,7 @@ describe("turning classification on", () => {
     try {
       const { user } = await mount();
       // nothing leaves the device until the reader asks for it
-      expect(
-        calls.some((call) => call.method === "POST" && call.url.includes("/api/classify")),
-      ).toBe(false);
+      expect(calls.some((call) => call.method === "POST")).toBe(false);
 
       await user.click(within(nav()).getByLabelText("Settings"));
       const panel = await screen.findByRole("dialog", { name: "Settings" });

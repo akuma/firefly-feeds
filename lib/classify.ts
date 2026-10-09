@@ -413,6 +413,12 @@ export type ClassifyProvider = {
    * which `parseClassifyResponse` already covers.
    */
   read?: (raw: unknown, knownSlugs: ReadonlySet<string>) => ClassifySuggestion;
+  /**
+   * Whether the browser may call this transport itself, given this
+   * configuration. True only for one that needs no credential and sits on the
+   * reader's own network — see `canCallDirectly`, which adds the other half.
+   */
+  direct?: (config: ClassifyConfig) => boolean;
 };
 
 /**
@@ -545,8 +551,29 @@ export const CLASSIFY_PROVIDERS: readonly ClassifyProvider[] = [
       // Ollama takes no credential, and ignores one if it is sent.
       headers: { "content-type": "application/json" },
     }),
+    // A local Ollama takes no credential, so there is nothing to keep off the
+    // page — which is what makes calling it straight from the browser possible.
+    direct: (config) => onReadersNetwork(config.ollamaBaseUrl),
   },
 ];
+
+/**
+ * Whether the browser may call this transport itself, rather than asking our own
+ * endpoint to.
+ *
+ * Both halves matter. The transport has to be one that needs no credential and
+ * sits on the reader's own network — a local Ollama, the one case our server
+ * cannot reach for the reader. And the page itself has to be served from that
+ * network, because a browser on a deployed origin cannot reach `localhost` any
+ * more than a Worker can.
+ */
+export function canCallDirectly(
+  provider: ClassifyProvider,
+  config: ClassifyConfig,
+  origin: string,
+): boolean {
+  return provider.direct?.(config) === true && onReadersNetwork(origin);
+}
 
 /** The credential the reader kept for one transport, trimmed. */
 export function credential(config: ClassifyConfig, id: ClassifyProviderId): string {
@@ -1005,7 +1032,47 @@ export async function requestClassification(input: {
   /** Which decision to ask for. A story's topic, or a publication's folder. */
   question?: ClassifyQuestion;
 }): Promise<ClassifyApiResult> {
+  const provider = findProvider(input.classifier.provider);
+  const question = input.question ?? "topic";
+  // A local model is reached straight from here; everything else still goes
+  // through our own endpoint, which is what keeps a credential off the page.
+  const direct =
+    provider !== undefined && canCallDirectly(provider, input.classifier, window.location.origin);
+  const knownSlugs = new Set(input.topics.map((topic) => topic.slug));
+
   try {
+    if (provider && direct) {
+      // The same readiness the server would have enforced, checked here because
+      // a direct call no longer passes through it.
+      if (!providerReady(provider, input.classifier)) {
+        const missing = missingFields(provider, input.classifier).map((field) => field.label);
+        return { ok: false, error: `${provider.label} still needs: ${missing.join(", ")}.` };
+      }
+      const call = provider.call(
+        input.classifier,
+        buildClassifyRequest(
+          { title: input.title, summary: input.summary },
+          input.topics,
+          question,
+        ),
+      );
+      const res = await fetch(call.url, {
+        method: "POST",
+        headers: call.headers,
+        body: JSON.stringify(call.body),
+      });
+      const raw: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        const message =
+          typeof raw === "object" && raw !== null
+            ? providerError(raw as Record<string, unknown>)
+            : undefined;
+        return { ok: false, error: message ?? `${provider.label} refused the request.` };
+      }
+      const read = provider.read ?? parseClassifyResponse;
+      return { ok: true, classification: read(raw, knownSlugs), provider: provider.id };
+    }
+
     const res = await fetch("/api/classify", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1013,7 +1080,7 @@ export async function requestClassification(input: {
         title: input.title,
         summary: input.summary,
         topics: input.topics,
-        question: input.question ?? "topic",
+        question,
         ...input.classifier,
       }),
     });
@@ -1031,7 +1098,18 @@ export async function requestClassification(input: {
       classification: data.classification,
       ...(data.provider ? { provider: data.provider } : {}),
     };
-  } catch {
-    return { ok: false, error: "Could not reach the classification service." };
+  } catch (error) {
+    if (error instanceof ClassifyError) {
+      return { ok: false, error: error.message };
+    }
+    // A direct call fails closed for two reasons, and the reader can only fix
+    // one of them: Ollama is not running, or its CORS policy does not admit this
+    // page — `OLLAMA_ORIGINS` is the setting for that.
+    return {
+      ok: false,
+      error: direct
+        ? "Could not reach Ollama. Is it running, and does it allow this page? Set OLLAMA_ORIGINS to this site's address."
+        : "Could not reach the classification service.",
+    };
   }
 }

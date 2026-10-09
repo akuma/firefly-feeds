@@ -4,8 +4,11 @@ import { ChevronDown, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react"
 import { useEffect, useState } from "react";
 import { clsx } from "./clsx";
 import {
+  canCallDirectly,
   CLASSIFY_PROVIDERS,
+  ollamaTagsUrl,
   onReadersNetwork,
+  readOllamaModels,
   type ClassifyProviderId,
   fieldValue,
   findProvider,
@@ -48,6 +51,10 @@ export function Settings() {
   const besideReader = onReadersNetwork(window.location.origin);
   const ollamaOutOfReach =
     chosen.id === "ollama" && !besideReader && onReadersNetwork(r.classifyConfig.ollamaBaseUrl);
+  // Beside the reader, the model list is asked for directly — the same request
+  // our own endpoint would have made, minus the round trip it cannot complete.
+  const ollamaDirect =
+    chosen.id === "ollama" && canCallDirectly(chosen, r.classifyConfig, window.location.origin);
 
   // What a local Ollama can actually answer with is a fact only it knows, so the
   // picker asks rather than assuming. Debounced, because the address is a text
@@ -59,10 +66,19 @@ export function Settings() {
     const timer = setTimeout(() => {
       // The previous list stays until this one arrives, so editing the address
       // does not make the field flicker between a picker and a text box.
-      void fetch(`/api/classify/models?base=${encodeURIComponent(base)}`)
+      const url = ollamaDirect
+        ? ollamaTagsUrl(base)
+        : `/api/classify/models?base=${encodeURIComponent(base)}`;
+      void fetch(url)
         .then((res) => res.json())
-        .then((data: { ok?: boolean; models?: string[] }) => {
-          if (!cancelled) setOllamaModels(data.ok ? (data.models ?? []) : []);
+        .then((data: unknown) => {
+          if (cancelled) return;
+          // Two shapes: Ollama's own list, and the one our endpoint normalises
+          // it into when it has to ask on the reader's behalf.
+          const list = data as { ok?: boolean; models?: string[] };
+          setOllamaModels(
+            ollamaDirect ? readOllamaModels(data) : list.ok ? (list.models ?? []) : [],
+          );
         })
         .catch(() => {
           if (!cancelled) setOllamaModels([]);
@@ -72,7 +88,7 @@ export function Settings() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [chosen.id, r.classifyConfig.ollamaBaseUrl, ollamaOutOfReach]);
+  }, [chosen.id, r.classifyConfig.ollamaBaseUrl, ollamaOutOfReach, ollamaDirect]);
 
   // A field whose choices are only known at runtime gets them here, so the table
   // stays a static description and the dialog stays a generic renderer.

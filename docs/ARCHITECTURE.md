@@ -355,14 +355,26 @@ with nothing pulled is told so rather than offered a model that would fail, and
 the model is a required field: there is no default to fall back on. The browser
 asks our own origin because Ollama's CORS policy only admits localhost origins.
 
-**A local model needs a local app.** That request leaves from the server, so it
-only works when the server is the reader's own machine. Deployed to a Worker,
-`localhost` means Cloudflare's edge, and no amount of configuration will make it
-reach the reader's — so `onReadersNetwork` checks the page's own origin, and when
-it is not local the picker says so plainly and the doomed request is never made.
-The address field stays editable, which is the way out: point it at an Ollama that
-is publicly reachable. Everything else here — the hosted APIs, and a self-hosted
-Firefly beside a local Ollama — is unaffected.
+**A local model is called straight from the browser.** Everything above still
+holds for the hosted APIs, whose credentials must not reach the page. A local
+Ollama is the exception: it takes no credential, so there is nothing to keep off
+the page, and it is the one transport our own server cannot reach on the reader's
+behalf. So when the Ollama address is on the reader's network _and_ the page is
+served from it, the browser calls Ollama itself — same request the server would
+have built, same parser, one fewer hop. The reader's own machine is where the
+request leaves from, which is the only place it can.
+
+Two things follow. The deployed site can reach a local model too, but only once
+the reader has admitted it: Ollama's CORS policy answers a `localhost` origin and
+refuses any other, so `OLLAMA_ORIGINS` must name the site — without it the
+failure says exactly that. And a direct call passes neither the Worker's rate
+limiter nor its origin guard; the client-side pacing is what throttles it, and
+Ollama's own CORS policy is what stops anyone else's page from doing the same.
+
+When the page is _not_ served beside the reader, a local address can never answer
+and the picker says so rather than reporting a model list the reader does have as
+missing. The address field stays editable, which is the way out: point it at an
+Ollama that is publicly reachable.
 
 A transport the reader has not finished setting up is refused by the route with
 the names of the missing fields rather than called half-built. The configuration
