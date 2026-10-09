@@ -355,6 +355,15 @@ with nothing pulled is told so rather than offered a model that would fail, and
 the model is a required field: there is no default to fall back on. The browser
 asks our own origin because Ollama's CORS policy only admits localhost origins.
 
+**A local model needs a local app.** That request leaves from the server, so it
+only works when the server is the reader's own machine. Deployed to a Worker,
+`localhost` means Cloudflare's edge, and no amount of configuration will make it
+reach the reader's — so `onReadersNetwork` checks the page's own origin, and when
+it is not local the picker says so plainly and the doomed request is never made.
+The address field stays editable, which is the way out: point it at an Ollama that
+is publicly reachable. Everything else here — the hosted APIs, and a self-hosted
+Firefly beside a local Ollama — is unaffected.
+
 A transport the reader has not finished setting up is refused by the route with
 the names of the missing fields rather than called half-built. The configuration
 lives in local prefs only: it is the one piece of reading state that is a secret,

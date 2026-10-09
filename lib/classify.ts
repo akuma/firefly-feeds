@@ -59,6 +59,30 @@ export function ollamaTagsUrl(baseUrl?: string): string {
   return `${(baseUrl?.trim() || OLLAMA_DEFAULT_BASE_URL).replace(/\/+$/, "")}${OLLAMA_TAGS_PATH}`;
 }
 
+/**
+ * Whether a host is on the reader's own machine or network.
+ *
+ * Loopback, a `.local` name and the private ranges all count. It answers both
+ * questions this feature has to ask — whether the app itself is served from the
+ * reader's machine, and whether the Ollama it points at is — because a deployed
+ * server can reach neither: asking it for `localhost` would be asking
+ * Cloudflare's edge, not the reader.
+ */
+export function onReadersNetwork(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  if (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0") return true;
+  // IPv6 loopback, as `URL` reports it
+  if (host === "[::1]" || host === "::1") return true;
+  if (host.endsWith(".local")) return true;
+  // 10.x, 192.168.x, and 172.16–31.x
+  return /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
+}
+
 /** Where the OpenAI Decisions API lives. */
 export const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 

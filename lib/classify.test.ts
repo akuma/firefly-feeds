@@ -22,6 +22,7 @@ import {
   missingFields,
   needsClassification,
   ollamaTagsUrl,
+  onReadersNetwork,
   readOllamaModels,
   parseClassifyResponse,
   providerLabel,
@@ -348,6 +349,32 @@ describe("the classifier a reader picks", () => {
         known,
       ),
     ).toThrow(/Image input/);
+  });
+
+  /* ------------------------------------------------- can it be reached? */
+
+  it("tells a local address from a public one, for the app and for the model", () => {
+    // where the app is served from
+    expect(onReadersNetwork("http://localhost:3000")).toBe(true);
+    expect(onReadersNetwork("http://127.0.0.1:5200")).toBe(true);
+    expect(onReadersNetwork("http://[::1]:3000")).toBe(true);
+    expect(onReadersNetwork("http://firefly.local:3000")).toBe(true);
+    expect(onReadersNetwork("http://192.168.1.20:3000")).toBe(true);
+    expect(onReadersNetwork("http://10.0.0.4:3000")).toBe(true);
+    expect(onReadersNetwork("http://172.16.0.9:3000")).toBe(true);
+
+    // and where the model is
+    expect(onReadersNetwork("http://localhost:11434")).toBe(true);
+    expect(onReadersNetwork("http://gpu.box:11434")).toBe(false);
+    expect(onReadersNetwork("https://ollama.example.com")).toBe(false);
+    // a public address is reachable from anywhere, hosted or not
+    expect(onReadersNetwork("https://ai-gateway.vercel.sh/v1")).toBe(false);
+  });
+
+  it("refuses anything it cannot parse rather than guessing", () => {
+    expect(onReadersNetwork("")).toBe(false);
+    expect(onReadersNetwork("localhost:11434")).toBe(false);
+    expect(onReadersNetwork("not a url")).toBe(false);
   });
 
   /* ------------------------------------------------- the local model list */

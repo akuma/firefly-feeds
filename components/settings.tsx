@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { clsx } from "./clsx";
 import {
   CLASSIFY_PROVIDERS,
+  onReadersNetwork,
   type ClassifyProviderId,
   fieldValue,
   findProvider,
@@ -38,11 +39,21 @@ export function Settings() {
   const chosen = findProvider(r.classifyConfig.provider) ?? CLASSIFY_PROVIDERS[0];
   const ready = missingFields(chosen, r.classifyConfig).length === 0;
 
+  /*
+   * A local Ollama is only reachable when this copy of Firefly runs beside the
+   * reader. Deployed, the request goes out from a server on the internet, where
+   * `localhost` means that server — so a local address can never answer, and
+   * asking for its models would read as "you have none" rather than the truth.
+   */
+  const besideReader = onReadersNetwork(window.location.origin);
+  const ollamaOutOfReach =
+    chosen.id === "ollama" && !besideReader && onReadersNetwork(r.classifyConfig.ollamaBaseUrl);
+
   // What a local Ollama can actually answer with is a fact only it knows, so the
   // picker asks rather than assuming. Debounced, because the address is a text
   // field and every keystroke would otherwise be a request.
   useEffect(() => {
-    if (chosen.id !== "ollama") return;
+    if (chosen.id !== "ollama" || ollamaOutOfReach) return;
     const base = r.classifyConfig.ollamaBaseUrl;
     let cancelled = false;
     const timer = setTimeout(() => {
@@ -61,7 +72,7 @@ export function Settings() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [chosen.id, r.classifyConfig.ollamaBaseUrl]);
+  }, [chosen.id, r.classifyConfig.ollamaBaseUrl, ollamaOutOfReach]);
 
   // A field whose choices are only known at runtime gets them here, so the table
   // stays a static description and the dialog stays a generic renderer.
@@ -145,7 +156,11 @@ export function Settings() {
               <div className="mono flex flex-wrap items-center gap-x-2 gap-y-1 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                 <span className="flex items-center gap-1.5">
                   <Sparkles size={11} strokeWidth={1.6} />
-                  {ready ? `${chosen.label} ready` : `${chosen.label} needs setting up`}
+                  {ollamaOutOfReach
+                    ? `${chosen.label} out of reach`
+                    : ready
+                      ? `${chosen.label} ready`
+                      : `${chosen.label} needs setting up`}
                 </span>
                 {r.classifyWorking && (
                   <>
@@ -211,80 +226,103 @@ export function Settings() {
               <div className="mt-6 flex flex-col gap-5">
                 {fields.map((field) => {
                   const id = `classify-${field.key}`;
+                  /*
+                   * The one field a hosted deployment cannot offer: the machine
+                   * the models live on is not the machine the request leaves
+                   * from. The address below stays editable, which is the way
+                   * out — point it somewhere publicly reachable.
+                   */
+                  const unreachable = field.key === "ollamaModel" && ollamaOutOfReach;
                   return (
                     <div key={field.key}>
                       <label htmlFor={id} className="label block text-ink4">
                         {field.label}
                         {field.optional && <span className="ml-2 normal-case">(optional)</span>}
                       </label>
-                      <div className="relative mt-2 flex items-center gap-3 border-b border-rulestrong pb-2">
-                        {field.choices ? (
-                          <>
-                            <select
+                      {unreachable ? (
+                        <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink3">
+                          This copy of Firefly runs on a server, so it cannot reach an Ollama on
+                          this machine — <span className="mono">localhost</span> here means the
+                          server, not you. Point the address below at one that is publicly
+                          reachable, or run Firefly on your own machine.
+                        </p>
+                      ) : (
+                        <div className="relative mt-2 flex items-center gap-3 border-b border-rulestrong pb-2">
+                          {field.choices ? (
+                            <>
+                              <select
+                                id={id}
+                                value={fieldValue(r.classifyConfig, chosen.id, field.key)}
+                                onChange={(e) =>
+                                  r.updateClassifyConfig(
+                                    withField(
+                                      r.classifyConfig,
+                                      chosen.id,
+                                      field.key,
+                                      e.target.value,
+                                    ),
+                                  )
+                                }
+                                className="mono w-full appearance-none bg-transparent text-[13px] text-ink2 outline-none"
+                              >
+                                <option value="">{field.placeholder}</option>
+                                {field.choices.map((choice) => (
+                                  <option key={choice.value} value={choice.value}>
+                                    {choice.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <ChevronDown
+                                size={12}
+                                strokeWidth={1.6}
+                                aria-hidden
+                                className="pointer-events-none absolute right-0 bottom-2.5 text-ink4"
+                              />
+                            </>
+                          ) : (
+                            <input
                               id={id}
+                              type={field.secret ? "password" : "text"}
                               value={fieldValue(r.classifyConfig, chosen.id, field.key)}
                               onChange={(e) =>
                                 r.updateClassifyConfig(
                                   withField(r.classifyConfig, chosen.id, field.key, e.target.value),
                                 )
                               }
-                              className="mono w-full appearance-none bg-transparent text-[13px] text-ink2 outline-none"
-                            >
-                              <option value="">{field.placeholder}</option>
-                              {field.choices.map((choice) => (
-                                <option key={choice.value} value={choice.value}>
-                                  {choice.label}
-                                </option>
-                              ))}
-                            </select>
-                            <ChevronDown
-                              size={12}
-                              strokeWidth={1.6}
-                              aria-hidden
-                              className="pointer-events-none absolute right-0 bottom-2.5 text-ink4"
+                              spellCheck={false}
+                              autoComplete="off"
+                              placeholder={field.placeholder}
+                              className="mono min-w-0 flex-1 bg-transparent text-[13px] text-ink2 outline-none placeholder:text-ink4"
                             />
-                          </>
-                        ) : (
-                          <input
-                            id={id}
-                            type={field.secret ? "password" : "text"}
-                            value={fieldValue(r.classifyConfig, chosen.id, field.key)}
-                            onChange={(e) =>
-                              r.updateClassifyConfig(
-                                withField(r.classifyConfig, chosen.id, field.key, e.target.value),
-                              )
-                            }
-                            spellCheck={false}
-                            autoComplete="off"
-                            placeholder={field.placeholder}
-                            className="mono min-w-0 flex-1 bg-transparent text-[13px] text-ink2 outline-none placeholder:text-ink4"
-                          />
-                        )}
-                        {field.secret && fieldValue(r.classifyConfig, chosen.id, field.key) && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              r.updateClassifyConfig(
-                                withField(r.classifyConfig, chosen.id, field.key, ""),
-                              )
-                            }
-                            className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink"
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </div>
+                          )}
+                          {field.secret && fieldValue(r.classifyConfig, chosen.id, field.key) && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                r.updateClassifyConfig(
+                                  withField(r.classifyConfig, chosen.id, field.key, ""),
+                                )
+                              }
+                              className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      )}
                       {field.hint && (
                         <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
                           {field.hint}
                         </p>
                       )}
-                      {field.key === "ollamaModel" && ollamaModels && ollamaModels.length === 0 && (
-                        <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
-                          No decision models found at that address. Pull one — `ollama pull
-                          clef-flash`, say — and it will appear here.
-                        </p>
-                      )}
+                      {field.key === "ollamaModel" &&
+                        !unreachable &&
+                        ollamaModels?.length === 0 && (
+                          <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                            No decision models found at that address. Pull one — `ollama pull
+                            clef-flash`, say — and it will appear here.
+                          </p>
+                        )}
                     </div>
                   );
                 })}

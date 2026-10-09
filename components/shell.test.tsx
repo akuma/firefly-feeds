@@ -2596,6 +2596,84 @@ describe("article classification", () => {
     expect(topics.querySelector(".lucide-tag")).toBeTruthy();
   });
 
+  it("says a hosted copy cannot reach a local Ollama, instead of blaming the reader", async () => {
+    // This is the deployed case: the app is served from a domain, so the request
+    // to `localhost:11434` would leave from Cloudflare's edge, not from here.
+    const original = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      writable: true,
+      value: { origin: "https://feeds.fireflylabs.studio" },
+    });
+
+    localStorage.setItem(
+      "firefly.feeds.v1",
+      JSON.stringify({
+        classify: true,
+        classifyConfig: {
+          provider: "ollama",
+          ollamaBaseUrl: "http://localhost:11434",
+          ollamaModel: "clef-flash:latest",
+          cloudflareModel: "",
+          cloudflareAccountId: "",
+          openaiBaseUrl: "https://api.openai.com/v1",
+          openaiModel: "gpt-6-luna-decisions",
+          keys: {},
+        },
+      }),
+    );
+    const asked: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/classify/models")) {
+        asked.push(url);
+        return new Response(JSON.stringify({ ok: true, models: ["clef-flash:latest"] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, items: [] }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const { user } = await mount();
+      await user.click(within(nav()).getByLabelText("Settings"));
+      const panel = await screen.findByRole("dialog", { name: "Settings" });
+
+      // the picker is replaced by the reason, not by "you have no models"
+      await waitFor(() =>
+        expect(
+          within(panel).getByText(/cannot reach an Ollama on this machine/),
+        ).toBeInTheDocument(),
+      );
+      expect(within(panel).queryByText(/No decision models found/)).not.toBeInTheDocument();
+      expect(within(panel).queryByLabelText("Model")).not.toBeInTheDocument();
+      expect(within(panel).getByText(/Ollama out of reach/)).toBeInTheDocument();
+
+      // and the doomed request is never made
+      expect(asked).toEqual([]);
+
+      // the address stays editable, which is the way out
+      await user.clear(within(panel).getByLabelText(/Ollama address/));
+      await user.type(within(panel).getByLabelText(/Ollama address/), "https://ollama.example.com");
+      await waitFor(() =>
+        expect(
+          within(panel).queryByText(/cannot reach an Ollama on this machine/),
+        ).not.toBeInTheDocument(),
+      );
+      await waitFor(() => expect(asked).toHaveLength(1));
+    } finally {
+      globalThis.fetch = realFetch;
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        writable: true,
+        value: original,
+      });
+    }
+  });
+
   it("keeps a correction after a full remount", async () => {
     await seedClassifiedStories();
     const first = await mount();
