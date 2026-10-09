@@ -3121,4 +3121,46 @@ describe("today's briefing", () => {
       spy.restore();
     }
   });
+
+  it("stops accepting rewrites once the day's are used up", async () => {
+    await seedDigestStories();
+    const repo = await import("@/lib/storage/repository");
+    const { dayKey, DIGEST_MAX_PER_DAY } = await import("@/lib/digest");
+    const day = dayKey();
+    await repo.putDigest({
+      day,
+      picks: ["sdig~one"],
+      gists: { "sdig~one": "A written gist." },
+      reasons: { "sdig~one": "A written reason." },
+      candidates: ["sdig~one", "sdig~two", "sdig~three"],
+      provider: "ollama",
+      model: "llama3.2",
+      updatedAt: Date.now(),
+    });
+    // The cap is the one guard on spending the reader's own key, so it lives
+    // on this device and survives a reload.
+    localStorage.setItem(
+      "firefly.feeds.v1",
+      JSON.stringify({
+        ...LLM_PREFS,
+        digestRuns: { day, count: DIGEST_MAX_PER_DAY },
+      }),
+    );
+    const spy = digestSpy();
+
+    try {
+      const { user } = await mount();
+      await waitFor(() =>
+        expect(stream().querySelector("[data-t='briefing']")).toBeInTheDocument(),
+      );
+      const block = stream().querySelector<HTMLElement>("[data-t='briefing']")!;
+      const button = within(block).getByRole("button", { name: /Regenerate/ });
+      expect(button).toBeDisabled();
+
+      await user.click(button);
+      expect(spy.seen).toHaveLength(0);
+    } finally {
+      spy.restore();
+    }
+  });
 });
