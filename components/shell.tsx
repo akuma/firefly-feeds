@@ -5,6 +5,7 @@ import {
   Clock as ClockIcon,
   Layers,
   Moon,
+  Newspaper,
   PanelLeft,
   Plus,
   Search,
@@ -48,11 +49,24 @@ function MobileTopBar() {
 function MobileTabBar() {
   const r = useReader();
   const items = [
+    // The edition only gets a tab once there is one to read — the same rule
+    // the navigation follows, so the two never disagree.
+    ...(r.digestEnabled
+      ? [
+          {
+            key: "briefing",
+            label: "Briefing",
+            icon: Newspaper,
+            active: r.view === "briefing",
+            on: () => r.setView("briefing"),
+          },
+        ]
+      : []),
     {
       key: "stream",
       label: "Stream",
       icon: PanelLeft,
-      active: !r.view.startsWith("saved") && !r.view.startsWith("later"),
+      active: r.view !== "briefing" && !r.view.startsWith("saved") && !r.view.startsWith("later"),
       on: () => r.setView("today"),
     },
     {

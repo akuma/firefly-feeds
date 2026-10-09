@@ -73,7 +73,8 @@
 
 **范围内**
 
-1. **今日导读区块**：Today 视图顶部，5 条入选，每条一行 gist + 一行 why。
+1. **今日导读页面**：独立视图（导航 Edition → Briefing），5 条入选，每条一行 gist +
+   一行 why。
 2. **一日一版 + 候选指纹**：候选变化只标记 stale，不自动重写。
 3. **手动 Regenerate**：带每日上限。
 4. **设置**：AI 开关组里新增「Today's briefing」开关 + 一套独立的 **LLM provider
@@ -97,27 +98,27 @@
 
 ### 4.1 首次开启
 
-Settings → AI → 打开 **Today's briefing** → 回到 Today → 区块出现，先是一行
-`Writing today's edition…` → 出结果。已配好 LLM（默认的本地 Ollama 也算）时，全程
-无需再填任何东西。
+Settings → AI → 打开 **Today's briefing** → 导航里多出 **Edition → Briefing** →
+点进去，先是一行 `Writing today's edition…` → 出结果。已配好 LLM（默认的本地
+Ollama 也算）时，全程无需再填任何东西。
 
 ### 4.2 每日自动
 
 条件（全部满足）：开关开着、今天还没有 digest、候选 ≥ 3 条。
 
-时机：**进入 Today 视图时**，不是后台定时。读者没打开就不花读者的钱——这与分类
+时机：**进入 Briefing 页面时**，不是后台定时。读者没打开就不花读者的钱——这与分类
 sweep 的"读者打开的那篇优先"是同一种克制。
 
-失败：区块内一行错误 + `Retry`，stream 照常可读。
+失败：页面上一行错误 + `Retry`，stream 照常可读。
 
 ### 4.3 手动重生成
 
-区块右上 `Regenerate`。**每日上限 6 次**（`DIGEST_MAX_PER_DAY`），超过则按钮禁用并
+页面右上 `Regenerate`。**每日上限 6 次**（`DIGEST_MAX_PER_DAY`），超过则按钮禁用并
 说明原因——一个付费 key 不该被一次手滑点爆。
 
 ### 4.4 候选变化
 
-刷新 feed 后出现新的候选 → 区块底部一行
+刷新 feed 后出现新的候选 → 页面底部一行
 `3 new stories since this edition was written.`，`Regenerate` 变为 accent 色。
 **不自动重写。**刷新一次就跑一次生成，是这类功能最常见的烧钱方式。
 
@@ -130,8 +131,8 @@ sweep 的"读者打开的那篇优先"是同一种克制。
 - 范围：`live === true`（排除内置 sample edition，与"不分类虚构故事"同一条理由）、
   未读、`minutesAgo < 60 * 24`。
 - 上限 20 条，取最新。
-- **不足 3 条 → 区块不渲染。**今天没什么可导读的时候，安静是最好的编辑判断；
-  Today 头部照旧显示条数。
+- **不足 3 条 → 不写版本。**页面给一句「Not enough new today」和为什么；今天没什么可
+  导读的时候，安静是最好的编辑判断。
 
 ### 5.2 生成：一次调用拿全部
 
@@ -171,44 +172,58 @@ export type DigestRecord = {
   （derived、可重算、不是读者亲手写的信息）；分类要进 changeset 是因为读者会纠正它。
   这条理由要写进 `docs/STORAGE.md`。
 
-### 5.4 界面
+### 5.4 界面：独立的一页
 
-位置：Today 视图，`SMART_HEAD.today` 之下、故事列表之上。**仅 `view === "today"`
-时渲染**——Archive / Saved / Later 没有"今天"这个概念，硬放会变成装饰。
+**briefing 是一个视图（页面），不是 Today 流顶部的横幅。**两者回答的问题不同：流是
+「什么到了」，导读是「什么值得读」——把导读塞进流里，只会让其中一个变成另一个的
+装饰。
+
+- 入口：导航的 **Edition** 区一行 `Briefing`（移动端是 tab 栏第一项）。**功能未开启时
+  这一行不存在**——与 TopicFilter 同一条规矩，不给一个只会说「去设置里打开我」的
+  死胡同。
+- 列区渲染导读本身（不是故事行）：页头用现有 masthead，`SMART_HEAD` 加
+  `briefing: { kicker: "Edition", title: "Today's Briefing" }`；筛选栏在该页隐藏
+  （没有行可筛）。
+- 点一条导读 = 打开那篇故事，与点流里一行完全相同（`select` + 移动端进阅读 sheet）。
+- `j` / `k` 在这一页按**导读的顺序**走，而不是按时间序——列内容就是 `picks` 本身。
 
 ```
-TODAY'S BRIEFING                                  Regenerate
-Five of today's N, chosen from your own feeds.
+        11
+    SEPTEMBER
+  EDITION · TODAY'S BRIEFING
 
-1  Story headline, serif, opens the story
-   One-line gist, in the story's own language.
-   Why it is here — one line.
-   4 min · The Publication                 ← mono, as everywhere else
+  5 of today's 12 stories, chosen and summarised from your own feeds.   Regenerate
 
-2  …
+  1  Story headline, serif, opens the story
+     One-line gist, in the story's own language.
+     Why it is here — one line.
+     4 min · The Publication                 ← mono, as everywhere else
 
-Written from each story's title and summary. Nothing fetched, nothing invented.
+  2  …
+
+  Written from each story's title and summary. Nothing fetched, nothing invented.
 ```
 
 排版规则（`docs/DESIGN.md` 的延伸，不是新语言）：
 
 - 序号 mono；标题衬线可点；gist 衬线；why 用 `ink4` 小一号；元数据 mono small caps，
   与现有故事行一致。
-- 发丝线分隔，**不用卡片**；不引入新颜色；accent 只用于 stale 时的 `Regenerate`。
-- 底部固定一行 provenance。这是整个功能信任设计的落点，删掉它这个区块就从"路标"
-  变成了"代餐"。
+- 发丝线分隔，**不用卡片**；不引入新颜色；accent 只用于 stale 提示。
+- 底部固定一行 provenance。这是整个功能信任设计的落点，删掉它这一页就从「路标」
+  变成了「代餐」。
 
-状态表：
+状态表（**这一页永远有话说**——一页空白是最差的空状态，与它作为区块时不同）：
 
-| 状态                | 表现                                  |
-| ------------------- | ------------------------------------- |
-| 关闭（默认）        | 不渲染                                |
-| 未配 LLM / 没有 key | 一行说明 + `Open settings`            |
-| 生成中              | 一行 `Writing today's edition…`，mono |
-| 候选 < 3            | 不渲染                                |
-| 失败                | 错误行 + `Retry`                      |
-| stale               | 底部一行 + `Regenerate` 变 accent     |
-| 部分条目校验不过    | 只展示通过校验的；全部不过按失败处理  |
+| 状态                | 表现                                                           |
+| ------------------- | -------------------------------------------------------------- |
+| 功能关闭（默认）    | 「The briefing is off」+ `Open settings`（导航里本就没有入口） |
+| 候选 < 3            | 「Not enough new today」+ 一句为什么                           |
+| 未配 LLM / 没有 key | 「No model is set up yet」+ `Open settings`                    |
+| 生成中              | `Writing today's edition…`，mono                               |
+| 失败                | 错误行 + `Retry`                                               |
+| 有版本              | 条目 + provenance 行                                           |
+| stale               | 底部一行「N new stories since this edition was written」       |
+| 部分条目校验不过    | 只展示通过校验的；全部不过按失败处理                           |
 
 ### 5.5 设置：两个开关，两套 provider
 
@@ -302,7 +317,7 @@ JSON + 白名单是唯一能便宜地防住两件事的手段：**编造**（材
 - `lib/digest.ts`：day 键、候选指纹、白名单校验、客户端 pacing、`requestDigest()`。
 - `app/api/digest/route.ts`：服务端写 prompt、转发、只回文本。
 - `app/api/digest/models/route.ts`：列本地 Ollama 会聊天的模型。
-- `components/briefing.tsx`：区块 UI。
+- `components/briefing.tsx`：导读页面 UI。
 - `lib/store.tsx`：`digestEnabled` / `digest` / `digestError` / `digestWorking` /
   `pendingDigest` / `regenerateDigest()`，以及一个复刻分类 sweep 的 effect。
 - `lib/storage/db.ts` + `types.ts`：`digests` store，DB v3。
@@ -498,7 +513,7 @@ in-flight 的返回值丢弃（用 ref 读最新开关，避免竞态）。P0 �
 
 - [ ] Settings：`Today's briefing` 开关 + BYOK 服务配置（精选服务的模型与 key / 自定义的
       格式、地址、模型、key）+ 代价说明
-- [ ] Today 视图区块：5 条、gist、why、provenance 行、全部状态
+- [ ] Briefing 页面：5 条、gist、why、provenance 行、全部状态
 - [ ] 一日一版；候选变化只标 stale；手动重生成有日上限
 - [ ] `digests` store（v3 additive），迁移不清空既有数据
 - [ ] `POST /api/digest` 有 origin guard，凭证不落服务端；输入 / 输出上限与超时见 7.3
@@ -514,7 +529,7 @@ in-flight 的返回值丢弃（用 ref 读最新开关，避免竞态）。P0 �
 
 | 指标                         | 目标       | 说明                                                                                                      |
 | ---------------------------- | ---------- | --------------------------------------------------------------------------------------------------------- |
-| 区块点击率                   | ≥ 40% 会话 | 开着导读的会话里，至少点开一条入选的占比                                                                  |
+| 导读页点开率                 | ≥ 40% 会话 | 开着导读的会话里，至少点开一条入选的占比                                                                  |
 | 入选条目到达率               | ≥ 25%      | 点开 / 展示。低于它说明入选选错了，不是说明 AI 没用                                                       |
 | **只看导读不点开的会话占比** | **< 40%**  | **危险信号。**超过 60% 意味着 AI 在替代阅读，此时该改产品（比如把 gist 改短、加"读原文"权重），不是改指标 |
 | 开关 7 日留存                | ≥ 70%      | 开了还开着                                                                                                |
@@ -567,7 +582,7 @@ in-flight 的返回值丢弃（用 ref 读最新开关，避免竞态）。P0 �
 1. **5 条是否可调**（3 / 5 / 10）？P0 固定 5，先看数据。
 2. **是否发送 `response_format: json_object`**？P0 不发（兼容性差），稳定后按预设开启。
 3. **digest 是否进 Changeset**？P0 不进（可从 articles 重算）。
-4. **区块能否被永久关闭**？P0 只做开关级关闭，不做区块级永久 dismiss。
+4. **导读页能否被永久关闭**？P0 只做开关级关闭，不做页面级永久 dismiss。
 5. **gist 的语言**：跟随原文，还是统一成界面语言？P0 跟随原文（不替读者翻译）。
 6. **模型要下拉还是自由文本**？P0 自由文本 + 占位符（理由见 5.5）；想要下拉就得接受
    过期，或做一个"常用几个 + 手动输入"的组合框，那是另一个组件。

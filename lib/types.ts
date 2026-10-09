@@ -11,7 +11,7 @@ export type ContentState = "full" | "summary" | "truncated";
  * recorded so opening the story again does not hammer the publisher. */
 export type ExtractionState = "idle" | "success" | "failed";
 
-export type SmartViewId = "all" | "today" | "saved" | "later";
+export type SmartViewId = "all" | "today" | "saved" | "later" | "briefing";
 
 /** Seeded feeds have literal ids; subscribed feeds get a generated one. */
 export type FeedId = string;

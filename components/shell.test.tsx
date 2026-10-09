@@ -3047,6 +3047,16 @@ function digestSpy() {
   return { seen, restore: () => (globalThis.fetch = original) };
 }
 
+/** The briefing is a page of its own, reached from the navigation. */
+async function openBriefing(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(within(nav()).getByRole("button", { name: /Briefing/ }));
+  await waitFor(() => expect(stream().querySelector("[data-t='briefing']")).toBeInTheDocument());
+}
+
+function briefing() {
+  return stream().querySelector<HTMLElement>("[data-t='briefing']")!;
+}
+
 describe("today's briefing", () => {
   it("writes the edition from the stories it has, and says where the words came from", async () => {
     localStorage.setItem("firefly.feeds.v1", JSON.stringify(LLM_PREFS));
@@ -3054,14 +3064,16 @@ describe("today's briefing", () => {
     const spy = digestSpy();
 
     try {
-      await mount();
-      await waitFor(() =>
-        expect(stream().querySelector("[data-t='briefing']")).toBeInTheDocument(),
-      );
-      const block = stream().querySelector<HTMLElement>("[data-t='briefing']")!;
+      const { user } = await mount();
+      // A page of its own: the edition is written when the reader opens it,
+      // and not before.
+      await openBriefing(user);
+      const block = briefing();
 
       // the two lines that make a gist a summary and not a substitute
-      expect(within(block).getByText("A gist about the second story.")).toBeInTheDocument();
+      await waitFor(() =>
+        expect(within(block).getByText("A gist about the second story.")).toBeInTheDocument(),
+      );
       expect(within(block).getByText("It explains the week.")).toBeInTheDocument();
       expect(within(block).getByText(/Nothing fetched, nothing invented/)).toBeInTheDocument();
 
@@ -3073,6 +3085,11 @@ describe("today's briefing", () => {
       const sent = JSON.parse(spy.seen[0].body);
       expect(sent.messages[1].content).toContain("A first story");
       expect(sent.messages[1].content).toContain("A third story");
+
+      // and the stream is the stream again: the edition is a page, not a
+      // banner riding along at the top of Today
+      await user.click(within(nav()).getByRole("button", { name: /Today/ }));
+      await waitFor(() => expect(stream().querySelector("[data-t='briefing']")).toBeNull());
     } finally {
       spy.restore();
     }
@@ -3096,12 +3113,11 @@ describe("today's briefing", () => {
     const spy = digestSpy();
 
     try {
-      await mount();
+      const { user } = await mount();
+      await openBriefing(user);
       await waitFor(() =>
-        expect(stream().querySelector("[data-t='briefing']")).toBeInTheDocument(),
+        expect(within(briefing()).getByText("A written gist.")).toBeInTheDocument(),
       );
-      const block = stream().querySelector<HTMLElement>("[data-t='briefing']")!;
-      expect(within(block).getByText("A written gist.")).toBeInTheDocument();
       // one edition a day: nothing is rewritten behind the reader's back
       expect(spy.seen).toHaveLength(0);
     } finally {
@@ -3115,6 +3131,9 @@ describe("today's briefing", () => {
 
     try {
       await mount();
+      // no page, no tab, and nothing sent — a navigation row that leads to
+      // "turn me on in Settings" would be a dead end
+      expect(within(nav()).queryByRole("button", { name: /Briefing/ })).toBeNull();
       expect(stream().querySelector("[data-t='briefing']")).toBeNull();
       expect(spy.seen).toHaveLength(0);
     } finally {
@@ -3150,11 +3169,8 @@ describe("today's briefing", () => {
 
     try {
       const { user } = await mount();
-      await waitFor(() =>
-        expect(stream().querySelector("[data-t='briefing']")).toBeInTheDocument(),
-      );
-      const block = stream().querySelector<HTMLElement>("[data-t='briefing']")!;
-      const button = within(block).getByRole("button", { name: /Regenerate/ });
+      await openBriefing(user);
+      const button = within(briefing()).getByRole("button", { name: /Regenerate/ });
       expect(button).toBeDisabled();
 
       await user.click(button);

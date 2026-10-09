@@ -425,14 +425,22 @@ reason classification is — it is the other part of the app that sends any of t
 reader's data off the device.
 
 **One edition a day, written from what is already here.** When the reader opens
-Today and their own calendar day has no edition, `lib/store.tsx` sends the day's
-unread stories — real subscriptions only, never the sample edition, at most
-twenty, judged on the title and the summary already stored — to the model chosen
-in Settings. Nothing is fetched to make the prompt better. The answer is up to
-five stories, each with one line on what it is and one on why it might be worth
-reading. Then it is left alone: stories arriving later mark the edition stale
-with a count of what is new, and only a reader who asks rewrites it. A manual
-rewrite is capped at six a day, so a paid key cannot be spent by a stray click.
+the briefing page and their own calendar day has no edition, `lib/store.tsx`
+sends the day's unread stories — real subscriptions only, never the sample
+edition, at most twenty, judged on the title and the summary already stored —
+to the model chosen in Settings. Nothing is fetched to make the prompt better.
+The answer is up to five stories, each with one line on what it is and one on
+why it might be worth reading. Then it is left alone: stories arriving later
+mark the edition stale with a count of what is new, and only a reader who asks
+rewrites it. A manual rewrite is capped at six a day, so a paid key cannot be
+spent by a stray click.
+
+**The briefing is a page, not a banner.** It is a view of its own — a row under
+"Edition" in the navigation, and a tab on mobile — because it answers a
+different question from the stream: the stream is what arrived, the briefing is
+what is worth reading. The row appears only once the reader has switched the
+feature on, and the page lists its own picks rather than the day's stories, so
+`j` and `k` step through the edition.
 
 **The prompt is written in one place.** `buildDigestMessages` in `lib/digest.ts`
 holds every word of the instructions, and both ways of reaching a model use it —

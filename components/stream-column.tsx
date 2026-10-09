@@ -29,6 +29,7 @@ import type { FeedId, FolderId, Story } from "@/lib/types";
 
 const SMART_HEAD: Record<string, { kicker: string; title: string }> = {
   today: { kicker: "Today", title: "Reading Stream" },
+  briefing: { kicker: "Edition", title: "Today's Briefing" },
   all: { kicker: "Archive", title: "All Stories" },
   saved: { kicker: "Kept", title: "Saved" },
   later: { kicker: "Queued", title: "Later" },
@@ -275,39 +276,41 @@ function StreamHeader({
       )}
 
       {/* ------------------------------------------------- filter rail */}
-      <div className="flex h-9 items-stretch justify-between border-y border-rule pr-4 pl-5">
-        <div className="flex items-stretch gap-4">
-          {(
-            [
-              { id: "all", label: "All" },
-              { id: "unread", label: "Unread" },
-            ] as const
-          ).map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => r.setStreamFilter(f.id)}
-              className={clsx(
-                "label relative flex items-center transition-colors",
-                r.streamFilter === f.id ? "text-ink" : "text-ink4 hover:text-ink2",
-              )}
-            >
-              {f.label}
-              {r.streamFilter === f.id && (
-                <span className="absolute -bottom-px left-0 h-px w-full bg-spark" />
-              )}
-            </button>
-          ))}
-          <TopicFilter />
+      {r.view !== "briefing" && (
+        <div className="flex h-9 items-stretch justify-between border-y border-rule pr-4 pl-5">
+          <div className="flex items-stretch gap-4">
+            {(
+              [
+                { id: "all", label: "All" },
+                { id: "unread", label: "Unread" },
+              ] as const
+            ).map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => r.setStreamFilter(f.id)}
+                className={clsx(
+                  "label relative flex items-center transition-colors",
+                  r.streamFilter === f.id ? "text-ink" : "text-ink4 hover:text-ink2",
+                )}
+              >
+                {f.label}
+                {r.streamFilter === f.id && (
+                  <span className="absolute -bottom-px left-0 h-px w-full bg-spark" />
+                )}
+              </button>
+            ))}
+            <TopicFilter />
+          </div>
+          <button
+            type="button"
+            onClick={() => r.markAllRead(r.filtered.map((s) => s.id))}
+            className="label flex items-center text-ink4 transition-colors hover:text-ink"
+          >
+            Mark all read
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => r.markAllRead(r.filtered.map((s) => s.id))}
-          className="label flex items-center text-ink4 transition-colors hover:text-ink"
-        >
-          Mark all read
-        </button>
-      </div>
+      )}
     </header>
   );
 }
@@ -675,11 +678,13 @@ export function StreamColumn() {
       <StreamHeader count={filtered.length} minutes={minutes} sources={sources} />
 
       <div ref={listRef} className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {r.ready && <Briefing />}
         {!r.ready ? (
           <div className="flex flex-col items-center gap-4 px-8 py-24">
             <span className="label text-ink4">Opening the edition</span>
           </div>
+        ) : r.view === "briefing" ? (
+          /* A page of its own, with its own states — not rows among rows. */
+          <Briefing />
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center px-8 py-24 text-center">
             <div className="label text-ink3">Nothing here</div>

@@ -393,6 +393,7 @@ export function useReaderState(edition: Edition): Ctx {
           remembered === "today" ||
           remembered === "saved" ||
           remembered === "later" ||
+          remembered === "briefing" ||
           remembered.startsWith("folder:") ||
           (!!feedId &&
             (SAMPLE_FEEDS.some((f) => f.id === feedId) ||
@@ -1030,8 +1031,8 @@ export function useReaderState(edition: Edition): Ctx {
   /*
    * Today's briefing: one edition per day, written from the stories a reader
    * already has. The sweep is lazier than classification's — one call a day,
-   * not one per story — and it only ever fires while the reader is on Today.
-   * A reader who never opens Today spends nothing.
+   * not one per story — and it only ever fires while the reader is on the
+   * briefing page itself. A reader who never opens it spends nothing.
    */
   const digestCandidates = useMemo(
     () => selectCandidates(stories, state.read),
@@ -1151,7 +1152,7 @@ export function useReaderState(edition: Edition): Ctx {
   /* oxlint-disable react/set-state-in-effect, react/exhaustive-effect-dependencies */
   useEffect(() => {
     if (!ready || !digestEnabled || digestError) return;
-    if (view !== "today") return;
+    if (view !== "briefing") return;
     if (digestInFlight.current) return;
     const forced = digestForce.current;
     digestForce.current = false;
@@ -1186,6 +1187,10 @@ export function useReaderState(edition: Edition): Ctx {
   const { filtered, listed } = useMemo(() => {
     const q = query.trim().toLowerCase();
     let list = stories;
+    // The briefing page lists its own edition rather than the day's stories, in
+    // the order the model chose them — so j and k step through the edition, and
+    // a pick stays where it was even after it has been read.
+    const briefingPage = view === "briefing" && !q;
     if (q) {
       list = list.filter(
         (s) =>
@@ -1193,6 +1198,11 @@ export function useReaderState(edition: Edition): Ctx {
           s.dek.toLowerCase().includes(q) ||
           (feedIndex.get(s.feedId)?.name ?? "").toLowerCase().includes(q),
       );
+    } else if (briefingPage) {
+      const byId = new Map(stories.map((s) => [s.id, s]));
+      list = (todayDigest?.picks ?? [])
+        .map((id) => byId.get(id))
+        .filter((s): s is Story => s !== undefined);
     } else if (view === "today") {
       list = list.filter((s) => s.minutesAgo < 60 * 24);
     } else if (view === "saved") {
@@ -1210,8 +1220,9 @@ export function useReaderState(edition: Edition): Ctx {
     // navigation view of their own: a folder and a topic answer different
     // questions and can be combined.
     if (topicFilter) list = list.filter((s) => s.topics.includes(topicFilter));
-    const column = list.toSorted((a, b) => a.minutesAgo - b.minutesAgo);
-    const visible = streamFilter === "unread" ? column.filter((s) => !state.read[s.id]) : column;
+    const column = briefingPage ? list : list.toSorted((a, b) => a.minutesAgo - b.minutesAgo);
+    const visible =
+      streamFilter === "unread" && !briefingPage ? column.filter((s) => !state.read[s.id]) : column;
     return { filtered: visible, listed: column };
   }, [
     stories,
@@ -1223,6 +1234,7 @@ export function useReaderState(edition: Edition): Ctx {
     streamFilter,
     feedIndex,
     topicFilter,
+    todayDigest,
   ]);
 
   const story = useCallback((id: string) => stories.find((s) => s.id === id), [stories]);

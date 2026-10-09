@@ -10,20 +10,20 @@ function plural(n: number, one: string, many: string) {
 }
 
 /**
- * Today's briefing, at the head of the Today column.
+ * Today's briefing, as a page of its own in the stream column.
  *
- * The block is the whole feature's restraint in one place: it is dated, so it
+ * The page is the whole feature's restraint in one place: it is dated, so it
  * stays put while the reader works through it; every line is a link back to a
  * real story; and the last line says where the words came from. The one thing
  * it must never do is stand in for the story itself, so the gist is a sentence
  * and the reason is a sentence — enough to decide, not enough to skip.
+ *
+ * It is a page rather than a banner above the stream because the two answer
+ * different questions: the stream is what arrived, this is what is worth
+ * reading. Mixing them made one of them a decoration on the other.
  */
 export function Briefing() {
   const r = useReader();
-
-  // Only Today has a "today", and the other views are not decorated with one.
-  if (r.view !== "today") return null;
-  if (!r.digestEnabled) return null;
 
   const record = r.digest;
   const candidates = r.digestCandidates;
@@ -31,19 +31,18 @@ export function Briefing() {
     const service = findService(r.llmConfig.service);
     return service ? serviceReady(service, r.llmConfig) : false;
   })();
-
-  // A quiet day needs no edition, and one written anyway would be a ranking of
-  // three stories pretending to be a choice.
-  if (!record && candidates.length < DIGEST_MIN_CANDIDATES) return null;
-
   const picks = record ? record.picks : [];
   const newSince = staleCount(record ?? undefined, candidates);
 
   return (
-    <section data-t="briefing" className="border-b border-rule px-5 pt-5 pb-6 lg:px-6">
-      <div className="flex items-baseline justify-between gap-4">
-        <h2 className="label text-spark">Today&apos;s briefing</h2>
-        {record && (
+    <div data-t="briefing" className="px-5 pt-5 pb-12 lg:px-6">
+      {record && (
+        <div className="flex items-baseline justify-between gap-4">
+          <p className="max-w-[54ch] text-[13px] leading-[1.5] text-ink4">
+            {plural(picks.length, "story", "stories")} of today&apos;s{" "}
+            {plural(record.candidates.length, "story", "stories")}, chosen and summarised from your
+            own feeds.
+          </p>
           <button
             type="button"
             onClick={r.regenerateDigest}
@@ -57,29 +56,12 @@ export function Briefing() {
           >
             {r.digestWorking ? "Writing…" : "Regenerate"}
           </button>
-        )}
-      </div>
-
-      {record && (
-        <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.5] text-ink4">
-          {plural(picks.length, "story", "stories")} of today&apos;s{" "}
-          {plural(record.candidates.length, "story", "stories")}, chosen and summarised from your
-          own feeds.
-        </p>
+        </div>
       )}
 
       {/* ------------------------------------------------------- states */}
-      {!record && (r.digestWorking || (configured && !r.digestError)) && (
-        <p className="mono mt-3 text-[10px] tracking-[0.12em] text-ink4 uppercase">
-          Writing today&apos;s edition…
-        </p>
-      )}
-
-      {!record && !configured && (
-        <div className="mt-3">
-          <p className="max-w-[52ch] text-[13.5px] leading-[1.5] text-ink3">
-            No model is set up yet, so no briefing can be written.
-          </p>
+      {!r.digestEnabled && (
+        <EmptyState title="The briefing is off">
           <button
             type="button"
             onClick={() => r.setSettingsOpen(true)}
@@ -87,7 +69,35 @@ export function Briefing() {
           >
             Open settings
           </button>
-        </div>
+        </EmptyState>
+      )}
+
+      {r.digestEnabled && !record && candidates.length < DIGEST_MIN_CANDIDATES && (
+        <EmptyState title="Not enough new today">
+          <p className="max-w-[46ch]">
+            Three unread stories is the least an edition can be chosen from. Tomorrow, or after a
+            refresh, there will be more to pick between.
+          </p>
+        </EmptyState>
+      )}
+
+      {r.digestEnabled && !record && !configured && candidates.length >= DIGEST_MIN_CANDIDATES && (
+        <EmptyState title="No model is set up yet">
+          <p className="max-w-[46ch]">A briefing is written by a model of your own choosing.</p>
+          <button
+            type="button"
+            onClick={() => r.setSettingsOpen(true)}
+            className="mono mt-2 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
+          >
+            Open settings
+          </button>
+        </EmptyState>
+      )}
+
+      {r.digestEnabled && !record && (r.digestWorking || (configured && !r.digestError)) && (
+        <p className="mono mt-4 text-[10px] tracking-[0.12em] text-ink4 uppercase">
+          Writing today&apos;s edition…
+        </p>
       )}
 
       {r.digestError && (
@@ -103,42 +113,42 @@ export function Briefing() {
         </div>
       )}
 
-      {/* ------------------------------------------------------- the edition */}
+      {/* -------------------------------------------------- the edition */}
       {record && (
-        <ol className="mt-5 border-t border-rulesoft">
+        <ol className="mt-6 border-t border-rulesoft">
           {picks.map((id, index) => {
             const story = r.story(id);
             // A story the cache has dropped cannot be summarised any more, so
             // the line goes rather than pointing at something that is not there.
             if (!story) return null;
             return (
-              <li key={id} className="border-b border-rulesoft py-3.5 last:border-b-0">
+              <li key={id} className="border-b border-rulesoft py-5 last:border-b-0">
                 <button
                   type="button"
-                  onClick={() => r.select(id)}
+                  onClick={() => openStory(r, id)}
                   className="group block w-full text-left"
                 >
-                  <div className="flex items-baseline gap-3">
+                  <div className="flex items-baseline gap-3.5">
                     <span className="mono shrink-0 text-[10px] tracking-[0.14em] text-ink4">
                       {index + 1}
                     </span>
-                    <h3
+                    <h2
                       className={clsx(
-                        "display min-w-0 flex-1 text-[16.5px] leading-[1.28] tracking-[-0.012em] transition-colors",
+                        "display min-w-0 flex-1 text-[19px] leading-[1.24] tracking-[-0.014em] transition-colors",
                         "group-hover:text-spark",
                         r.state.read[id] ? "text-ink3" : "text-ink",
                       )}
                     >
                       {story.title}
-                    </h3>
+                    </h2>
                   </div>
-                  <p className="mt-1.5 pl-7 text-[14px] leading-[1.45] text-ink2">
+                  <p className="mt-2 pl-8 text-[15px] leading-[1.5] text-ink2">
                     {record.gists[id]}
                   </p>
-                  <p className="mt-1 pl-7 text-[12.5px] leading-[1.45] text-ink4">
+                  <p className="mt-1.5 pl-8 text-[13px] leading-[1.5] text-ink4">
                     {record.reasons[id]}
                   </p>
-                  <div className="mono mt-2 flex min-w-0 items-center gap-2 pl-7 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
+                  <div className="mono mt-2.5 flex min-w-0 items-center gap-2 pl-8 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                     <span>{plural(story.minutes, "min", "mins")} read</span>
                     <span aria-hidden>·</span>
                     <span className="truncate">{r.feedById(story.feedId)?.name ?? ""}</span>
@@ -152,7 +162,7 @@ export function Briefing() {
 
       {/* ------------------------------------- provenance, and what is new */}
       {record && (
-        <p className="mono mt-5 max-w-[58ch] text-[9.5px] leading-[1.8] tracking-[0.08em] text-ink4 uppercase">
+        <p className="mono mt-6 max-w-[58ch] text-[9.5px] leading-[1.8] tracking-[0.08em] text-ink4 uppercase">
           Written from each story&apos;s title and summary. Nothing fetched, nothing invented.
         </p>
       )}
@@ -162,6 +172,23 @@ export function Briefing() {
           {plural(newSince, "new story", "new stories")} since this edition was written
         </p>
       )}
-    </section>
+    </div>
   );
+}
+
+/** An empty page still has to say why it is empty. */
+function EmptyState({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-6 border-t border-rulesoft pt-6">
+      <div className="label text-ink3">{title}</div>
+      <div className="mt-3 max-w-[52ch] text-[14px] leading-[1.55] text-ink4">{children}</div>
+    </div>
+  );
+}
+
+/** Opening a pick is opening a story: the same click a row in the stream is. */
+function openStory(r: ReturnType<typeof useReader>, id: string) {
+  if (typeof window !== "undefined" && window.getSelection()?.toString()) return;
+  r.select(id);
+  r.setMobileReading(true);
 }

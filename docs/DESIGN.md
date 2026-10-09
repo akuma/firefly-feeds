@@ -123,9 +123,11 @@ story links to.
 ![Firefly Feeds on a phone](preview-mobile.webp)
 
 Mobile is not the desktop stack squashed. Below 1024px the structure changes:
-a compact masthead, the stream at full width, a four-item tab bar, and **the
-article as a full-screen sheet** with its own toolbar and a four-action bar at
-the bottom. Navigation moves into a drawer.
+a compact masthead, the stream at full width, a tab bar — four items, and a
+fifth for the briefing once the reader has switched it on, because a tab that
+leads to "turn me on in Settings" is a dead end — and **the article as a
+full-screen sheet** with its own toolbar and a four-action bar at the bottom.
+Navigation moves into a drawer.
 
 Safe-area insets are honoured top and bottom, because a full-screen reading
 surface is the one place a notch actually matters.
