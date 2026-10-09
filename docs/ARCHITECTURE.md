@@ -404,7 +404,10 @@ the disposable article cache record (see [STORAGE.md](STORAGE.md)).
 The sweep is serial and paced — one request at a time, with a minimum gap
 between calls and a ceiling per rolling minute — and stops at the first
 failure, because a hosted classifier rate-limits per key and a reader's page
-should not hammer it. Enabling classification on a large library is therefore a slow
+should not hammer it. Order within it puts the story the reader has open first,
+because a missing topic on that one is the only one they can see is missing;
+behind it, newest first, so the stories they are likely to open next get an
+answer soonest. Enabling classification on a large library is therefore a slow
 background trickle, not a burst; a failure is surfaced in Settings with a Retry
 rather than swallowed. Classification does not change a stream row's `layout`.
 

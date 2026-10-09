@@ -2754,6 +2754,104 @@ describe("article classification", () => {
     }
   });
 
+  // three stories, two pacing gaps between them
+  it("classifies the story the reader has open before the rest of the backlog", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putTopics(defaultTopics(now));
+    await repo.putSource({
+      id: "sord",
+      url: "https://ord.example/feed.xml",
+      siteUrl: "https://ord.example",
+      title: "Ordered Source",
+      host: "ord.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    // oldest first in the list, so publish order alone would take the last one
+    const stories = [
+      { id: "sord~oldest", title: "Oldest story", publishedAt: now - 30_000 },
+      { id: "sord~middle", title: "Middle story", publishedAt: now - 20_000 },
+      { id: "sord~newest", title: "Newest story", publishedAt: now - 10_000 },
+    ];
+    await repo.replaceArticles(
+      "sord",
+      stories.map((story) => ({
+        id: story.id,
+        sourceId: "sord",
+        title: story.title,
+        publishedAt: story.publishedAt,
+        fetchedAt: now,
+        summary: "A summary.",
+        body: [{ kind: "p" as const, text: "A summary." }],
+        minutes: 2,
+        layout: "standard" as const,
+        contentState: "full" as const,
+        extractionState: "idle" as const,
+      })),
+    );
+
+    // classification is off to begin with, so the sweep starts only once the
+    // reader has a story open and has asked for it
+    localStorage.setItem(
+      "firefly.feeds.v1",
+      JSON.stringify({
+        classifyConfig: {
+          provider: "ollama",
+          ollamaBaseUrl: "http://localhost:11434",
+          ollamaModel: "clef-flash:latest",
+          cloudflareModel: "",
+          cloudflareAccountId: "",
+          openaiBaseUrl: "https://api.openai.com/v1",
+          openaiModel: "gpt-6-luna-decisions",
+          keys: {},
+        },
+      }),
+    );
+    const asked: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("11434/v1/systemone")) {
+        asked.push(String(init?.body ?? ""));
+        return new Response(JSON.stringify(ollamaAnswer("news", 0.9)), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, items: [] }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const { user } = await mount();
+      // open the oldest one: publish order alone would leave it for last
+      await user.click(rows()[2]);
+      await waitFor(() => expect(within(reader()).getByText("Oldest story")).toBeInTheDocument());
+
+      // and only then switch classification on
+      await user.click(within(nav()).getByLabelText("Settings"));
+      const panel = await screen.findByRole("dialog", { name: "Settings" });
+      await user.click(within(panel).getByRole("switch", { name: "Classify new stories" }));
+
+      // so the first thing asked about is the story being read
+      await waitFor(() => expect(asked.length).toBeGreaterThan(0));
+      const first = JSON.parse(asked[0]);
+      expect(first.state.title).toBe("Oldest story");
+
+      // and the rest follow newest-first, once the pacing lets them through
+      await waitFor(() => expect(asked.length).toBe(3), { timeout: 15_000 });
+      expect(asked.slice(1).map((body) => JSON.parse(body).state.title)).toEqual([
+        "Newest story",
+        "Middle story",
+      ]);
+    } finally {
+      globalThis.fetch = original;
+    }
+  }, 20_000);
+
   it("keeps a correction after a full remount", async () => {
     await seedClassifiedStories();
     const first = await mount();

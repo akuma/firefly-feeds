@@ -863,13 +863,16 @@ export function useReaderState(edition: Edition): Ctx {
   useEffect(() => {
     if (!ready || !classifyEnabled || classifyError || !topics.length) return;
     if (classifyInFlight.current) return;
-    // Newest first: the stories a reader is most likely to open get an answer
-    // soonest, and the back catalogue trickles in behind them.
-    const next = articles
-      .filter((article) =>
-        needsClassification(classifyInputFor(article), classificationIndex.get(article.id), topics),
-      )
-      .toSorted((a, b) => b.publishedAt - a.publishedAt)[0];
+    // The story the reader has open comes first: it is the one they are waiting
+    // on, and a topic on it is the only one they can see is missing. Behind it,
+    // newest first — the stories a reader is most likely to open next get an
+    // answer soonest, and the back catalogue trickles in behind them.
+    const pending = articles.filter((article) =>
+      needsClassification(classifyInputFor(article), classificationIndex.get(article.id), topics),
+    );
+    const next =
+      pending.find((article) => article.id === selectedId) ??
+      pending.toSorted((a, b) => b.publishedAt - a.publishedAt)[0];
     if (!next) return;
     classifyInFlight.current = true;
     setClassifyWorking(true);
@@ -933,6 +936,7 @@ export function useReaderState(edition: Edition): Ctx {
     classifyConfig,
     articles,
     classificationIndex,
+    selectedId,
     replaceClassification,
   ]);
   /* oxlint-enable react/set-state-in-effect, react/exhaustive-effect-dependencies */
