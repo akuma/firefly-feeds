@@ -366,8 +366,10 @@ request leaves from, which is the only place it can.
 
 Two things follow. The deployed site can reach a local model too, but only once
 the reader has admitted it: Ollama's CORS policy answers a `localhost` origin and
-refuses any other, so `OLLAMA_ORIGINS` must name the site — without it the
-failure says exactly that. And a direct call passes neither the Worker's rate
+refuses any other, so `OLLAMA_ORIGINS` has to name the site — without it the
+failure says exactly that. On the macOS app that is `launchctl setenv
+OLLAMA_ORIGINS "https://feeds.fireflylabs.studio,http://localhost:3000"` followed
+by quitting and reopening Ollama, since a new value only reaches a new process. And a direct call passes neither the Worker's rate
 limiter nor its origin guard; the client-side pacing is what throttles it, and
 Ollama's own CORS policy is what stops anyone else's page from doing the same.
 
