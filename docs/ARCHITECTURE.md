@@ -427,7 +427,9 @@ reader's data off the device.
 **One edition a day, written from what is already here.** When the reader opens
 the briefing page and their own calendar day has no edition, `lib/store.tsx`
 sends the day's unread stories — real subscriptions only, never the sample
-edition, judged on the title and the summary already stored —
+edition, judged on the title and the article's own opening words already stored —
+never on a feed's teaser alone, which is what a publisher says about a piece and
+not the piece: a gist written from a paraphrase is a paraphrase of a paraphrase.
 to the model chosen in Settings. Nothing is fetched to make the prompt better.
 The answer is up to five stories, each with one line on what it is and one on
 why it might be worth reading. Then it is left alone: stories arriving later

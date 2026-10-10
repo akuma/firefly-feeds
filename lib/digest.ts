@@ -41,22 +41,22 @@ export const DIGEST_PICKS = 5;
 export const DIGEST_MIN_CANDIDATES = 3;
 
 /**
- * The most one prompt ever carries.
+ * The most one prompt ever carries: the newest stories, and never past the
+ * point where the text stops fitting a context and a bill.
  *
- * A safety valve, not a design limit: the day's whole eligible set is what an
- * edition should choose from, and 20 arbitrary stories out of 30 is not that
- * day. This exists because a prompt has to fit a context and a bill — and when
- * it bites, the copy says how many of the day were offered rather than quietly
+ * Measured in characters rather than stories, because a count is not a bound:
+ * a story with a long excerpt costs more than one with a short one. When it
+ * bites, the copy says how many of the day were offered rather than quietly
  * counting them all.
  */
 export const DIGEST_OFFER_LIMIT = 50;
+export const DIGEST_OFFER_BUDGET = 24_000;
 
 /** A day, for "today's stories". */
 const DAY_MINUTES = 60 * 24;
 
 /** Input caps, enforced before anything leaves the device. */
 export const DIGEST_TITLE_LIMIT = 300;
-export const DIGEST_SUMMARY_LIMIT = 300;
 
 /** Output caps. An over-long line is dropped rather than truncated: a gist that
  * has to be cut off mid-sentence is not a gist, and the layout has no room for
@@ -84,8 +84,9 @@ export const DIGEST_MAX_PER_DAY = 6;
  */
 export const DIGEST_TIMEOUT_MS = 180_000;
 
-/** One story as the model sees it: an id to point back at, a title, a summary. */
-export type DigestCandidate = { id: string; title: string; summary: string };
+/** One story as the model sees it: an id to point back at, a title, and the
+ * article's own words where we have them. */
+export type DigestCandidate = { id: string; title: string; excerpt: string };
 
 /** One accepted line of the edition. */
 export type DigestPick = { id: string; gist: string; why: string };
@@ -111,7 +112,33 @@ export function dayKey(at: number = Date.now()): string {
 export function offerCandidates(
   candidates: readonly DigestCandidate[],
 ): readonly DigestCandidate[] {
-  return candidates.slice(0, DIGEST_OFFER_LIMIT);
+  const offered: DigestCandidate[] = [];
+  let spent = 0;
+  for (const candidate of candidates) {
+    const cost = candidate.title.length + candidate.excerpt.length;
+    // One story is always offered, so a single long one cannot empty the day.
+    if (offered.length > 0 && spent + cost > DIGEST_OFFER_BUDGET) break;
+    offered.push(candidate);
+    spent += cost;
+  }
+  return offered.slice(0, DIGEST_OFFER_LIMIT);
+}
+
+/** How much of a story the model is given. */
+export const DIGEST_EXCERPT_LIMIT = 700;
+
+/**
+ * What the model is given about a story: the article itself where we have it.
+ *
+ * A feed's summary is what the publisher says about the piece and is usually a
+ * teaser, so a gist written from one is a paraphrase of a paraphrase — which is
+ * how a description ends up describing nothing. The body is where the number
+ * and the name are, and the number and the name are what make a line worth
+ * reading.
+ */
+export function excerptFor(story: Story): string {
+  const body = blocksToText(story.body);
+  return (body || story.dek.trim()).slice(0, DIGEST_EXCERPT_LIMIT);
 }
 
 /**
@@ -143,7 +170,7 @@ export function selectCandidates(
     .map((story) => ({
       id: story.id,
       title: story.title.slice(0, DIGEST_TITLE_LIMIT),
-      summary: (story.dek.trim() || blocksToText(story.body)).slice(0, DIGEST_SUMMARY_LIMIT),
+      excerpt: excerptFor(story),
     }));
 }
 
@@ -199,12 +226,13 @@ function systemPrompt(language: DigestLanguage, interests: string): string {
 ${about}Choose the ${DIGEST_PICKS} ${forWhom} would most want to read today, best first. ${weight} Never choose more than 2 stories from the same publication. Prefer range over several pieces on the same subject.
 
 For each chosen story write two fields:
-- "gist": one sentence, at most ${language.lineLimit} characters, saying what specifically happened or what the piece claims — the number, the name, the finding, the mechanism. Never restate the title in other words, and never open with "This article", "This piece" or their equivalents.
-- "why": one sentence, at most ${language.lineLimit} characters, saying why ${forWhom} would want it: the interest it touches, or the specific detail that should hook them. Never write "interesting", "important" or "worth reading" — those say nothing.
+- "gist": one sentence, at most ${language.lineLimit} characters, carrying the one specific detail that makes this piece worth three minutes — the number, the name, the finding, the mechanism. Not a description of a document: never "this article covers" or its equivalents, never the title in other words.
+- "why": one sentence, at most ${language.lineLimit} characters, giving the stake in plain terms — what it changes, what is still open, what ${forWhom} will see or know after reading. It must add something the gist has not given: no restating the gist, no taste-talk such as "this fits your interest in X", and never "interesting", "important" or "worth reading". Stay inside the text: no claims about industries, history or society that it does not make. A piece with no stake is allowed to have none — say plainly what it is rather than manufacture one.
 
 Rules:
 - Use only the titles and summaries you were given. Never add a fact, number, quote, person or link that is not in them.
 - ${writtenIn}
+- Do not write the five in one shape: vary what each sentence leads with, in both fields.
 - Reply with a JSON array of { "id", "gist", "why" } objects, in the order you chose them, and with the id copied exactly from the list.
 - Nothing else in your reply: no prose before or after, and no markdown fence.`;
 }
@@ -228,7 +256,7 @@ export function buildDigestMessages(
   const list = candidates
     .map(
       (candidate, index) =>
-        `${index + 1}. [${candidate.id}] ${candidate.title}\n${candidate.summary}`,
+        `${index + 1}. [${candidate.id}] ${candidate.title}\n${candidate.excerpt}`,
     )
     .join("\n\n");
   return [

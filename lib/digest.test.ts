@@ -59,7 +59,7 @@ function record(patch: Partial<DigestRecord> = {}): DigestRecord {
   };
 }
 
-const candidate = (id: string): DigestCandidate => ({ id, title: `Title ${id}`, summary: "s" });
+const candidate = (id: string): DigestCandidate => ({ id, title: `Title ${id}`, excerpt: "s" });
 
 describe("the day", () => {
   it("is the reader's own calendar day, not a UTC one", () => {
@@ -111,7 +111,7 @@ describe("the candidates", () => {
       ],
       {},
     );
-    expect(picked[0].summary).toBe("The first paragraph.");
+    expect(picked[0].excerpt).toBe("The first paragraph.");
   });
 
   it("does not offer a story an earlier edition has already featured", () => {
@@ -214,7 +214,9 @@ describe("the model's answer", () => {
     expect(mine).toMatch(/Choose the 5 this reader/);
     expect(mine).toMatch(/touches one of those interests/);
     // …and the writing is told to be specific rather than a restated title.
-    expect(mine).toMatch(/Never restate the title/);
+    expect(mine).toMatch(/Not a description of a document/);
+    expect(mine).toMatch(/never the title in other words/);
+    expect(mine).toMatch(/vary what each sentence leads with/);
 
     // Nobody has said anything, so nothing is claimed on their behalf.
     const generic = buildDigestMessages([candidate("a")])[0].content;

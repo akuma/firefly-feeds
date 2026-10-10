@@ -2,7 +2,7 @@ import {
   buildDigestMessages,
   DIGEST_INTERESTS_LIMIT,
   DIGEST_OFFER_LIMIT,
-  DIGEST_SUMMARY_LIMIT,
+  DIGEST_EXCERPT_LIMIT,
   DIGEST_TIMEOUT_MS,
   DIGEST_TITLE_LIMIT,
   type DigestCandidate,
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         ok: false,
-        error: `Send between 1 and ${DIGEST_OFFER_LIMIT} stories, each with an id, a title and a summary.`,
+        error: `Send between 1 and ${DIGEST_OFFER_LIMIT} stories, each with an id, a title and an excerpt.`,
       },
       { status: 400 },
     );
@@ -171,10 +171,10 @@ function readCandidates(body: unknown): DigestCandidate[] | null {
     const id = typeof item.id === "string" ? item.id.trim().slice(0, MAX_ID) : "";
     const title =
       typeof item.title === "string" ? item.title.trim().slice(0, DIGEST_TITLE_LIMIT) : "";
-    const summary =
-      typeof item.summary === "string" ? item.summary.trim().slice(0, DIGEST_SUMMARY_LIMIT) : "";
+    const excerpt =
+      typeof item.excerpt === "string" ? item.excerpt.trim().slice(0, DIGEST_EXCERPT_LIMIT) : "";
     if (!id || !title) return null;
-    candidates.push({ id, title, summary });
+    candidates.push({ id, title, excerpt });
   }
   return candidates;
 }
