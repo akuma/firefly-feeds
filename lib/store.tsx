@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { minutesIntoToday, type Edition } from "./edition";
+import { dayKeyIn, localZone, minutesIntoTodayIn, type Edition } from "./edition";
 import {
   articleFingerprint,
   classificationFromOutcome,
@@ -36,7 +36,6 @@ import {
   type DigestLanguageId,
 } from "./languages";
 import {
-  dayKey,
   digestIsStale,
   DIGEST_MIN_CANDIDATES,
   offerCandidates,
@@ -195,6 +194,9 @@ type Ctx = {
   updateLlmConfig: (patch: Partial<LlmConfig>) => void;
   /** The language the edition is written in. */
   digestLanguage: DigestLanguageId;
+  /** The zone their days are counted in. */
+  dayZone: string;
+  setDayZone: (v: string) => void;
   setDigestLanguage: (v: DigestLanguageId) => void;
   /** What the reader says they care about — the one signal that is theirs. */
   digestInterests: string;
@@ -318,6 +320,10 @@ export function useReaderState(edition: Edition): Ctx {
     setLlmConfig((current) => ({ ...current, ...patch }));
   }, []);
   const [digestLanguage, setDigestLanguage] = useState<DigestLanguageId>(DEFAULT_DIGEST_LANGUAGE);
+  // Which zone a reader's days are counted in. Theirs, remembered once — a
+  // device that follows local time would move its midnight when its owner
+  // travels, and a moving boundary is one a story can fall on both sides of.
+  const [dayZone, setDayZone] = useState<string>(localZone);
   /** What the reader says they care about, quoted to the model as fact. */
   const [digestInterests, setDigestInterests] = useState("");
   /** Which day's edition is on screen. Null is today's. */
@@ -370,6 +376,7 @@ export function useReaderState(edition: Edition): Ctx {
     if (typeof prefs.digest === "boolean") setDigestEnabled(prefs.digest);
     setLlmConfig(readLlmConfigFromPrefs(prefs));
     setDigestLanguage(readDigestLanguage(prefs.digestLanguage));
+    setDayZone(readDayZone(prefs));
     setDigestInterests(typeof prefs.digestInterests === "string" ? prefs.digestInterests : "");
   }, []);
 
@@ -446,6 +453,7 @@ export function useReaderState(edition: Edition): Ctx {
       llmConfig,
       digestLanguage,
       digestInterests,
+      dayZone,
     });
   }, [
     ready,
@@ -459,6 +467,7 @@ export function useReaderState(edition: Edition): Ctx {
     llmConfig,
     digestLanguage,
     digestInterests,
+    dayZone,
   ]);
 
   /* ------------------------------------------------------ derive views */
@@ -1050,7 +1059,7 @@ export function useReaderState(edition: Edition): Ctx {
    * and the briefing, so the three can never disagree about what the day
    * holds — and so yesterday's stories are yesterday's, not today's.
    */
-  const todayWindow = useMemo(() => minutesIntoToday(now), [now]);
+  const todayWindow = useMemo(() => minutesIntoTodayIn(now, dayZone), [now, dayZone]);
 
   /*
    * Whether a story belongs to today. The sample edition is not news and has
@@ -1076,9 +1085,9 @@ export function useReaderState(edition: Edition): Ctx {
   );
 
   const todayDigest = useMemo(() => {
-    const day = dayKey(now);
+    const day = dayKeyIn(now, dayZone);
     return digests.find((record) => record.day === day) ?? null;
-  }, [digests, now]);
+  }, [digests, now, dayZone]);
 
   /**
    * A candidate set that has moved on marks the edition stale rather than
@@ -1093,17 +1102,17 @@ export function useReaderState(edition: Edition): Ctx {
 
   /** The edition on screen: today's, or an earlier day the reader opened. */
   const viewedDigest = useMemo(() => {
-    const day = digestDay ?? dayKey(now);
+    const day = digestDay ?? dayKeyIn(now, dayZone);
     return digests.find((record) => record.day === day) ?? null;
-  }, [digests, digestDay, now]);
+  }, [digests, digestDay, now, dayZone]);
 
   /** Every edition but the one on screen, newest first. */
   const digestHistory = useMemo(() => {
-    const day = digestDay ?? dayKey(now);
+    const day = digestDay ?? dayKeyIn(now, dayZone);
     return digests
       .filter((record) => record.day !== day && record.picks.length > 0)
       .toSorted((a, b) => b.day.localeCompare(a.day));
-  }, [digests, digestDay, now]);
+  }, [digests, digestDay, now, dayZone]);
 
   const digestInFlight = useRef(false);
   // Send times of recent calls, sharing classification's politeness budget.
@@ -1161,7 +1170,7 @@ export function useReaderState(edition: Edition): Ctx {
         return;
       }
       const record: DigestRecord = {
-        day: dayKey(),
+        day: dayKeyIn(Date.now(), dayZone),
         picks: picks.map((pick) => pick.id),
         gists: Object.fromEntries(picks.map((pick) => [pick.id, pick.gist])),
         reasons: Object.fromEntries(picks.map((pick) => [pick.id, pick.why])),
@@ -1185,7 +1194,7 @@ export function useReaderState(edition: Edition): Ctx {
       digestInFlight.current = false;
       setDigestWorking(false);
     }
-  }, [digestCandidates, llmConfig, digestLanguage, digestInterests]);
+  }, [digestCandidates, llmConfig, digestLanguage, digestInterests, dayZone]);
 
   /* ------------------------------------------------------------- filter */
 
@@ -1632,6 +1641,8 @@ export function useReaderState(edition: Edition): Ctx {
     updateLlmConfig,
     digestLanguage,
     setDigestLanguage,
+    dayZone,
+    setDayZone,
     digestInterests,
     setDigestInterests,
     digestCandidates,
@@ -1723,6 +1734,22 @@ function readClassifyConfig(prefs: Prefs): ClassifyConfig {
  * rather than leaving Settings describing one thing while the briefing does
  * another — the same rule the classifier's config follows.
  */
+/**
+ * The zone a reader's days are counted in. An unreadable name falls back to
+ * the device's rather than throwing: a zone is an IANA name, and a name that
+ * once worked can outlive the browser that understood it.
+ */
+function readDayZone(prefs: Prefs): string {
+  const stored = prefs.dayZone;
+  if (!stored) return localZone();
+  try {
+    Intl.DateTimeFormat("en-US", { timeZone: stored }).format(0);
+    return stored;
+  } catch {
+    return localZone();
+  }
+}
+
 function readLlmConfigFromPrefs(prefs: Prefs): LlmConfig {
   const stored = prefs.llmConfig;
   if (!stored) return DEFAULT_LLM_CONFIG;

@@ -573,6 +573,15 @@ overlap and the two counts stop being comparable. The built-in sample edition
 is the one exception, being not news and undated — it fills its column the same
 way at midnight and at noon.
 
+That midnight is the reader's, not the device's. A device that follows local
+time moves its midnight when its owner gets on a plane, and a boundary that
+moves is one a story can fall on both sides of: same story, two editions. So
+the zone is remembered — an IANA name in prefs, filled in from the device on
+first run and editable in Settings — and every day is computed in it with
+`Intl`, which is also what keeps a daylight-saving change from being an hour
+of drift twice a year. A name that no longer resolves falls back to the
+device's rather than throwing: the day still turns over.
+
 ## Reading state
 
 **Reaching the end of a story marks it read. Nothing else does automatically.**

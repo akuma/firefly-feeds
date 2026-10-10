@@ -27,6 +27,7 @@ import {
   type LlmField,
   type LlmServiceId,
 } from "@/lib/llm";
+import { localZone } from "@/lib/edition";
 import { DIGEST_LANGUAGES, type DigestLanguageId } from "@/lib/languages";
 import { DIGEST_INTERESTS_LIMIT } from "@/lib/digest";
 import { useReader } from "@/lib/store";
@@ -546,6 +547,26 @@ export function Settings() {
                     The language the gists and reasons are written in. With the story&apos;s own
                     language chosen, each one follows its story and the page around them stays in
                     English.
+                  </p>
+                </div>
+
+                <div className="mt-6">
+                  <label htmlFor="llm-dayzone" className="label block text-ink4">
+                    Time zone
+                  </label>
+                  <input
+                    id="llm-dayzone"
+                    value={r.dayZone}
+                    onChange={(e) => r.setDayZone(e.target.value)}
+                    spellCheck={false}
+                    autoComplete="off"
+                    placeholder={localZone()}
+                    className="mono w-full border-b border-rulestrong bg-transparent pb-2 text-[13px] text-ink2 outline-none placeholder:text-ink4"
+                  />
+                  <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                    Where your day begins. Yours, not your device&apos;s: a device that follows
+                    local time moves its midnight when you travel, and a story could end up in two
+                    editions or in none. An IANA name, filled in from the device to start with.
                   </p>
                 </div>
 

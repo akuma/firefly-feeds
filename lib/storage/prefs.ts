@@ -44,6 +44,13 @@ export type Prefs = {
   llmConfig?: LlmConfig;
   /** The language the edition is written in — a `DigestLanguageId`. */
   digestLanguage?: string;
+  /**
+   * The zone a reader's days are counted in — an IANA name. Theirs, not their
+   * device's: a device that follows local time moves its midnight when its
+   * owner gets on a plane, and a moving boundary is one a story can fall on
+   * both sides of.
+   */
+  dayZone?: string;
   /** What the reader says they care about, in their own words. */
   digestInterests?: string;
 };
