@@ -521,6 +521,29 @@ rather than reads. CJK text sets in the reader's own system fonts — the three
 faces here are Latin subsets, and bundling CJK would cost megabytes for glyphs
 the device already has.
 
+**The edition is chosen for one reader, not for a reader nobody has met.** A
+"What you care about" field takes the reader's own words and quotes them to the
+model as fact about them, which turns the job from "what a broadly curious
+reader would want" into "what this reader would want" — and a story that
+touches one of their interests outranks a story that is merely big. With the
+field empty, the old job stands: guessing at somebody's interests is worse than
+an edition that makes no claim to know them. There is no inferred profile of
+what was read and for how long; the explicit sentence is more accurate, is
+editable, and needs no explaining. The writing is told to be specific with the
+same hand — a gist states the number or the claim rather than restating the
+title, and a reason names the interest it touches rather than calling the piece
+interesting.
+
+**A day is an edition, and an edition does not re-recommend.** Each day is one
+record, which is what makes a history worth looking back at: the briefing page
+lists earlier editions at its foot, opens one on a click, and prints that day's
+date in the masthead while it is open — a header that says today while showing
+last Tuesday's edition is lying about what it is showing. A story an earlier
+edition featured leaves the candidate pool, so tomorrow has to find tomorrow's
+stories; and a rewrite of today's steps aside from today's own picks unless
+that would leave too little to choose from. Without the first rule a history is
+a list of the same five stories.
+
 ## Reading state
 
 **Reaching the end of a story marks it read. Nothing else does automatically.**

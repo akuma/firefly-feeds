@@ -19,6 +19,7 @@ import { clsx } from "./clsx";
 import { IconButton } from "./brand";
 import { Briefing } from "./briefing";
 import { Hint, LOW_CONFIDENCE_HINT } from "./hint";
+import { editionFor } from "@/lib/edition";
 import { Firefly, Media, hasArt } from "./plate";
 import { agoLabel } from "@/lib/reading";
 import { FOLDERS } from "@/lib/sources";
@@ -176,6 +177,15 @@ function StreamHeader({
   const r = useReader();
   const head = viewHead(r.view, r.feedById);
   const hours = Math.floor(minutes / 60);
+  /*
+   * The masthead prints the date of what is on the page. A past edition is a
+   * past date, and a header that says today while showing last Tuesday's
+   * edition is lying about what it is showing.
+   */
+  const edition =
+    r.view === "briefing" && r.digestDay
+      ? editionFor(new Date(`${r.digestDay}T12:00:00`))
+      : r.edition;
 
   return (
     <header className="shrink-0">
@@ -189,7 +199,7 @@ function StreamHeader({
             onClick={() => r.setNavOpen(!r.navOpen)}
           />
           <span className="mono truncate text-[9.5px] tracking-[0.18em] text-ink4 uppercase">
-            {r.edition.long}
+            {edition.long}
           </span>
         </div>
         {/*
@@ -228,12 +238,12 @@ function StreamHeader({
         <div className="shrink-0 select-none">
           <div
             data-t="day"
-            data-lead={r.edition.day[0]}
+            data-lead={edition.day[0]}
             className="tnum font-figures text-[46px] leading-[0.82] font-light tracking-[-0.03em] text-ink lg:text-[64px] lg:leading-[0.8]"
           >
-            {r.edition.day}
+            {edition.day}
           </div>
-          <div className="label mt-1.5 text-ink4 lg:mt-2.5">{r.edition.month}</div>
+          <div className="label mt-1.5 text-ink4 lg:mt-2.5">{edition.month}</div>
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">

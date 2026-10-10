@@ -44,6 +44,8 @@ export type Prefs = {
   llmConfig?: LlmConfig;
   /** The language the edition is written in — a `DigestLanguageId`. */
   digestLanguage?: string;
+  /** What the reader says they care about, in their own words. */
+  digestInterests?: string;
   /**
    * Manual rewrites used today, so the daily cap survives a reload. A scalar
    * with a date beside it, which is exactly the size of thing prefs exist for.

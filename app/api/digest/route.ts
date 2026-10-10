@@ -1,5 +1,6 @@
 import {
   buildDigestMessages,
+  DIGEST_INTERESTS_LIMIT,
   DIGEST_MAX_CANDIDATES,
   DIGEST_SUMMARY_LIMIT,
   DIGEST_TIMEOUT_MS,
@@ -79,6 +80,13 @@ export async function POST(request: Request) {
   // The language travels as a name this app already knows, never as an
   // instruction of the reader's own: the prompt is still ours.
   const language = readDigestLanguage(bodyRecord.language);
+  // What the reader cares about, like the language, is a fact about them rather
+  // than an instruction to us: it is quoted inside the prompt we write, not
+  // spliced into it as something to obey.
+  const interests =
+    typeof bodyRecord.interests === "string"
+      ? bodyRecord.interests.trim().slice(0, DIGEST_INTERESTS_LIMIT)
+      : "";
   const service = findService(config.service);
   if (!service) {
     return Response.json({ ok: false, error: UNKNOWN_SERVICE }, { status: 400 });
@@ -93,7 +101,7 @@ export async function POST(request: Request) {
     );
   }
 
-  return callService(service, config, candidates, language);
+  return callService(service, config, candidates, language, interests);
 }
 
 /* --------------------------------------------------------------- upstream */
@@ -108,8 +116,9 @@ async function callService(
   config: LlmConfig,
   candidates: readonly DigestCandidate[],
   language: DigestLanguageId,
+  interests: string,
 ): Promise<Response> {
-  const call = service.call(config, buildDigestMessages(candidates, language));
+  const call = service.call(config, buildDigestMessages(candidates, language, interests));
   try {
     const res = await fetch(call.url, {
       method: "POST",

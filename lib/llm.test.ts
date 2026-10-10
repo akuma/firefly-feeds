@@ -83,12 +83,13 @@ describe("the service table", () => {
 
   it("falls back to where a local Ollama listens, and follows an address that moves", () => {
     const ollama = findService("ollama")!;
-    // The reader points at Ollama's root; its API lives under /v1.
+    // The reader points at Ollama's root, and the call goes to its own chat
+    // endpoint — the one where `think` is honoured.
     expect(endpointFor(ollama, configFor("ollama", { baseUrl: "" }))).toBe(
-      "http://localhost:11434/v1/chat/completions",
+      "http://localhost:11434/api/chat",
     );
     expect(endpointFor(ollama, configFor("ollama", { baseUrl: "http://10.0.0.4:11434/" }))).toBe(
-      "http://10.0.0.4:11434/v1/chat/completions",
+      "http://10.0.0.4:11434/api/chat",
     );
     // …and it is the one service the browser may call itself, because it is on
     // the reader's own machine and takes no key.
@@ -137,6 +138,13 @@ describe("the two request shapes", () => {
       MESSAGES,
     );
     expect(deepseek.body).toMatchObject({ thinking: { type: "disabled" } });
+
+    // Ollama is asked in its own words, on its own endpoint: `think` is
+    // ignored by the OpenAI-compatible one and honoured by this one.
+    const ollama = findService("ollama")!.call(configFor("ollama"), MESSAGES);
+    expect(ollama.body).toMatchObject({ think: false, stream: false });
+    expect(readLlmText({ message: { content: "Five." } }, "ollama")).toBe("Five.");
+
     // And nothing of the sort is sent anywhere it was not declared: an unknown
     // field is a risk taken for nothing on a service that never asked for it.
     const openai = findService("openai")!.call(configFor("openai"), MESSAGES);

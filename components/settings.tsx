@@ -28,6 +28,7 @@ import {
   type LlmServiceId,
 } from "@/lib/llm";
 import { DIGEST_LANGUAGES, type DigestLanguageId } from "@/lib/languages";
+import { DIGEST_INTERESTS_LIMIT } from "@/lib/digest";
 import { useReader } from "@/lib/store";
 
 /**
@@ -545,6 +546,29 @@ export function Settings() {
                     The language the gists and reasons are written in. With the story&apos;s own
                     language chosen, each one follows its story and the page around them stays in
                     English.
+                  </p>
+                </div>
+
+                <div className="mt-6">
+                  <label htmlFor="llm-interests" className="label block text-ink4">
+                    What you care about
+                  </label>
+                  <textarea
+                    id="llm-interests"
+                    value={r.digestInterests}
+                    onChange={(e) =>
+                      r.setDigestInterests(e.target.value.slice(0, DIGEST_INTERESTS_LIMIT))
+                    }
+                    rows={3}
+                    spellCheck={false}
+                    placeholder="In your own words — a place, a kind of case, a period of history"
+                    className="mono min-h-[64px] w-full resize-y border-b border-rulestrong bg-transparent py-2 text-[13px] leading-[1.5] text-ink2 outline-none placeholder:text-ink4"
+                  />
+                  <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                    Quoted to the model as fact about you, so the edition is chosen for what you
+                    actually want rather than for a reader nobody has met. The more specific the
+                    better — "how ideas get implemented in Michigan" beats "innovation". Empty, and
+                    the edition is chosen for a broadly curious reader instead.
                   </p>
                 </div>
 

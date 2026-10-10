@@ -69,11 +69,17 @@ export const DIGEST_WHY_LIMIT = 120;
 export const DIGEST_MAX_PER_DAY = 6;
 
 /**
- * How long a briefing may take. Longer than a decision by an order of magnitude,
- * because writing five sentences is not choosing one slug — and a local model on
- * a laptop is slower still.
+ * How long a briefing may take.
+ *
+ * This is a watchdog, not a budget: it stops a request that has hung, and it is
+ * deliberately far past anything a decision takes. Measured on a real prompt —
+ * five candidates and a paragraph of interests — a 27B thinking model on a
+ * laptop needed more than the sixty seconds this used to allow, and DeepSeek's
+ * own docs say a thinking answer takes longer than a plain one. Three minutes
+ * is room for a model to think and still be worth waiting for; the page is
+ * telling the reader it is writing the whole time.
  */
-export const DIGEST_TIMEOUT_MS = 60_000;
+export const DIGEST_TIMEOUT_MS = 180_000;
 
 /** One story as the model sees it: an id to point back at, a title, a summary. */
 export type DigestCandidate = { id: string; title: string; summary: string };
@@ -109,9 +115,19 @@ export function dayKey(at: number = Date.now()): string {
 export function selectCandidates(
   stories: readonly Story[],
   read: Readonly<Record<string, boolean>>,
+  alreadyPicked: ReadonlySet<string> = new Set(),
 ): DigestCandidate[] {
   return stories
-    .filter((story) => story.live === true && !read[story.id] && story.minutesAgo < DAY_MINUTES)
+    .filter(
+      (story) =>
+        story.live === true &&
+        !read[story.id] &&
+        // An edition does not re-recommend. A story that has already had its
+        // moment is out of the pool, so tomorrow's edition has to find tomorrow's
+        // stories rather than re-listing today's.
+        !alreadyPicked.has(story.id) &&
+        story.minutesAgo < DAY_MINUTES,
+    )
     .toSorted((a, b) => a.minutesAgo - b.minutesAgo)
     .slice(0, DIGEST_MAX_CANDIDATES)
     .map((story) => ({
@@ -147,20 +163,34 @@ export function staleCount(
 
 /* ------------------------------------------------------------------ prompt */
 
-function systemPrompt(language: DigestLanguage): string {
+/** How much of themselves a reader may say. A paragraph, not an essay. */
+export const DIGEST_INTERESTS_LIMIT = 600;
+
+function systemPrompt(language: DigestLanguage, interests: string): string {
   // A named language is one instruction among the rest, not the whole prompt:
   // the contract stays in one language so it is readable where it is written,
   // and only the words the reader will see are asked for in theirs.
   const writtenIn = language.promptName
     ? `Write both fields in ${language.promptName}. Keep the names of people, companies, products and code in their original form.`
     : "Write both fields in the language of the story itself.";
+  // A reader who has said what they care about has changed the job: the
+  // edition is then for them, not for a reader nobody has met. Without it the
+  // old job stands, because a guess at somebody's interests is worse than an
+  // edition that makes no claim to know them.
+  const about = interests.trim()
+    ? `What this reader says they care about:\n${interests.trim()}\n`
+    : "";
+  const forWhom = interests.trim() ? "this reader" : "a broadly curious reader";
+  const weight = interests.trim()
+    ? "Weight what they said they care about above general importance: a story that touches one of those interests beats a story that is merely big."
+    : "";
   return `You are the editor of a daily edition. You are given a numbered list of today's unread stories, each as an id in square brackets, a title, and a summary.
 
-Choose the ${DIGEST_PICKS} a broadly curious reader would most want to read today, best first. Never choose more than 2 stories from the same publication. Prefer range over several pieces on the same subject.
+${about}Choose the ${DIGEST_PICKS} ${forWhom} would most want to read today, best first. ${weight} Never choose more than 2 stories from the same publication. Prefer range over several pieces on the same subject.
 
 For each chosen story write two fields:
-- "gist": one sentence, at most ${language.lineLimit} characters, saying what the piece is.
-- "why": one sentence, at most ${language.lineLimit} characters, saying why this reader might want it. Never write "interesting", "important" or "worth reading" — those say nothing.
+- "gist": one sentence, at most ${language.lineLimit} characters, saying what specifically happened or what the piece claims — the number, the name, the finding, the mechanism. Never restate the title in other words, and never open with "This article", "This piece" or their equivalents.
+- "why": one sentence, at most ${language.lineLimit} characters, saying why ${forWhom} would want it: the interest it touches, or the specific detail that should hook them. Never write "interesting", "important" or "worth reading" — those say nothing.
 
 Rules:
 - Use only the titles and summaries you were given. Never add a fact, number, quote, person or link that is not in them.
@@ -182,6 +212,7 @@ Rules:
 export function buildDigestMessages(
   candidates: readonly DigestCandidate[],
   languageId: DigestLanguageId = "source",
+  interests = "",
 ): LlmMessage[] {
   const language = findLanguage(languageId);
   const list = candidates
@@ -191,7 +222,7 @@ export function buildDigestMessages(
     )
     .join("\n\n");
   return [
-    { role: "system", content: systemPrompt(language) },
+    { role: "system", content: systemPrompt(language, interests) },
     { role: "user", content: `Today's unread stories:\n\n${list}` },
   ];
 }
@@ -282,6 +313,7 @@ export async function requestDigest(input: {
   candidates: readonly DigestCandidate[];
   llm: LlmConfig;
   language?: DigestLanguageId;
+  interests?: string;
 }): Promise<DigestResult> {
   const service = findService(input.llm.service);
   if (!service) return { ok: false, error: "Choose a model in Settings." };
@@ -292,7 +324,11 @@ export async function requestDigest(input: {
     return { ok: false, error: `${service.label} still needs: ${missing.join(", ")}.` };
   }
 
-  const messages = buildDigestMessages(input.candidates, input.language ?? "source");
+  const messages = buildDigestMessages(
+    input.candidates,
+    input.language ?? "source",
+    input.interests ?? "",
+  );
   const direct = service.direct?.(input.llm) === true;
 
   try {
@@ -315,6 +351,7 @@ export async function requestDigest(input: {
       body: JSON.stringify({
         candidates: input.candidates,
         language: input.language ?? "source",
+        interests: input.interests ?? "",
         ...input.llm,
       }),
     });

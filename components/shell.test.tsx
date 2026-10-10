@@ -3005,26 +3005,25 @@ const LLM_PREFS = {
 };
 
 function digestAnswer() {
+  // Ollama's own answer shape: one message, not a list of choices.
   return new Response(
     JSON.stringify({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify([
-              {
-                id: "sdig~two",
-                gist: "A gist about the second story.",
-                why: "It explains the week.",
-              },
-              {
-                id: "sdig~one",
-                gist: "A gist about the first story.",
-                why: "It has the numbers.",
-              },
-            ]),
+      message: {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            id: "sdig~two",
+            gist: "A gist about the second story.",
+            why: "It explains the week.",
           },
-        },
-      ],
+          {
+            id: "sdig~one",
+            gist: "A gist about the first story.",
+            why: "It has the numbers.",
+          },
+        ]),
+      },
+      done: true,
     }),
     { headers: { "content-type": "application/json" } },
   );
@@ -3036,7 +3035,7 @@ function digestSpy() {
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url.includes("/v1/chat/completions") || url.includes("/api/digest")) {
+    if (url.includes("/api/chat") || url.includes("/api/digest")) {
       seen.push({ url, body: String(init?.body ?? "") });
       return digestAnswer();
     }
@@ -3080,7 +3079,7 @@ describe("today's briefing", () => {
       // a local model is called straight from the browser, not through our
       // endpoint — our own server cannot see the reader's machine
       expect(spy.seen).toHaveLength(1);
-      expect(spy.seen[0].url).toBe("http://localhost:11434/v1/chat/completions");
+      expect(spy.seen[0].url).toBe("http://localhost:11434/api/chat");
       // and it is given the stories, not a question of its own
       const sent = JSON.parse(spy.seen[0].body);
       expect(sent.messages[1].content).toContain("A first story");

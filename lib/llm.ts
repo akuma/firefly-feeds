@@ -21,8 +21,8 @@ import { onReadersNetwork, ollamaTagsUrl, type ProviderCall } from "./classify";
  * whatever a service lists, so adding one is a row here and nothing else.
  */
 
-/** The two wire formats. Every service here is one of these two. */
-export type LlmWire = "openai" | "anthropic";
+/** The wire formats. Every service here is one of these three. */
+export type LlmWire = "openai" | "anthropic" | "ollama";
 
 /** Where a service ends and the reader's own configuration begins. */
 export const CUSTOM_SERVICE = "custom";
@@ -131,6 +131,10 @@ export const DEFAULT_LLM_CONFIG: LlmConfig = {
 const WIRE_PATH: Record<LlmWire, string> = {
   openai: "/chat/completions",
   anthropic: "/v1/messages",
+  // Ollama's own endpoint rather than its OpenAI-compatible one: `think` is
+  // documented here and ignored there, and a model that thinks by default is a
+  // model that spends the whole allowance thinking.
+  ollama: "/api/chat",
 };
 
 /** Anthropic pins its API version in a header rather than in the path. */
@@ -298,14 +302,36 @@ function anthropicBody(config: LlmConfig, messages: readonly LlmMessage[]) {
   };
 }
 
+/**
+ * Ollama's own shape: the answer is one message rather than a list of choices,
+ * the budget lives in `options`, and `think` is the switch that actually turns
+ * deliberation off. Measured on a 27B model: 7s and no reasoning with it, 16s
+ * and a paragraph of reasoning without.
+ */
+function ollamaBody(config: LlmConfig, messages: readonly LlmMessage[]) {
+  return {
+    model: modelFor(config),
+    think: false,
+    stream: false,
+    options: { temperature: LLM_TEMPERATURE, num_predict: LLM_MAX_TOKENS },
+    messages: messages.map((message) => ({ ...message })),
+  };
+}
+
 /** One implementation for every service in a format, since they differ only in address. */
 function serviceCall(
   service: LlmService,
   config: LlmConfig,
   messages: readonly LlmMessage[],
 ): ProviderCall {
-  const anthropic = effectiveWire(service, config) === "anthropic";
-  const body = anthropic ? anthropicBody(config, messages) : openAIBody(config, messages);
+  const wire = effectiveWire(service, config);
+  const anthropic = wire === "anthropic";
+  const body =
+    wire === "ollama"
+      ? ollamaBody(config, messages)
+      : anthropic
+        ? anthropicBody(config, messages)
+        : openAIBody(config, messages);
   return {
     url: endpointFor(service, config),
     // Whatever this service needs to answer rather than deliberate, on top of
@@ -360,6 +386,9 @@ export function readLlmText(raw: unknown, wire: LlmWire): string {
       .filter(Boolean)
       .join("\n");
   }
+  if (wire === "ollama") {
+    return textOf(asRecord(asRecord(raw)?.message)?.content);
+  }
   const choices = asRecord(raw)?.choices;
   if (!Array.isArray(choices)) return "";
   const first = asRecord(choices[0]);
@@ -382,6 +411,9 @@ export function llmSilence(raw: unknown, wire: LlmWire): string {
     const blocks = Array.isArray(body?.content) ? body.content : [];
     const thought = blocks.map(asRecord).some((block) => block?.type === "thinking");
     if (thought) return THOUGHT_BUDGET;
+  } else if (wire === "ollama") {
+    const message = asRecord(body?.message);
+    if (textOf(message?.thinking) !== "") return THOUGHT_BUDGET;
   } else {
     const first = asRecord(Array.isArray(body?.choices) ? body.choices[0] : undefined);
     const message = asRecord(first?.message);
@@ -495,11 +527,9 @@ export const LLM_SERVICES: readonly LlmService[] = (
       id: "ollama",
       label: "Ollama",
       blurb: "A model running on this machine. Free, no key, and a story never leaves the device.",
-      wire: "openai",
-      // The address a reader points at is Ollama's root; its OpenAI-compatible
-      // API lives under `/v1`, so the `/v1` belongs here rather than in what
-      // the reader types.
-      path: "/v1/chat/completions",
+      // Its own endpoint rather than the OpenAI-compatible one, because that is
+      // where the switch that stops a model deliberating is actually honoured.
+      wire: "ollama",
     },
     {
       id: "openai",

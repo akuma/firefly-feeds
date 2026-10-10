@@ -106,6 +106,17 @@ describe("the candidates", () => {
     );
     expect(picked[0].summary).toBe("The first paragraph.");
   });
+
+  it("does not offer a story an earlier edition has already featured", () => {
+    // An edition that re-recommends is not worth looking back at: yesterday's
+    // picks have to leave the pool for tomorrow to have a pool at all.
+    const picked = selectCandidates(
+      [story("featured", { minutesAgo: 3 }), story("fresh", { minutesAgo: 4 })],
+      {},
+      new Set(["featured"]),
+    );
+    expect(picked.map((c) => c.id)).toEqual(["fresh"]);
+  });
 });
 
 describe("the model's answer", () => {
@@ -180,6 +191,28 @@ describe("the model's answer", () => {
     // per character where characters are words.
     expect(japanese).toMatch(/at most 60 characters/);
     expect(buildDigestMessages([candidate("a")], "en")[0].content).toMatch(/at most 120/);
+  });
+
+  it("picks for the reader who is actually reading", () => {
+    const mine = buildDigestMessages(
+      [candidate("a")],
+      "zh-Hans",
+      "创新方案如何落地密歇根州；离奇大案与名酒失窃的细节",
+    )
+      .map((m) => m.content)
+      .join("\n");
+    // Their words are quoted as fact about them, and the choice is theirs…
+    expect(mine).toMatch(/What this reader says they care about/);
+    expect(mine).toContain("名酒失窃");
+    expect(mine).toMatch(/Choose the 5 this reader/);
+    expect(mine).toMatch(/touches one of those interests/);
+    // …and the writing is told to be specific rather than a restated title.
+    expect(mine).toMatch(/Never restate the title/);
+
+    // Nobody has said anything, so nothing is claimed on their behalf.
+    const generic = buildDigestMessages([candidate("a")])[0].content;
+    expect(generic).toMatch(/a broadly curious reader/);
+    expect(generic).not.toMatch(/What this reader says/);
   });
 
   it("drops a line the language has no room for", () => {

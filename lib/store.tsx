@@ -179,6 +179,13 @@ type Ctx = {
 
   /** Today's briefing, when one has been written for the reader's day. */
   digest: DigestRecord | null;
+  /** The edition on screen: today's, or an earlier one the reader opened. */
+  viewedDigest: DigestRecord | null;
+  /** Which day is on screen. Null is today's. */
+  digestDay: string | null;
+  setDigestDay: (day: string | null) => void;
+  /** Every edition but the one on screen, newest first. */
+  digestHistory: DigestRecord[];
   /** Whether a briefing is written at all. Off until the reader opts in. */
   digestEnabled: boolean;
   setDigestEnabled: (v: boolean) => void;
@@ -189,6 +196,9 @@ type Ctx = {
   /** The language the edition is written in. */
   digestLanguage: DigestLanguageId;
   setDigestLanguage: (v: DigestLanguageId) => void;
+  /** What the reader says they care about — the one signal that is theirs. */
+  digestInterests: string;
+  setDigestInterests: (v: string) => void;
   /** Today's unread stories: the briefing's raw material. */
   digestCandidates: DigestCandidate[];
   /** True when today's candidates differ from the ones it was written from. */
@@ -312,6 +322,10 @@ export function useReaderState(edition: Edition): Ctx {
     setLlmConfig((current) => ({ ...current, ...patch }));
   }, []);
   const [digestLanguage, setDigestLanguage] = useState<DigestLanguageId>(DEFAULT_DIGEST_LANGUAGE);
+  /** What the reader says they care about, quoted to the model as fact. */
+  const [digestInterests, setDigestInterests] = useState("");
+  /** Which day's edition is on screen. Null is today's. */
+  const [digestDay, setDigestDay] = useState<string | null>(null);
   const [digestError, setDigestError] = useState<string | null>(null);
   const [digestWorking, setDigestWorking] = useState(false);
   /** Which service wrote the last successful briefing. */
@@ -366,6 +380,7 @@ export function useReaderState(edition: Edition): Ctx {
     if (typeof prefs.digest === "boolean") setDigestEnabled(prefs.digest);
     setLlmConfig(readLlmConfigFromPrefs(prefs));
     setDigestLanguage(readDigestLanguage(prefs.digestLanguage));
+    setDigestInterests(typeof prefs.digestInterests === "string" ? prefs.digestInterests : "");
     if (prefs.digestRuns) setDigestRuns(prefs.digestRuns);
   }, []);
 
@@ -441,6 +456,7 @@ export function useReaderState(edition: Edition): Ctx {
       digest: digestEnabled,
       llmConfig,
       digestLanguage,
+      digestInterests,
       digestRuns,
     });
   }, [
@@ -454,6 +470,7 @@ export function useReaderState(edition: Edition): Ctx {
     digestEnabled,
     llmConfig,
     digestLanguage,
+    digestInterests,
     digestRuns,
   ]);
 
@@ -1047,9 +1064,24 @@ export function useReaderState(edition: Edition): Ctx {
    * not one per story — and it only ever fires while the reader is on the
    * briefing page itself. A reader who never opens it spends nothing.
    */
+  /*
+   * Stories an earlier edition has already featured. An edition does not
+   * re-recommend: tomorrow has to find tomorrow's stories rather than
+   * re-listing today's, which is what makes a history worth looking back at.
+   */
+  const featuredPicks = useMemo(() => {
+    const today = dayKey(now);
+    const picks = new Set<string>();
+    for (const record of digests) {
+      if (record.day >= today) continue;
+      for (const id of record.picks) picks.add(id);
+    }
+    return picks;
+  }, [digests, now]);
+
   const digestCandidates = useMemo(
-    () => selectCandidates(stories, state.read),
-    [stories, state.read],
+    () => selectCandidates(stories, state.read, featuredPicks),
+    [stories, state.read, featuredPicks],
   );
 
   const todayDigest = useMemo(() => {
@@ -1067,6 +1099,20 @@ export function useReaderState(edition: Edition): Ctx {
     () => digestIsStale(todayDigest ?? undefined, digestCandidates),
     [todayDigest, digestCandidates],
   );
+
+  /** The edition on screen: today's, or an earlier day the reader opened. */
+  const viewedDigest = useMemo(() => {
+    const day = digestDay ?? dayKey(now);
+    return digests.find((record) => record.day === day) ?? null;
+  }, [digests, digestDay, now]);
+
+  /** Every edition but the one on screen, newest first. */
+  const digestHistory = useMemo(() => {
+    const day = digestDay ?? dayKey(now);
+    return digests
+      .filter((record) => record.day !== day && record.picks.length > 0)
+      .toSorted((a, b) => b.day.localeCompare(a.day));
+  }, [digests, digestDay, now]);
 
   const digestRunsLeft = useMemo(() => {
     const used = digestRuns.day === dayKey(now) ? digestRuns.count : 0;
@@ -1093,7 +1139,15 @@ export function useReaderState(edition: Edition): Ctx {
 
   const writeDigest = useCallback(
     async (force: boolean) => {
-      if (digestCandidates.length < DIGEST_MIN_CANDIDATES) return;
+      // A rewrite is asked for when the reader wants a different edition, so
+      // today's own picks step aside for it — unless that would leave too little
+      // to choose from, in which case a thin day still deserves an edition.
+      let pool = digestCandidates;
+      if (force && todayDigest) {
+        const fresh = pool.filter((c) => !todayDigest.picks.includes(c.id));
+        if (fresh.length >= DIGEST_MIN_CANDIDATES) pool = fresh;
+      }
+      if (pool.length < DIGEST_MIN_CANDIDATES) return;
       digestInFlight.current = true;
       setDigestWorking(true);
       try {
@@ -1110,16 +1164,17 @@ export function useReaderState(edition: Edition): Ctx {
         if (force) noteDigestRun();
 
         const result = await requestDigest({
-          candidates: digestCandidates,
+          candidates: pool,
           llm: llmConfig,
           language: digestLanguage,
+          interests: digestInterests,
         });
         if (!result.ok) {
           setDigestError(result.error);
           return;
         }
         setDigestProvider(result.provider ?? null);
-        const ids = new Set(digestCandidates.map((candidate) => candidate.id));
+        const ids = new Set(pool.map((candidate) => candidate.id));
         const picks = parseDigest(result.text, ids, findLanguage(digestLanguage).lineLimit);
         // A reply with nothing usable in it is a failure, shown as one — half an
         // edition would be worse than none.
@@ -1132,6 +1187,8 @@ export function useReaderState(edition: Edition): Ctx {
           picks: picks.map((pick) => pick.id),
           gists: Object.fromEntries(picks.map((pick) => [pick.id, pick.gist])),
           reasons: Object.fromEntries(picks.map((pick) => [pick.id, pick.why])),
+          // The whole eligible set, not the pool a rewrite was offered: "what
+          // arrived since" is about the day, not about one attempt at it.
           candidates: digestCandidates.map((candidate) => candidate.id),
           provider: result.provider ?? llmConfig.service,
           ...(result.model ? { model: result.model } : {}),
@@ -1150,7 +1207,7 @@ export function useReaderState(edition: Edition): Ctx {
         setDigestWorking(false);
       }
     },
-    [digestCandidates, llmConfig, digestLanguage, noteDigestRun],
+    [digestCandidates, todayDigest, llmConfig, digestLanguage, digestInterests, noteDigestRun],
   );
 
   const regenerateDigest = useCallback(() => {
@@ -1218,7 +1275,7 @@ export function useReaderState(edition: Edition): Ctx {
       );
     } else if (briefingPage) {
       const byId = new Map(stories.map((s) => [s.id, s]));
-      list = (todayDigest?.picks ?? [])
+      list = (viewedDigest?.picks ?? [])
         .map((id) => byId.get(id))
         .filter((s): s is Story => s !== undefined);
     } else if (view === "today") {
@@ -1252,7 +1309,7 @@ export function useReaderState(edition: Edition): Ctx {
     streamFilter,
     feedIndex,
     topicFilter,
-    todayDigest,
+    viewedDigest,
   ]);
 
   const story = useCallback((id: string) => stories.find((s) => s.id === id), [stories]);
@@ -1330,6 +1387,9 @@ export function useReaderState(edition: Edition): Ctx {
     setViewRaw(v);
     setQuery("");
     setMobileFeeds(false);
+    // Coming to the briefing is coming to *today's* briefing; an old edition is
+    // something the reader goes looking for, not where the navigation lands.
+    if (v === "briefing") setDigestDay(null);
   }, []);
 
   /*
@@ -1623,12 +1683,18 @@ export function useReaderState(edition: Edition): Ctx {
     setTopicFilter: setTopicFilterValue,
     topicCounts,
     digest: todayDigest,
+    viewedDigest,
+    digestDay,
+    setDigestDay,
+    digestHistory,
     digestEnabled,
     setDigestEnabled,
     llmConfig,
     updateLlmConfig,
     digestLanguage,
     setDigestLanguage,
+    digestInterests,
+    setDigestInterests,
     digestCandidates,
     digestStale,
     digestError,

@@ -4,7 +4,9 @@ import { clsx } from "./clsx";
 import { useReader } from "@/lib/store";
 import { DIGEST_MIN_CANDIDATES, staleCount } from "@/lib/digest";
 import { digestStrings } from "@/lib/languages";
+import { formatPublished } from "@/lib/shaping";
 import { findService, serviceReady } from "@/lib/llm";
+import type { DigestRecord } from "@/lib/storage/types";
 
 /**
  * Today's briefing, as a page of its own in the stream column.
@@ -28,14 +30,15 @@ export function Briefing() {
   const r = useReader();
   const t = digestStrings(r.digestLanguage);
 
-  const record = r.digest;
+  const record = r.viewedDigest;
+  const today = r.digestDay === null;
   const candidates = r.digestCandidates;
   const configured = (() => {
     const service = findService(r.llmConfig.service);
     return service ? serviceReady(service, r.llmConfig) : false;
   })();
   const picks = record ? record.picks : [];
-  const newSince = staleCount(record ?? undefined, candidates);
+  const newSince = today ? staleCount(record ?? undefined, candidates) : 0;
   // An edition written before the reader changed their mind about language is
   // not wrong, but it is not what they asked for — so it says so rather than
   // leaving them to wonder whether the feature is broken.
@@ -48,15 +51,18 @@ export function Briefing() {
           <p className="max-w-[54ch] text-[13px] leading-[1.5] text-ink4">
             {t.edition(picks.length, record.candidates.length)}
           </p>
-          <button
-            type="button"
-            onClick={r.regenerateDigest}
-            disabled={r.digestWorking || r.digestRunsLeft <= 0}
-            title={r.digestRunsLeft <= 0 ? t.capTitle : t.regenerateTitle}
-            className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink disabled:opacity-40"
-          >
-            {r.digestWorking ? t.rewriting : t.regenerate}
-          </button>
+          {/* A past edition is finished work: only today's can be rewritten. */}
+          {today && (
+            <button
+              type="button"
+              onClick={r.regenerateDigest}
+              disabled={r.digestWorking || r.digestRunsLeft <= 0}
+              title={r.digestRunsLeft <= 0 ? t.capTitle : t.regenerateTitle}
+              className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink disabled:opacity-40"
+            >
+              {r.digestWorking ? t.rewriting : t.regenerate}
+            </button>
+          )}
         </div>
       )}
 
@@ -92,9 +98,12 @@ export function Briefing() {
         </EmptyState>
       )}
 
-      {r.digestEnabled && !record && (r.digestWorking || (configured && !r.digestError)) && (
-        <p className="mono mt-4 text-[10px] tracking-[0.12em] text-ink4 uppercase">{t.writing}</p>
-      )}
+      {r.digestEnabled &&
+        !record &&
+        today &&
+        (r.digestWorking || (configured && !r.digestError)) && (
+          <p className="mono mt-4 text-[10px] tracking-[0.12em] text-ink4 uppercase">{t.writing}</p>
+        )}
 
       {r.digestError && (
         <div className="mt-4 flex items-start justify-between gap-4 border-l-2 border-spark py-1 pl-4">
@@ -174,8 +183,79 @@ export function Briefing() {
           {t.stale(newSince)}
         </p>
       )}
+
+      <EarlierEditions
+        records={r.digestHistory}
+        onOpen={r.setDigestDay}
+        todayLabel={t.today}
+        heading={t.history}
+        count={t.picks}
+      />
     </div>
   );
+}
+
+/**
+ * The editions that came before, as a list of past issues rather than a
+ * calendar: a reader who wants a date goes looking for one, and a reader who
+ * wants to know what they were given last Tuesday wants a name, not a widget.
+ */
+function EarlierEditions({
+  records,
+  onOpen,
+  todayLabel,
+  heading,
+  count,
+}: {
+  records: DigestRecord[];
+  onOpen: (day: string | null) => void;
+  todayLabel: string;
+  heading: string;
+  count: (n: number) => string;
+}) {
+  const r = useReader();
+  const today = r.digestDay === null;
+  if (records.length === 0) return null;
+  return (
+    <div className="mt-10 border-t border-rule pt-5">
+      <div className="label text-ink4">{heading}</div>
+      <ul className="mt-3">
+        {records.map((record) => {
+          const isToday = record.day === r.digest?.day;
+          return (
+            <li key={record.day}>
+              <button
+                type="button"
+                onClick={() => onOpen(record.day)}
+                className="group flex h-[30px] w-full items-center gap-3 pr-4 text-left transition-colors hover:bg-hoverc"
+              >
+                <span className="mono min-w-0 flex-1 truncate text-[11.5px] leading-none text-ink2 transition-colors group-hover:text-ink">
+                  {isToday ? todayLabel : formatPublished(dayToTime(record.day))}
+                </span>
+                <span className="mono tnum shrink-0 text-[10px] leading-none text-ink4">
+                  {count(record.picks.length)}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {!today && (
+        <button
+          type="button"
+          onClick={() => onOpen(null)}
+          className="mono mt-3 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
+        >
+          {todayLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** A day key read at noon, so no timezone can put it on the wrong date. */
+function dayToTime(day: string): number {
+  return new Date(`${day}T12:00:00`).getTime();
 }
 
 /** An empty page still has to say why it is empty. */
