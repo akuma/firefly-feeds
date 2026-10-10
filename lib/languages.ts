@@ -41,7 +41,7 @@ export type DigestStrings = {
   retry: string;
   /** Writing today's edition the first time. */
   write: string;
-  /** What is waiting to be written up. */
+  /** What is waiting to be written up — and what the number counts. */
   ready: (n: number) => string;
   /** Rewriting today's edition on purpose. */
   regenerate: string;
@@ -91,7 +91,8 @@ const EN: DigestStrings = {
   writing: "Writing today's edition…",
   retry: "Retry",
   write: "Write today's edition",
-  ready: (n) => `${n} newly arrived ${n === 1 ? "story" : "stories"}, ready to be written up.`,
+  ready: (n) =>
+    `${n} unread ${n === 1 ? "story" : "stories"} since the last edition, ready to be written up.`,
   regenerate: "Regenerate",
   rewriting: "Writing…",
   regenerateTitle: "Write today's edition again from the current stories",
@@ -118,7 +119,7 @@ const ZH_HANS: DigestStrings = {
   writing: "正在写今天的导读…",
   retry: "重试",
   write: "生成今天的导读",
-  ready: (n) => `新到 ${n} 篇，可以写一期导读。`,
+  ready: (n) => `自上一期导读以来有 ${n} 篇未读，可以写一期导读。`,
   regenerate: "重新生成",
   rewriting: "正在写…",
   regenerateTitle: "用当前的故事重新写今天的导读",
@@ -145,7 +146,7 @@ const ZH_HANT: DigestStrings = {
   writing: "正在寫今天的導讀…",
   retry: "重試",
   write: "產生今天的導讀",
-  ready: (n) => `新到 ${n} 則，可以寫一期導讀。`,
+  ready: (n) => `自上一期導讀以來有 ${n} 則未讀，可以寫一期導讀。`,
   regenerate: "重新產生",
   rewriting: "正在寫…",
   regenerateTitle: "用目前的故事重寫今天的導讀",
@@ -172,7 +173,7 @@ const JA: DigestStrings = {
   writing: "今日のブリーフィングを書いています…",
   retry: "再試行",
   write: "今日の版を書く",
-  ready: (n) => `新着${n}件。一版にまとめられます。`,
+  ready: (n) => `前回の版以降、未読が${n}件あります。一版にまとめられます。`,
   regenerate: "書き直す",
   rewriting: "書き直しています…",
   regenerateTitle: "いまの記事から今日のブリーフィングを書き直す",
@@ -200,7 +201,7 @@ const KO: DigestStrings = {
   writing: "오늘의 브리핑을 쓰는 중…",
   retry: "다시 시도",
   write: "오늘의 브리핑 쓰기",
-  ready: (n) => `새로 들어온 글 ${n}개. 한 판으로 정리할 수 있습니다.`,
+  ready: (n) => `지난 판 이후 읽지 않은 글 ${n}개가 있습니다. 한 판으로 정리할 수 있습니다.`,
   regenerate: "다시 쓰기",
   rewriting: "다시 쓰는 중…",
   regenerateTitle: "지금의 글들로 오늘의 브리핑을 다시 쓰기",
