@@ -51,6 +51,7 @@ function record(patch: Partial<DigestRecord> = {}): DigestRecord {
     reasons: { a: "A reason." },
     candidates: ["a", "b"],
     provider: "ollama",
+    language: "source",
     updatedAt: 1,
     ...patch,
   };
@@ -162,6 +163,32 @@ describe("the model's answer", () => {
     expect(messages[0].content).toMatch(/never add a fact/i);
     expect(messages[1].content).toContain("[a]");
     expect(messages[1].content).toContain("[b]");
+  });
+
+  it("writes the words the reader will see in the language they asked for", () => {
+    // By default both fields follow the story — which is what was missing
+    // before: only the gist was told to, and the reason came back English.
+    const source = buildDigestMessages([candidate("a")])[0].content;
+    expect(source).toMatch(/Write both fields in the language of the story itself/);
+
+    // A named language is one instruction among the rest, and names travel
+    // untranslated: "OpenAI" is not a word to be rendered into another script.
+    const japanese = buildDigestMessages([candidate("a")], "ja")[0].content;
+    expect(japanese).toMatch(/Write both fields in Japanese/);
+    expect(japanese).toMatch(/original form/);
+    // …and the ceiling follows the language, because a sentence carries more
+    // per character where characters are words.
+    expect(japanese).toMatch(/at most 60 characters/);
+    expect(buildDigestMessages([candidate("a")], "en")[0].content).toMatch(/at most 120/);
+  });
+
+  it("drops a line the language has no room for", () => {
+    const long = "x".repeat(80);
+    const one = new Set(["a"]);
+    // English has room for it; Chinese does not, and a gist that had to be cut
+    // off mid-sentence is not a gist.
+    expect(parseDigest(JSON.stringify([{ id: "a", gist: long, why: "W." }]), one)).toHaveLength(1);
+    expect(parseDigest(JSON.stringify([{ id: "a", gist: long, why: "W." }]), one, 60)).toEqual([]);
   });
 });
 

@@ -30,6 +30,12 @@ import {
 } from "./classify";
 import { DEFAULT_LLM_CONFIG, findService, type LlmConfig } from "./llm";
 import {
+  DEFAULT_DIGEST_LANGUAGE,
+  findLanguage,
+  readDigestLanguage,
+  type DigestLanguageId,
+} from "./languages";
+import {
   dayKey,
   digestIsStale,
   DIGEST_MAX_PER_DAY,
@@ -180,6 +186,9 @@ type Ctx = {
   llmConfig: LlmConfig;
   /** Rewrite part of that setup — one field, or the service itself. */
   updateLlmConfig: (patch: Partial<LlmConfig>) => void;
+  /** The language the edition is written in. */
+  digestLanguage: DigestLanguageId;
+  setDigestLanguage: (v: DigestLanguageId) => void;
   /** Today's unread stories: the briefing's raw material. */
   digestCandidates: DigestCandidate[];
   /** True when today's candidates differ from the ones it was written from. */
@@ -302,6 +311,7 @@ export function useReaderState(edition: Edition): Ctx {
   const updateLlmConfig = useCallback((patch: Partial<LlmConfig>) => {
     setLlmConfig((current) => ({ ...current, ...patch }));
   }, []);
+  const [digestLanguage, setDigestLanguage] = useState<DigestLanguageId>(DEFAULT_DIGEST_LANGUAGE);
   const [digestError, setDigestError] = useState<string | null>(null);
   const [digestWorking, setDigestWorking] = useState(false);
   /** Which service wrote the last successful briefing. */
@@ -355,6 +365,7 @@ export function useReaderState(edition: Edition): Ctx {
     setClassifyConfig(readClassifyConfig(prefs));
     if (typeof prefs.digest === "boolean") setDigestEnabled(prefs.digest);
     setLlmConfig(readLlmConfigFromPrefs(prefs));
+    setDigestLanguage(readDigestLanguage(prefs.digestLanguage));
     if (prefs.digestRuns) setDigestRuns(prefs.digestRuns);
   }, []);
 
@@ -429,6 +440,7 @@ export function useReaderState(edition: Edition): Ctx {
       classifyConfig,
       digest: digestEnabled,
       llmConfig,
+      digestLanguage,
       digestRuns,
     });
   }, [
@@ -441,6 +453,7 @@ export function useReaderState(edition: Edition): Ctx {
     classifyConfig,
     digestEnabled,
     llmConfig,
+    digestLanguage,
     digestRuns,
   ]);
 
@@ -1096,14 +1109,18 @@ export function useReaderState(edition: Edition): Ctx {
         ];
         if (force) noteDigestRun();
 
-        const result = await requestDigest({ candidates: digestCandidates, llm: llmConfig });
+        const result = await requestDigest({
+          candidates: digestCandidates,
+          llm: llmConfig,
+          language: digestLanguage,
+        });
         if (!result.ok) {
           setDigestError(result.error);
           return;
         }
         setDigestProvider(result.provider ?? null);
         const ids = new Set(digestCandidates.map((candidate) => candidate.id));
-        const picks = parseDigest(result.text, ids);
+        const picks = parseDigest(result.text, ids, findLanguage(digestLanguage).lineLimit);
         // A reply with nothing usable in it is a failure, shown as one — half an
         // edition would be worse than none.
         if (picks.length === 0) {
@@ -1118,6 +1135,7 @@ export function useReaderState(edition: Edition): Ctx {
           candidates: digestCandidates.map((candidate) => candidate.id),
           provider: result.provider ?? llmConfig.service,
           ...(result.model ? { model: result.model } : {}),
+          language: digestLanguage,
           updatedAt: Date.now(),
         };
         setDigests((current) => [...current.filter((d) => d.day !== record.day), record]);
@@ -1132,7 +1150,7 @@ export function useReaderState(edition: Edition): Ctx {
         setDigestWorking(false);
       }
     },
-    [digestCandidates, llmConfig, noteDigestRun],
+    [digestCandidates, llmConfig, digestLanguage, noteDigestRun],
   );
 
   const regenerateDigest = useCallback(() => {
@@ -1609,6 +1627,8 @@ export function useReaderState(edition: Edition): Ctx {
     setDigestEnabled,
     llmConfig,
     updateLlmConfig,
+    digestLanguage,
+    setDigestLanguage,
     digestCandidates,
     digestStale,
     digestError,

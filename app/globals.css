@@ -185,8 +185,12 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --font-serif: "Newsreader", ui-serif, Georgia, "Times New Roman", serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-serif:
+    "Newsreader", ui-serif, Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC",
+    serif;
+  --font-mono:
+    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans CJK SC", monospace;
   --font-figures: "Figtree Figures", ui-sans-serif, system-ui, sans-serif;
 
   --color-canvas: var(--c-canvas);

@@ -74,6 +74,14 @@ but requires the notice to travel with the files — that is
 variable subset; IBM Plex Mono is not (static 400 and 500, roman and italic);
 Figtree is a variable subset cut down to the digits.
 
+**None of the three carries CJK glyphs**, and that is deliberate: a CJK webfont
+is megabytes for a script the device already has a good one for. The stacks fall
+through to the system's own — Songti SC / SimSun / Noto Serif CJK behind the
+serif, PingFang SC / Microsoft YaHei / Noto Sans CJK behind the mono — so a
+Chinese gist sets in a system face beside an English headline in Newsreader. The
+fallbacks are named rather than left to the generic keyword, because "serif" on
+a machine without one is a lottery.
+
 ## Measure
 
 Body text is held at **600px / about 62 characters**, and the reader offers four

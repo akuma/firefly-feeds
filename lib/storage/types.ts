@@ -179,6 +179,8 @@ export type DigestRecord = {
   /** The LLM service that wrote it. */
   provider: string;
   model?: string;
+  /** The language it is written in, so a change of mind is visible. */
+  language: string;
   updatedAt: number;
 };
 

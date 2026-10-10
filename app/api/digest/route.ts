@@ -15,6 +15,7 @@ import {
   type LlmConfig,
   type LlmService,
 } from "@/lib/llm";
+import { readDigestLanguage, type DigestLanguageId } from "@/lib/languages";
 import { fromAnotherSite } from "../guards";
 
 export const dynamic = "force-dynamic";
@@ -73,6 +74,11 @@ export async function POST(request: Request) {
   }
 
   const config = readLlmConfig(body);
+  const bodyRecord =
+    typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  // The language travels as a name this app already knows, never as an
+  // instruction of the reader's own: the prompt is still ours.
+  const language = readDigestLanguage(bodyRecord.language);
   const service = findService(config.service);
   if (!service) {
     return Response.json({ ok: false, error: UNKNOWN_SERVICE }, { status: 400 });
@@ -87,7 +93,7 @@ export async function POST(request: Request) {
     );
   }
 
-  return callService(service, config, candidates);
+  return callService(service, config, candidates, language);
 }
 
 /* --------------------------------------------------------------- upstream */
@@ -101,8 +107,9 @@ async function callService(
   service: LlmService,
   config: LlmConfig,
   candidates: readonly DigestCandidate[],
+  language: DigestLanguageId,
 ): Promise<Response> {
-  const call = service.call(config, buildDigestMessages(candidates));
+  const call = service.call(config, buildDigestMessages(candidates, language));
   try {
     const res = await fetch(call.url, {
       method: "POST",

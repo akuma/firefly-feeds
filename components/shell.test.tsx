@@ -3108,6 +3108,7 @@ describe("today's briefing", () => {
       candidates: ["sdig~one", "sdig~two", "sdig~three"],
       provider: "ollama",
       model: "llama3.2",
+      language: "source",
       updatedAt: Date.now(),
     });
     const spy = digestSpy();
@@ -3154,6 +3155,7 @@ describe("today's briefing", () => {
       candidates: ["sdig~one", "sdig~two", "sdig~three"],
       provider: "ollama",
       model: "llama3.2",
+      language: "source",
       updatedAt: Date.now(),
     });
     // The cap is the one guard on spending the reader's own key, so it lives

@@ -3,11 +3,8 @@
 import { clsx } from "./clsx";
 import { useReader } from "@/lib/store";
 import { DIGEST_MIN_CANDIDATES, staleCount } from "@/lib/digest";
+import { digestStrings } from "@/lib/languages";
 import { findService, serviceReady } from "@/lib/llm";
-
-function plural(n: number, one: string, many: string) {
-  return `${n} ${n === 1 ? one : many}`;
-}
 
 /**
  * Today's briefing, as a page of its own in the stream column.
@@ -21,9 +18,15 @@ function plural(n: number, one: string, many: string) {
  * It is a page rather than a banner above the stream because the two answer
  * different questions: the stream is what arrived, this is what is worth
  * reading. Mixing them made one of them a decoration on the other.
+ *
+ * The page's own words follow the language the edition is written in, which is
+ * the one setting that makes this page worth having for a reader who does not
+ * read English first. Everything the reader is scanning is in one language; the
+ * rest of the application keeps its own.
  */
 export function Briefing() {
   const r = useReader();
+  const t = digestStrings(r.digestLanguage);
 
   const record = r.digest;
   const candidates = r.digestCandidates;
@@ -33,71 +36,64 @@ export function Briefing() {
   })();
   const picks = record ? record.picks : [];
   const newSince = staleCount(record ?? undefined, candidates);
+  // An edition written before the reader changed their mind about language is
+  // not wrong, but it is not what they asked for — so it says so rather than
+  // leaving them to wonder whether the feature is broken.
+  const otherLanguage = record ? (record.language ?? "source") !== r.digestLanguage : false;
 
   return (
     <div data-t="briefing" className="px-5 pt-5 pb-12 lg:px-6">
       {record && (
         <div className="flex items-baseline justify-between gap-4">
           <p className="max-w-[54ch] text-[13px] leading-[1.5] text-ink4">
-            {plural(picks.length, "story", "stories")} of today&apos;s{" "}
-            {plural(record.candidates.length, "story", "stories")}, chosen and summarised from your
-            own feeds.
+            {t.edition(picks.length, record.candidates.length)}
           </p>
           <button
             type="button"
             onClick={r.regenerateDigest}
             disabled={r.digestWorking || r.digestRunsLeft <= 0}
-            title={
-              r.digestRunsLeft <= 0
-                ? "No rewrites left today"
-                : "Write today's edition again from the current stories"
-            }
+            title={r.digestRunsLeft <= 0 ? t.capTitle : t.regenerateTitle}
             className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink disabled:opacity-40"
           >
-            {r.digestWorking ? "Writing…" : "Regenerate"}
+            {r.digestWorking ? t.rewriting : t.regenerate}
           </button>
         </div>
       )}
 
       {/* ------------------------------------------------------- states */}
       {!r.digestEnabled && (
-        <EmptyState title="The briefing is off">
+        <EmptyState title={t.off}>
           <button
             type="button"
             onClick={() => r.setSettingsOpen(true)}
             className="mono mt-2 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
           >
-            Open settings
+            {t.offAction}
           </button>
         </EmptyState>
       )}
 
       {r.digestEnabled && !record && candidates.length < DIGEST_MIN_CANDIDATES && (
-        <EmptyState title="Not enough new today">
-          <p className="max-w-[46ch]">
-            Three unread stories is the least an edition can be chosen from. Tomorrow, or after a
-            refresh, there will be more to pick between.
-          </p>
+        <EmptyState title={t.quiet}>
+          <p className="max-w-[46ch]">{t.quietNote}</p>
         </EmptyState>
       )}
 
       {r.digestEnabled && !record && !configured && candidates.length >= DIGEST_MIN_CANDIDATES && (
-        <EmptyState title="No model is set up yet">
-          <p className="max-w-[46ch]">A briefing is written by a model of your own choosing.</p>
+        <EmptyState title={t.unconfigured}>
+          <p className="max-w-[46ch]">{t.unconfiguredNote}</p>
           <button
             type="button"
             onClick={() => r.setSettingsOpen(true)}
             className="mono mt-2 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
           >
-            Open settings
+            {t.offAction}
           </button>
         </EmptyState>
       )}
 
       {r.digestEnabled && !record && (r.digestWorking || (configured && !r.digestError)) && (
-        <p className="mono mt-4 text-[10px] tracking-[0.12em] text-ink4 uppercase">
-          Writing today&apos;s edition…
-        </p>
+        <p className="mono mt-4 text-[10px] tracking-[0.12em] text-ink4 uppercase">{t.writing}</p>
       )}
 
       {r.digestError && (
@@ -108,7 +104,7 @@ export function Briefing() {
             onClick={r.retryDigest}
             className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
           >
-            Retry
+            {t.retry}
           </button>
         </div>
       )}
@@ -149,7 +145,7 @@ export function Briefing() {
                     {record.reasons[id]}
                   </p>
                   <div className="mono mt-2.5 flex min-w-0 items-center gap-2 pl-8 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
-                    <span>{plural(story.minutes, "min", "mins")} read</span>
+                    <span>{t.minutes(story.minutes)}</span>
                     <span aria-hidden>·</span>
                     <span className="truncate">{r.feedById(story.feedId)?.name ?? ""}</span>
                   </div>
@@ -163,13 +159,19 @@ export function Briefing() {
       {/* ------------------------------------- provenance, and what is new */}
       {record && (
         <p className="mono mt-6 max-w-[58ch] text-[9.5px] leading-[1.8] tracking-[0.08em] text-ink4 uppercase">
-          Written from each story&apos;s title and summary. Nothing fetched, nothing invented.
+          {t.provenance}
+        </p>
+      )}
+
+      {record && otherLanguage && (
+        <p className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-spark uppercase">
+          {t.otherLanguage}
         </p>
       )}
 
       {record && newSince > 0 && (
         <p className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-spark uppercase">
-          {plural(newSince, "new story", "new stories")} since this edition was written
+          {t.stale(newSince)}
         </p>
       )}
     </div>

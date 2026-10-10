@@ -1,4 +1,5 @@
 import { blocksToText } from "./feed-html";
+import { findLanguage, type DigestLanguage, type DigestLanguageId } from "./languages";
 import {
   findService,
   llmFieldValue,
@@ -56,7 +57,8 @@ export const DIGEST_SUMMARY_LIMIT = 300;
 
 /** Output caps. An over-long line is dropped rather than truncated: a gist that
  * has to be cut off mid-sentence is not a gist, and the layout has no room for
- * one. */
+ * one. The ceiling is per language — `DigestLanguage.lineLimit` — because a
+ * sentence carries more per character where characters are words. */
 export const DIGEST_GIST_LIMIT = 120;
 export const DIGEST_WHY_LIMIT = 120;
 
@@ -145,19 +147,27 @@ export function staleCount(
 
 /* ------------------------------------------------------------------ prompt */
 
-const SYSTEM = `You are the editor of a daily edition. You are given a numbered list of today's unread stories, each as an id in square brackets, a title, and a summary.
+function systemPrompt(language: DigestLanguage): string {
+  // A named language is one instruction among the rest, not the whole prompt:
+  // the contract stays in one language so it is readable where it is written,
+  // and only the words the reader will see are asked for in theirs.
+  const writtenIn = language.promptName
+    ? `Write both fields in ${language.promptName}. Keep the names of people, companies, products and code in their original form.`
+    : "Write both fields in the language of the story itself.";
+  return `You are the editor of a daily edition. You are given a numbered list of today's unread stories, each as an id in square brackets, a title, and a summary.
 
 Choose the ${DIGEST_PICKS} a broadly curious reader would most want to read today, best first. Never choose more than 2 stories from the same publication. Prefer range over several pieces on the same subject.
 
 For each chosen story write two fields:
-- "gist": one sentence, at most ${DIGEST_GIST_LIMIT} characters, saying what the piece is.
-- "why": one sentence, at most ${DIGEST_WHY_LIMIT} characters, saying why this reader might want it. Never write "interesting", "important" or "worth reading" — those say nothing.
+- "gist": one sentence, at most ${language.lineLimit} characters, saying what the piece is.
+- "why": one sentence, at most ${language.lineLimit} characters, saying why this reader might want it. Never write "interesting", "important" or "worth reading" — those say nothing.
 
 Rules:
 - Use only the titles and summaries you were given. Never add a fact, number, quote, person or link that is not in them.
-- Write the gist in the language of the story itself.
+- ${writtenIn}
 - Reply with a JSON array of { "id", "gist", "why" } objects, in the order you chose them, and with the id copied exactly from the list.
 - Nothing else in your reply: no prose before or after, and no markdown fence.`;
+}
 
 /**
  * The messages, built by one function both callers use.
@@ -169,7 +179,11 @@ Rules:
  * browser builds the messages too, from this same function, and the prompt is
  * still not something a caller can supply.
  */
-export function buildDigestMessages(candidates: readonly DigestCandidate[]): LlmMessage[] {
+export function buildDigestMessages(
+  candidates: readonly DigestCandidate[],
+  languageId: DigestLanguageId = "source",
+): LlmMessage[] {
+  const language = findLanguage(languageId);
   const list = candidates
     .map(
       (candidate, index) =>
@@ -177,7 +191,7 @@ export function buildDigestMessages(candidates: readonly DigestCandidate[]): Llm
     )
     .join("\n\n");
   return [
-    { role: "system", content: SYSTEM },
+    { role: "system", content: systemPrompt(language) },
     { role: "user", content: `Today's unread stories:\n\n${list}` },
   ];
 }
@@ -193,7 +207,11 @@ export function buildDigestMessages(candidates: readonly DigestCandidate[]): Llm
  * no room for a sentence that had to be cut; and a reply from which nothing
  * survives is a failure, shown as one, rather than half an edition.
  */
-export function parseDigest(raw: string, knownIds: ReadonlySet<string>): DigestPick[] {
+export function parseDigest(
+  raw: string,
+  knownIds: ReadonlySet<string>,
+  lineLimit: number = DIGEST_GIST_LIMIT,
+): DigestPick[] {
   const json = firstJSONArray(raw);
   if (!json) return [];
   let parsed: unknown;
@@ -209,8 +227,8 @@ export function parseDigest(raw: string, knownIds: ReadonlySet<string>): DigestP
   for (const entry of parsed) {
     const record = asRecord(entry);
     const id = typeof record?.id === "string" ? record.id : "";
-    const gist = text(record?.gist, DIGEST_GIST_LIMIT);
-    const why = text(record?.why, DIGEST_WHY_LIMIT);
+    const gist = text(record?.gist, lineLimit);
+    const why = text(record?.why, lineLimit);
     if (!knownIds.has(id) || seen.has(id) || !gist || !why) continue;
     seen.add(id);
     picks.push({ id, gist, why });
@@ -263,6 +281,7 @@ export type DigestResult =
 export async function requestDigest(input: {
   candidates: readonly DigestCandidate[];
   llm: LlmConfig;
+  language?: DigestLanguageId;
 }): Promise<DigestResult> {
   const service = findService(input.llm.service);
   if (!service) return { ok: false, error: "Choose a model in Settings." };
@@ -273,7 +292,7 @@ export async function requestDigest(input: {
     return { ok: false, error: `${service.label} still needs: ${missing.join(", ")}.` };
   }
 
-  const messages = buildDigestMessages(input.candidates);
+  const messages = buildDigestMessages(input.candidates, input.language ?? "source");
   const direct = service.direct?.(input.llm) === true;
 
   try {
@@ -295,6 +314,7 @@ export async function requestDigest(input: {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         candidates: input.candidates,
+        language: input.language ?? "source",
         ...input.llm,
       }),
     });

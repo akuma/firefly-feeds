@@ -42,6 +42,8 @@ export type Prefs = {
    * classifier's: this device only, sent to this app's own endpoint.
    */
   llmConfig?: LlmConfig;
+  /** The language the edition is written in — a `DigestLanguageId`. */
+  digestLanguage?: string;
   /**
    * Manual rewrites used today, so the daily cap survives a reload. A scalar
    * with a date beside it, which is exactly the size of thing prefs exist for.

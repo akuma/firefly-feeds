@@ -27,6 +27,7 @@ import {
   type LlmField,
   type LlmServiceId,
 } from "@/lib/llm";
+import { DIGEST_LANGUAGES, type DigestLanguageId } from "@/lib/languages";
 import { useReader } from "@/lib/store";
 
 /**
@@ -515,6 +516,37 @@ export function Settings() {
                   the service itself. A model of your own bills per edition, so a local one is the
                   cheaper default.
                 </p>
+
+                <div className="mt-6">
+                  <label htmlFor="llm-language" className="label block text-ink4">
+                    Written in
+                  </label>
+                  <div className="relative mt-2 border-b border-rulestrong pr-6 pb-2">
+                    <select
+                      id="llm-language"
+                      value={r.digestLanguage}
+                      onChange={(e) => r.setDigestLanguage(e.target.value as DigestLanguageId)}
+                      className="mono w-full appearance-none bg-transparent text-[13px] text-ink2 outline-none"
+                    >
+                      {DIGEST_LANGUAGES.map((language) => (
+                        <option key={language.id} value={language.id}>
+                          {language.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown
+                      size={12}
+                      strokeWidth={1.6}
+                      aria-hidden
+                      className="pointer-events-none absolute right-0 bottom-3 text-ink4"
+                    />
+                  </div>
+                  <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                    The language the gists and reasons are written in. With the story&apos;s own
+                    language chosen, each one follows its story and the page around them stays in
+                    English.
+                  </p>
+                </div>
 
                 {/* Whatever the chosen service asks for, rendered from its own
                     entry in the table — so a new one needs no change here. */}

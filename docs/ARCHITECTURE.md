@@ -506,6 +506,21 @@ and on the reader's own request. It goes to this app's own endpoint, and then to
 the service the reader chose — nowhere at all when that is a local Ollama. No
 reading history, no subscription list, no full text, no Firefly account.
 
+**The briefing speaks the reader's language; the application keeps its own.** A
+"Written in" setting in Settings decides the language of the gists and reasons
+and of the briefing page's own words, from a closed set — the story's own
+language by default, or one of ten named ones. A language travels as a name in
+the request and never as an instruction, so the prompt is still ours to write;
+names of people, companies, products and code are asked for untranslated. The
+ceiling on one line is per language, because a sentence carries more per
+character where characters are words. What is deliberately not translated is
+the rest of the application: navigation, the stream, the reader, Settings, the
+masthead date and the relative timestamps. A half-translated application is
+worth less than an English one, and this page is the only one a reader scans
+rather than reads. CJK text sets in the reader's own system fonts — the three
+faces here are Latin subsets, and bundling CJK would cost megabytes for glyphs
+the device already has.
+
 ## Reading state
 
 **Reaching the end of a story marks it read. Nothing else does automatically.**
