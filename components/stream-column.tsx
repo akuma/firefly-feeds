@@ -327,7 +327,7 @@ function StreamHeader({
 
 /* --------------------------------------------------------------- pieces */
 
-function Kicker({ s, selected }: { s: Story; selected: boolean }) {
+function Kicker({ s, selected, n }: { s: Story; selected: boolean; n?: number }) {
   const r = useReader();
   const unread = !r.state.read[s.id];
   const topic = primaryTopicLabel(s, r.topics);
@@ -337,6 +337,9 @@ function Kicker({ s, selected }: { s: Story; selected: boolean }) {
       data-t="kicker"
       className="mono flex min-w-0 items-center gap-2 text-[9.5px] tracking-[0.16em] uppercase"
     >
+      {n !== undefined && (
+        <span className={clsx("shrink-0", selected ? "text-spark" : "text-ink4")}>{n}</span>
+      )}
       {unread && <Firefly size={4.5} glow={false} pulse={selected} />}
       <span
         className={clsx(
@@ -466,7 +469,19 @@ function RowActions({ s }: { s: Story }) {
 
 /* ------------------------------------------------------------- the row */
 
-function StoryRow({ s, index }: { s: Story; index: number }) {
+export function StoryRow({
+  s,
+  index,
+  n,
+  extra,
+}: {
+  s: Story;
+  index: number;
+  /** Position in an edition. Absent in the stream, where order is time. */
+  n?: number;
+  /** Appended under the row's own content, in the caller's own words. */
+  extra?: React.ReactNode;
+}) {
   const r = useReader();
   const selected = r.selectedId === s.id;
   const unread = !r.state.read[s.id];
@@ -509,162 +524,157 @@ function StoryRow({ s, index }: { s: Story; index: number }) {
     style: { animationDelay: `${Math.min(index, 12) * 22}ms` },
   };
 
+  // One shell for every layout, so a row is a row wherever it is rendered —
+  // and anything a caller adds sits inside the same hover, the same rail and
+  // the same click target as the story itself.
+  const wrap = (body: React.ReactNode) => (
+    <article className={clsx(shell, "ff-stagger")} {...a11y}>
+      {rail}
+      {body}
+      {extra && <div className="px-5 pt-1 pb-5">{extra}</div>}
+    </article>
+  );
+
   /* ------------------------------------------------------------ feature */
   if (s.layout === "feature") {
-    return (
-      <article className={clsx(shell, "ff-stagger")} {...a11y}>
-        {rail}
-        <div className="px-5 pt-5 pb-7">
-          <div className="mb-5 flex items-start justify-between gap-3">
-            <Kicker s={s} selected={selected} />
-            <RowActions s={s} />
-          </div>
-          {hasArt(s) && (
-            <Media
-              seed={s.plate ?? 0}
-              src={s.image}
-              alt={s.title}
-              big
-              className="aspect-[16/10] w-full"
-            />
-          )}
-          <h2
-            data-t="feature-title"
-            className={clsx(
-              "mt-6 text-[30px] leading-[1.09] tracking-[-0.024em]",
-              dim ? "text-ink2" : "text-ink",
-            )}
-          >
-            {s.title}
-          </h2>
-          {s.dek && (
-            <p className="mt-3 max-w-[46ch] text-[17px] leading-[1.55] text-ink3">{s.dek}</p>
-          )}
-          <Meta s={s} className="mt-4" />
+    return wrap(
+      <div className="px-5 pt-5 pb-7">
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <Kicker s={s} selected={selected} n={n} />
+          <RowActions s={s} />
         </div>
-      </article>
+        {hasArt(s) && (
+          <Media
+            seed={s.plate ?? 0}
+            src={s.image}
+            alt={s.title}
+            big
+            className="aspect-[16/10] w-full"
+          />
+        )}
+        <h2
+          data-t="feature-title"
+          className={clsx(
+            "mt-6 text-[30px] leading-[1.09] tracking-[-0.024em]",
+            dim ? "text-ink2" : "text-ink",
+          )}
+        >
+          {s.title}
+        </h2>
+        {s.dek && <p className="mt-3 max-w-[46ch] text-[17px] leading-[1.55] text-ink3">{s.dek}</p>}
+        <Meta s={s} className="mt-4" />
+      </div>,
     );
   }
 
   /* ------------------------------------------------------------- quote */
   if (s.layout === "quote" && s.pull) {
-    return (
-      <article className={clsx(shell, "ff-stagger")} {...a11y}>
-        {rail}
-        <div className="px-5 pt-5 pb-6">
-          <div className="flex items-center justify-between gap-3">
-            <Kicker s={s} selected={selected} />
-            <RowActions s={s} />
-          </div>
-          <blockquote className="mt-3.5 border-l-2 border-spark pl-4 text-[18.5px] leading-[1.36] tracking-[-0.012em] text-ink italic">
-            “{s.pull}”
-          </blockquote>
-          <h2 className="mt-3.5 text-[16.5px] leading-[1.35] text-ink2">{s.title}</h2>
-          <Meta s={s} className="mt-2.5" />
+    return wrap(
+      <div className="px-5 pt-5 pb-6">
+        <div className="flex items-center justify-between gap-3">
+          <Kicker s={s} selected={selected} n={n} />
+          <RowActions s={s} />
         </div>
-      </article>
+        <blockquote className="mt-3.5 border-l-2 border-spark pl-4 text-[18.5px] leading-[1.36] tracking-[-0.012em] text-ink italic">
+          “{s.pull}”
+        </blockquote>
+        <h2 className="mt-3.5 text-[16.5px] leading-[1.35] text-ink2">{s.title}</h2>
+        <Meta s={s} className="mt-2.5" />
+      </div>,
     );
   }
 
   /* ------------------------------------------------------------- brief */
   if (s.layout === "brief") {
-    return (
-      <article className={clsx(shell, "ff-stagger")} {...a11y}>
-        {rail}
-        <div className="flex items-baseline gap-3 px-5 py-[13px]">
-          {unread && <Firefly size={4.5} glow={false} className="-translate-y-[2px]" />}
-          <h2
-            className={clsx(
-              "max-w-[58%] min-w-0 truncate text-[16.5px] leading-[1.35]",
-              dim ? "text-ink3" : "text-ink",
-            )}
-          >
-            {s.title}
-          </h2>
-          <span
-            aria-hidden
-            className="min-w-3 flex-1 -translate-y-[3px] border-b border-dotted border-rulestrong"
-          />
-          <span className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
-            {r.feedById(s.feedId)?.name ?? ""}
-          </span>
-          <RowActions s={s} />
-        </div>
-      </article>
+    return wrap(
+      <div className="flex items-baseline gap-3 px-5 py-[13px]">
+        {n !== undefined && <span className="shrink-0 text-ink4">{n}</span>}
+        {unread && <Firefly size={4.5} glow={false} className="-translate-y-[2px]" />}
+        <h2
+          className={clsx(
+            "max-w-[58%] min-w-0 truncate text-[16.5px] leading-[1.35]",
+            dim ? "text-ink3" : "text-ink",
+          )}
+        >
+          {s.title}
+        </h2>
+        <span
+          aria-hidden
+          className="min-w-3 flex-1 -translate-y-[3px] border-b border-dotted border-rulestrong"
+        />
+        <span className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
+          {r.feedById(s.feedId)?.name ?? ""}
+        </span>
+        <RowActions s={s} />
+      </div>,
     );
   }
 
   /* ----------------------------------------------------------- compact */
   if (s.layout === "compact") {
-    return (
-      <article className={clsx(shell, "ff-stagger")} {...a11y}>
-        {rail}
-        <div className="px-5 py-[15px]">
-          <div className="flex items-center justify-between gap-3">
-            <Kicker s={s} selected={selected} />
-            <RowActions s={s} />
-          </div>
-          <h2
-            className={clsx(
-              "mt-2 text-[19px] leading-[1.22] tracking-[-0.014em]",
-              dim ? "text-ink2" : "text-ink",
-            )}
-          >
-            {s.title}
-          </h2>
-          {s.dek && (
-            <p className="mt-2 line-clamp-2 max-w-[52ch] text-[15.5px] leading-[1.5] text-ink3">
-              {s.dek}
-            </p>
-          )}
+    return wrap(
+      <div className="px-5 py-[15px]">
+        <div className="flex items-center justify-between gap-3">
+          <Kicker s={s} selected={selected} n={n} />
+          <RowActions s={s} />
         </div>
-      </article>
+        <h2
+          className={clsx(
+            "mt-2 text-[19px] leading-[1.22] tracking-[-0.014em]",
+            dim ? "text-ink2" : "text-ink",
+          )}
+        >
+          {s.title}
+        </h2>
+        {s.dek && (
+          <p className="mt-2 line-clamp-2 max-w-[52ch] text-[15.5px] leading-[1.5] text-ink3">
+            {s.dek}
+          </p>
+        )}
+      </div>,
     );
   }
 
   /* ---------------------------------------------------------- standard */
   const withPlate = hasArt(s);
-  return (
-    <article className={clsx(shell, "ff-stagger")} {...a11y}>
-      {rail}
-      <div
-        className={clsx(
-          "px-5 py-[16px] lg:py-[18px]",
-          withPlate &&
-            "grid grid-cols-[minmax(0,1fr)_72px] gap-3.5 lg:grid-cols-[minmax(0,1fr)_84px] lg:gap-4",
-        )}
-      >
-        <div className="min-w-0">
-          <div className="flex items-center justify-between gap-3">
-            <Kicker s={s} selected={selected} />
-            <RowActions s={s} />
-          </div>
-          <h2
-            data-t="std-title"
-            className={clsx(
-              "mt-2 text-[21px] leading-[1.2] tracking-[-0.016em]",
-              dim ? "text-ink2" : "text-ink",
-            )}
-          >
-            {s.title}
-          </h2>
-          {s.dek && (
-            <p className="mt-2.5 line-clamp-3 max-w-[54ch] text-[15.5px] leading-[1.55] text-ink3">
-              {s.dek}
-            </p>
-          )}
-          <Meta s={s} className="mt-3" />
+  return wrap(
+    <div
+      className={clsx(
+        "px-5 py-[16px] lg:py-[18px]",
+        withPlate &&
+          "grid grid-cols-[minmax(0,1fr)_72px] gap-3.5 lg:grid-cols-[minmax(0,1fr)_84px] lg:gap-4",
+      )}
+    >
+      <div className="min-w-0">
+        <div className="flex items-center justify-between gap-3">
+          <Kicker s={s} selected={selected} n={n} />
+          <RowActions s={s} />
         </div>
-        {withPlate && (
-          <Media
-            seed={s.plate ?? 0}
-            src={s.image}
-            alt={s.title}
-            className="mt-[3px] aspect-[4/3] w-full self-start"
-          />
+        <h2
+          data-t="std-title"
+          className={clsx(
+            "mt-2 text-[21px] leading-[1.2] tracking-[-0.016em]",
+            dim ? "text-ink2" : "text-ink",
+          )}
+        >
+          {s.title}
+        </h2>
+        {s.dek && (
+          <p className="mt-2.5 line-clamp-3 max-w-[54ch] text-[15.5px] leading-[1.55] text-ink3">
+            {s.dek}
+          </p>
         )}
+        <Meta s={s} className="mt-3" />
       </div>
-    </article>
+      {withPlate && (
+        <Media
+          seed={s.plate ?? 0}
+          src={s.image}
+          alt={s.title}
+          className="mt-[3px] aspect-[4/3] w-full self-start"
+        />
+      )}
+    </div>,
   );
 }
 

@@ -1,10 +1,10 @@
 "use client";
 
-import { clsx } from "./clsx";
 import { useReader } from "@/lib/store";
 import { DIGEST_MIN_CANDIDATES, staleCount } from "@/lib/digest";
 import { digestStrings } from "@/lib/languages";
 import { formatPublished } from "@/lib/shaping";
+import { StoryRow } from "./stream-column";
 import { findService, serviceReady } from "@/lib/llm";
 import type { DigestRecord } from "@/lib/storage/types";
 
@@ -120,49 +120,37 @@ export function Briefing() {
 
       {/* -------------------------------------------------- the edition */}
       {record && (
-        <ol className="mt-6 border-t border-rulesoft">
+        <div className="mt-6">
           {picks.map((id, index) => {
             const story = r.story(id);
             // A story the cache has dropped cannot be summarised any more, so
             // the line goes rather than pointing at something that is not there.
             if (!story) return null;
             return (
-              <li key={id} className="border-b border-rulesoft py-5 last:border-b-0">
-                <button
-                  type="button"
-                  onClick={() => openStory(r, id)}
-                  className="group block w-full text-left"
-                >
-                  <div className="flex items-baseline gap-3.5">
-                    <span className="mono shrink-0 text-[10px] tracking-[0.14em] text-ink4">
-                      {index + 1}
-                    </span>
-                    <h2
-                      className={clsx(
-                        "display min-w-0 flex-1 text-[19px] leading-[1.24] tracking-[-0.014em] transition-colors",
-                        "group-hover:text-spark",
-                        r.state.read[id] ? "text-ink3" : "text-ink",
-                      )}
-                    >
-                      {story.title}
-                    </h2>
-                  </div>
-                  <p className="mt-2 pl-8 text-[15px] leading-[1.5] text-ink2">
-                    {record.gists[id]}
-                  </p>
-                  <p className="mt-1.5 pl-8 text-[13px] leading-[1.5] text-ink4">
-                    {record.reasons[id]}
-                  </p>
-                  <div className="mono mt-2.5 flex min-w-0 items-center gap-2 pl-8 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
-                    <span>{t.minutes(story.minutes)}</span>
-                    <span aria-hidden>·</span>
-                    <span className="truncate">{r.feedById(story.feedId)?.name ?? ""}</span>
-                  </div>
-                </button>
-              </li>
+              <div key={id} data-story={id}>
+                <StoryRow
+                  // The row is the stream's own; only its standfirst is
+                  // ours. The publisher's teaser would otherwise sit above
+                  // the gist saying nearly the same thing — two paragraphs
+                  // where the reader needs one.
+                  s={{ ...story, dek: "" }}
+                  index={index}
+                  n={index + 1}
+                  extra={
+                    <>
+                      <p className="max-w-[54ch] text-[15.5px] leading-[1.5] text-ink3">
+                        {record.gists[id]}
+                      </p>
+                      <p className="mt-1.5 max-w-[54ch] text-[13px] leading-[1.5] text-ink4">
+                        {record.reasons[id]}
+                      </p>
+                    </>
+                  }
+                />
+              </div>
             );
           })}
-        </ol>
+        </div>
       )}
 
       {/* ------------------------------------- provenance, and what is new */}
@@ -266,11 +254,4 @@ function EmptyState({ title, children }: { title: string; children: React.ReactN
       <div className="mt-3 max-w-[52ch] text-[14px] leading-[1.55] text-ink4">{children}</div>
     </div>
   );
-}
-
-/** Opening a pick is opening a story: the same click a row in the stream is. */
-function openStory(r: ReturnType<typeof useReader>, id: string) {
-  if (typeof window !== "undefined" && window.getSelection()?.toString()) return;
-  r.select(id);
-  r.setMobileReading(true);
 }

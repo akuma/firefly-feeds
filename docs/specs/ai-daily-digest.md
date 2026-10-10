@@ -215,8 +215,11 @@ export type DigestRecord = {
 
 排版规则（`docs/DESIGN.md` 的延伸，不是新语言）：
 
-- 序号 mono；标题衬线可点；gist 衬线；why 用 `ink4` 小一号；元数据 mono small caps，
-  与现有故事行一致。
+- **item 就是流里的那行**（复用 `StoryRow`）：同一套壳、hover 背景、左侧 rail、kicker、
+  保存 / 稍后 / 读过按钮、读过变暗、布局选型——全都不改，`j` / `k`、点击行为也一致。
+  只有两处差别：kicker 前面多个**序号**；行尾多两行——`gist`（放在原摘要位，同款字号）
+  与 `why`（`ink4` 小一号）。**原摘要（dek）让位**，否则一条里三段文字（宣传语 + gist +
+  why）正是「看不过来」的重演。
 - 发丝线分隔，**不用卡片**；不引入新颜色；accent 只用于 stale 提示。
 - 底部固定一行 provenance。这是整个功能信任设计的落点，删掉它这一页就从「路标」
   变成了「代餐」。

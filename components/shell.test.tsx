@@ -3085,6 +3085,11 @@ describe("today's briefing", () => {
       expect(sent.messages[1].content).toContain("A first story");
       expect(sent.messages[1].content).toContain("A third story");
 
+      // the item is one row, one click target — the same as anywhere in the
+      // stream, so the words in it open the story too
+      await user.click(within(block).getByText("A gist about the second story."));
+      await waitFor(() => expect(within(reader()).getByText("A second story")).toBeInTheDocument());
+
       // and the stream is the stream again: the edition is a page, not a
       // banner riding along at the top of Today
       await user.click(within(nav()).getByRole("button", { name: /Today/ }));
