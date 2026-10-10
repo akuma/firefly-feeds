@@ -327,7 +327,18 @@ function StreamHeader({
 
 /* --------------------------------------------------------------- pieces */
 
-function Kicker({ s, selected, n }: { s: Story; selected: boolean; n?: number }) {
+function Kicker({
+  s,
+  selected,
+  n,
+  showTopic = true,
+}: {
+  s: Story;
+  selected: boolean;
+  n?: number;
+  /** The topic is a scanning aid; an edition is already chosen, not filtered. */
+  showTopic?: boolean;
+}) {
   const r = useReader();
   const unread = !r.state.read[s.id];
   const topic = primaryTopicLabel(s, r.topics);
@@ -353,7 +364,7 @@ function Kicker({ s, selected, n }: { s: Story; selected: boolean; n?: number })
         ·
       </span>
       <span className="shrink-0 text-ink4">{agoLabel(s.minutesAgo)}</span>
-      {topic && (
+      {showTopic && topic && (
         <>
           <span className="shrink-0 text-ink4" aria-hidden>
             ·
@@ -474,6 +485,7 @@ export function StoryRow({
   index,
   n,
   extra,
+  showTopic,
 }: {
   s: Story;
   index: number;
@@ -481,6 +493,8 @@ export function StoryRow({
   n?: number;
   /** Appended under the row's own content, in the caller's own words. */
   extra?: React.ReactNode;
+  /** Whether the kicker carries the story's topic. An edition has no use for it. */
+  showTopic?: boolean;
 }) {
   const r = useReader();
   const selected = r.selectedId === s.id;
@@ -540,7 +554,7 @@ export function StoryRow({
     return wrap(
       <div className="px-5 pt-5 pb-7">
         <div className="mb-5 flex items-start justify-between gap-3">
-          <Kicker s={s} selected={selected} n={n} />
+          <Kicker s={s} selected={selected} n={n} showTopic={showTopic} />
           <RowActions s={s} />
         </div>
         {hasArt(s) && (
@@ -572,7 +586,7 @@ export function StoryRow({
     return wrap(
       <div className="px-5 pt-5 pb-6">
         <div className="flex items-center justify-between gap-3">
-          <Kicker s={s} selected={selected} n={n} />
+          <Kicker s={s} selected={selected} n={n} showTopic={showTopic} />
           <RowActions s={s} />
         </div>
         <blockquote className="mt-3.5 border-l-2 border-spark pl-4 text-[18.5px] leading-[1.36] tracking-[-0.012em] text-ink italic">
@@ -615,7 +629,7 @@ export function StoryRow({
     return wrap(
       <div className="px-5 py-[15px]">
         <div className="flex items-center justify-between gap-3">
-          <Kicker s={s} selected={selected} n={n} />
+          <Kicker s={s} selected={selected} n={n} showTopic={showTopic} />
           <RowActions s={s} />
         </div>
         <h2
@@ -647,7 +661,7 @@ export function StoryRow({
     >
       <div className="min-w-0">
         <div className="flex items-center justify-between gap-3">
-          <Kicker s={s} selected={selected} n={n} />
+          <Kicker s={s} selected={selected} n={n} showTopic={showTopic} />
           <RowActions s={s} />
         </div>
         <h2

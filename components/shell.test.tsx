@@ -2989,7 +2989,19 @@ async function seedDigestStories() {
       contentState: "full" as const,
       extractionState: "idle" as const,
     })),
-  );
+  ); // One of them carries a topic, so the edition's row can be checked for not
+  // showing it — a tag on a row that is already chosen is noise.
+  await repo.putTopics(defaultTopics(now));
+  await repo.putClassification({
+    itemId: "sdig~two",
+    topicIds: ["technology"],
+    primaryTopicId: "technology",
+    confidence: 0.9,
+    status: "confirmed",
+    provider: "jev",
+    contentFingerprint: articleFingerprint("A second story", "The second summary."),
+    updatedAt: now,
+  });
 }
 
 /** A local model, already set up: no key, and nothing off the machine. */
@@ -3076,6 +3088,10 @@ describe("today's briefing", () => {
       expect(within(block).getByText("It explains the week.")).toBeInTheDocument();
       expect(within(block).getByText(/Nothing fetched, nothing invented/)).toBeInTheDocument();
 
+      // the topic tag and the marker that questions it are scanning aids for a
+      // column of dozens; in an edition of five the gist does that work
+      expect(block.querySelector("[data-t='story-topic']")).toBeNull();
+
       // a local model is called straight from the browser, not through our
       // endpoint — our own server cannot see the reader's machine
       expect(spy.seen).toHaveLength(1);
@@ -3094,6 +3110,8 @@ describe("today's briefing", () => {
       // banner riding along at the top of Today
       await user.click(within(nav()).getByRole("button", { name: /Today/ }));
       await waitFor(() => expect(stream().querySelector("[data-t='briefing']")).toBeNull());
+      // …while the same story keeps its topic in the stream
+      await waitFor(() => expect(stream().querySelector("[data-t='story-topic']")).not.toBeNull());
     } finally {
       spy.restore();
     }
