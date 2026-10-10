@@ -4,7 +4,6 @@ import {
   Bookmark,
   BookmarkCheck,
   Check,
-  CircleHelp,
   Clock,
   ExternalLink,
   Moon,
@@ -18,7 +17,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { IconButton } from "./brand";
 import { Briefing } from "./briefing";
-import { Hint, LOW_CONFIDENCE_HINT } from "./hint";
 import { editionFor } from "@/lib/edition";
 import { Firefly, Media, hasArt } from "./plate";
 import { agoLabel } from "@/lib/reading";
@@ -38,16 +36,6 @@ const SMART_HEAD: Record<string, { kicker: string; title: string }> = {
 
 function plural(n: number, one: string, many: string) {
   return `${n} ${n === 1 ? one : many}`;
-}
-
-/** A topic label for a story, or nothing when only unknown ids remain. */
-function primaryTopicLabel(
-  story: Story,
-  topics: { id: string; label: string }[],
-): string | undefined {
-  const id = story.topics[0];
-  if (!id) return undefined;
-  return topics.find((topic) => topic.id === id)?.label;
 }
 
 /**
@@ -327,22 +315,9 @@ function StreamHeader({
 
 /* --------------------------------------------------------------- pieces */
 
-function Kicker({
-  s,
-  selected,
-  n,
-  showTopic = true,
-}: {
-  s: Story;
-  selected: boolean;
-  n?: number;
-  /** The topic is a scanning aid; an edition is already chosen, not filtered. */
-  showTopic?: boolean;
-}) {
+function Kicker({ s, selected, n }: { s: Story; selected: boolean; n?: number }) {
   const r = useReader();
   const unread = !r.state.read[s.id];
-  const topic = primaryTopicLabel(s, r.topics);
-  const review = s.classificationStatus === "needs_review";
   return (
     <div
       data-t="kicker"
@@ -364,32 +339,6 @@ function Kicker({
         ·
       </span>
       <span className="shrink-0 text-ink4">{agoLabel(s.minutesAgo)}</span>
-      {showTopic && topic && (
-        <>
-          <span className="shrink-0 text-ink4" aria-hidden>
-            ·
-          </span>
-          {/*
-            The kicker is publication, age and topic in one line, so the topic
-            carries a mark of its own — otherwise it reads as more of the
-            publication's name than as the story's category.
-          */}
-          <span data-t="story-topic" className="flex min-w-0 items-center gap-1.5 text-ink4">
-            <Tag size={9.5} strokeWidth={1.8} aria-hidden className="shrink-0" />
-            <span className="truncate">{topic}</span>
-          </span>
-          {/*
-            A low-confidence topic is a question, not a fact — but it is only a
-            question, so it gets an icon rather than a word. The kicker is the
-            quietest line in the row and a label here would out-shout the title.
-          */}
-          {review && (
-            <Hint label={LOW_CONFIDENCE_HINT} name="Why this topic is uncertain">
-              <CircleHelp size={11} strokeWidth={1.8} aria-hidden />
-            </Hint>
-          )}
-        </>
-      )}
       {selected && (
         <>
           <span className="shrink-0 text-ink4" aria-hidden>
@@ -485,7 +434,6 @@ export function StoryRow({
   index,
   n,
   extra,
-  showTopic,
 }: {
   s: Story;
   index: number;
@@ -493,8 +441,6 @@ export function StoryRow({
   n?: number;
   /** Appended under the row's own content, in the caller's own words. */
   extra?: React.ReactNode;
-  /** Whether the kicker carries the story's topic. An edition has no use for it. */
-  showTopic?: boolean;
 }) {
   const r = useReader();
   const selected = r.selectedId === s.id;
@@ -554,7 +500,7 @@ export function StoryRow({
     return wrap(
       <div className="px-5 pt-5 pb-7">
         <div className="mb-5 flex items-start justify-between gap-3">
-          <Kicker s={s} selected={selected} n={n} showTopic={showTopic} />
+          <Kicker s={s} selected={selected} n={n} />
           <RowActions s={s} />
         </div>
         {hasArt(s) && (
@@ -586,7 +532,7 @@ export function StoryRow({
     return wrap(
       <div className="px-5 pt-5 pb-6">
         <div className="flex items-center justify-between gap-3">
-          <Kicker s={s} selected={selected} n={n} showTopic={showTopic} />
+          <Kicker s={s} selected={selected} n={n} />
           <RowActions s={s} />
         </div>
         <blockquote className="mt-3.5 border-l-2 border-spark pl-4 text-[18.5px] leading-[1.36] tracking-[-0.012em] text-ink italic">
@@ -629,7 +575,7 @@ export function StoryRow({
     return wrap(
       <div className="px-5 py-[15px]">
         <div className="flex items-center justify-between gap-3">
-          <Kicker s={s} selected={selected} n={n} showTopic={showTopic} />
+          <Kicker s={s} selected={selected} n={n} />
           <RowActions s={s} />
         </div>
         <h2
@@ -661,7 +607,7 @@ export function StoryRow({
     >
       <div className="min-w-0">
         <div className="flex items-center justify-between gap-3">
-          <Kicker s={s} selected={selected} n={n} showTopic={showTopic} />
+          <Kicker s={s} selected={selected} n={n} />
           <RowActions s={s} />
         </div>
         <h2

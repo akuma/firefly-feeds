@@ -2522,25 +2522,29 @@ describe("article classification", () => {
     localStorage.setItem("firefly.feeds.v1", JSON.stringify({ classify: true }));
   });
 
-  it("shows a topic per story and filters the column by it", async () => {
+  it("filters the column by topic, and leaves the rows untagged", async () => {
     await seedClassifiedStories();
     const { user } = await mount();
 
-    expect(within(stream()).getByText("Technology")).toBeInTheDocument();
-    expect(within(stream()).getByText("Books")).toBeInTheDocument();
+    // a row is a row: the topic is not printed on it, in any column
+    expect(stream().querySelector("[data-t='story-topic']")).toBeNull();
     expect(rows()).toHaveLength(2);
 
+    // it is what the column can be narrowed by instead
     const trigger = stream().querySelector<HTMLElement>("[data-topic-trigger]");
     expect(trigger).toBeTruthy();
     await user.click(trigger!);
-    await user.click(within(stream()).getByRole("option", { name: "Technology" }));
+    const listbox = stream().querySelector<HTMLElement>('[aria-label="Filter by topic"]')!;
+    expect(within(listbox).getByRole("option", { name: "Technology" })).toBeInTheDocument();
+    expect(within(listbox).getByRole("option", { name: "Books" })).toBeInTheDocument();
+    await user.click(within(listbox).getByRole("option", { name: "Technology" }));
 
     await waitFor(() => expect(rows()).toHaveLength(1));
     expect(within(stream()).getByText("Chips and wafers")).toBeInTheDocument();
     expect(within(stream()).queryByText("A new novel")).not.toBeInTheDocument();
   });
 
-  it("marks a low-confidence topic with an icon, not a word", async () => {
+  it("keeps the doubt off the row and on the topic in the reader", async () => {
     const repo = await import("@/lib/storage/repository");
     const now = Date.now();
     await repo.putTopics(defaultTopics(now));
@@ -2586,17 +2590,25 @@ describe("article classification", () => {
 
     const { user } = await mount();
 
-    // the kicker carries a small mark for the topic, an icon for the doubt,
-    // and no word for either
+    // the row carries no topic at all now — neither the mark nor the doubt
     const row = stream().querySelector("[data-story]")!;
     const kicker = row.querySelector("[data-t='kicker']")!;
-    expect(kicker.textContent).toContain("Ideas");
-    expect(kicker.textContent).not.toContain("Needs review");
-    expect(kicker.querySelector(".lucide-tag")).toBeTruthy();
-    expect(kicker.querySelector(".lucide-circle-help")).toBeTruthy();
+    expect(kicker.textContent).not.toContain("Ideas");
+    expect(kicker.querySelector(".lucide-tag")).toBeNull();
+    expect(kicker.querySelector(".lucide-circle-help")).toBeNull();
+
+    // the reader carries both, beside the topic chips
+    await user.click(rows()[0]);
+    await waitFor(() =>
+      expect(reader().querySelector("[data-t='reader-topics']")).toBeInTheDocument(),
+    );
+    const topics = reader().querySelector("[data-t='reader-topics']")!;
+    expect(topics.textContent).toContain("Ideas");
+    expect(topics.textContent).not.toContain("Needs review");
+    expect(topics.querySelector(".lucide-tag")).toBeTruthy();
 
     // hovering the doubt explains it in the reader's terms, not the model's
-    const trigger = kicker.querySelector(".lucide-circle-help")!.closest("button")!;
+    const trigger = topics.querySelector(".lucide-circle-help")!.closest("button")!;
     // the icon says nothing on its own, so the button carries a name
     expect(trigger).toHaveAccessibleName("Why this topic is uncertain");
     await user.hover(trigger);
@@ -2604,16 +2616,6 @@ describe("article classification", () => {
     expect(hint.textContent).toMatch(/wasn't sure/);
     expect(hint.textContent).toMatch(/guess rather than a fact/);
     expect(trigger).toHaveAttribute("aria-describedby", hint.id);
-
-    // and the reader carries both, beside the topic chips
-    await user.click(rows()[0]);
-    await waitFor(() =>
-      expect(reader().querySelector("[data-t='reader-topics']")).toBeInTheDocument(),
-    );
-    const topics = reader().querySelector("[data-t='reader-topics']")!;
-    expect(topics.textContent).not.toContain("Needs review");
-    expect(topics.querySelector(".lucide-circle-help")).toBeTruthy();
-    expect(topics.querySelector(".lucide-tag")).toBeTruthy();
   });
 
   it("calls a local Ollama straight from the browser, not through our endpoint", async () => {
@@ -2656,15 +2658,18 @@ describe("article classification", () => {
       await user.click(within(panel).getByRole("switch", { name: "Classify new stories" }));
 
       // the story is classified without our endpoint ever being asked
-      await waitFor(() =>
-        expect(within(stream()).getAllByText("Technology").length).toBeGreaterThan(0),
-      );
-      expect(seen).toHaveLength(1);
+      await waitFor(() => expect(seen).toHaveLength(1));
       expect(seen[0].url).toBe("http://localhost:11434/v1/systemone");
       // and the request is the same decision the server would have built
       const sent = JSON.parse(seen[0].body);
       expect(Object.keys(sent.questions)).toEqual(["topic"]);
       expect(sent.state.topics.length).toBeGreaterThan(0);
+      // and the topic lands on the story
+      const repo = await import("@/lib/storage/repository");
+      await waitFor(async () => {
+        const saved = await repo.loadAll();
+        expect(saved.classifications.map((c) => c.primaryTopicId)).toContain("technology");
+      });
     } finally {
       globalThis.fetch = original;
     }
@@ -2939,10 +2944,6 @@ describe("turning classification on", () => {
       await user.click(within(panel).getByRole("switch", { name: "Classify new stories" }));
 
       // the default set is seeded and the story receives a topic
-      await waitFor(() =>
-        expect(within(stream()).getAllByText("Technology").length).toBeGreaterThan(0),
-      );
-
       const repo = await import("@/lib/storage/repository");
       await waitFor(async () => {
         const saved = await repo.loadAll();
@@ -3110,8 +3111,8 @@ describe("today's briefing", () => {
       // banner riding along at the top of Today
       await user.click(within(nav()).getByRole("button", { name: /Today/ }));
       await waitFor(() => expect(stream().querySelector("[data-t='briefing']")).toBeNull());
-      // …while the same story keeps its topic in the stream
-      await waitFor(() => expect(stream().querySelector("[data-t='story-topic']")).not.toBeNull());
+      // …and the same story is untagged in the stream: rows are rows
+      await waitFor(() => expect(stream().querySelector("[data-t='story-topic']")).toBeNull());
     } finally {
       spy.restore();
     }

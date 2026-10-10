@@ -147,7 +147,6 @@ export function Briefing() {
                   s={{ ...story, dek: "" }}
                   index={index}
                   n={index + 1}
-                  showTopic={false}
                   extra={
                     <>
                       <p className="max-w-[54ch] text-[15.5px] leading-[1.5] text-ink3">

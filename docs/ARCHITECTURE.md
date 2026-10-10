@@ -391,6 +391,13 @@ lives in local prefs only: it is the one piece of reading state that is a secret
 and it is sent to this app's own endpoint rather than to the service itself.
 
 Whichever transport answered replies with a slug and a confidence.
+**A topic is not printed on a row.** It used to sit in the kicker with an icon
+for the doubt, which is the right shape for scanning a column of dozens and the
+wrong shape for anything else: on a row it reads as more of the publication's
+name than as a category, and a tag beside a story's own summary is noise beside
+it. A topic narrows the column and describes the open story; those two places
+carry it.
+
 Above `CONFIDENCE_THRESHOLD` (0.6) the topic is stored as `auto`; below it the
 same topic is stored as `needs_review`, shown to the reader as a question rather
 than a fact — judged on the model's own `confidence`, not on the winning option's
