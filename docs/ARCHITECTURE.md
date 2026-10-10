@@ -557,16 +557,21 @@ editions at its foot, opens one on a click, and prints that day's date in the
 masthead while it is open — a header that says today while showing last
 Tuesday's edition is lying about what it is showing.
 
-One edition covers what has arrived since the last one was written, so two
-editions meet end to end rather than overlap. A story is offered to exactly one
-of them, which is how one day's briefing is guaranteed to differ from the next:
-time does it. Nothing is excluded for having been picked before — there is
-nothing to exclude, and a rule like that turned rewriting today into a lottery
-of whatever had not been drawn yet. A rewrite of today draws from the same day
-again, whatever the last one chose; the reader asked for today's edition again,
-not for a different five. What falls before the boundary is not lost: it was the
-previous edition's to consider, and whatever was not chosen is still unread in
-the stream.
+One edition covers the day it is dated for: stories published since local
+midnight. A story is published on one day and not on two, so two editions can
+never share one — which is how one day's briefing is guaranteed to differ from
+the next: the date does it. Nothing is excluded for having been picked before,
+because there is nothing to exclude; a rule like that turned rewriting today
+into a lottery of whatever had not been drawn yet. A rewrite draws from the
+same day again, whatever the last one chose; the reader asked for today's
+edition again, not for a different five.
+
+The Today column reaches back to the same midnight rather than through the last
+twenty-four hours. A sliding window looks the same at ten in the morning and is
+not: it carries yesterday's stories, so yesterday's Today and today's Today
+overlap and the two counts stop being comparable. The built-in sample edition
+is the one exception, being not news and undated — it fills its column the same
+way at midnight and at noon.
 
 ## Reading state
 

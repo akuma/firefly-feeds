@@ -53,10 +53,11 @@ export const DIGEST_OFFER_LIMIT = 50;
 export const DIGEST_OFFER_BUDGET = 24_000;
 
 /**
- * What the first edition covers when there is no earlier one to abut: a day.
- * Every edition after it covers what arrived since the one before.
+ * How far back a day's edition reaches, in minutes — the same measure the
+ * Today column uses, so the two never disagree about what today holds. The
+ * parameter is the window rather than a fixed day because "today" is a
+ * distance from midnight that grows until midnight comes round again.
  */
-export const DIGEST_FIRST_WINDOW_MINUTES = 60 * 24;
 
 /** Input caps, enforced before anything leaves the device. */
 export const DIGEST_TITLE_LIMIT = 300;
@@ -139,8 +140,8 @@ export function excerptFor(story: Story): string {
 }
 
 /**
- * The raw material: the unread stories that have arrived since the last
- * edition, newest first, all of them.
+ * The raw material: today's unread stories from real subscriptions, newest
+ * first, all of them.
  *
  * The sample edition is excluded for the same reason it is never classified —
  * its input would be invented, and a gist about a story that does not exist
@@ -157,11 +158,12 @@ export function selectCandidates(
       (story) =>
         story.live === true &&
         !read[story.id] &&
-        // Everything since the last edition, and nothing older. That is what
-        // separates one day's edition from the next: the windows abut, so two
-        // editions can never share a story and none can fall between them.
-        // Nothing is excluded for having been picked before — there is nothing
-        // to exclude, because a story is offered to exactly one edition.
+        // Today, and nothing older. The day is what separates one edition
+        // from the next: yesterday's stories were yesterday's edition to
+        // choose from, so two days can never share a story and none falls
+        // between them. Nothing is excluded for having been picked before —
+        // there is nothing to exclude, because a story is offered to exactly
+        // one day.
         story.minutesAgo <= maxAgeMinutes,
     )
     .toSorted((a, b) => a.minutesAgo - b.minutesAgo)

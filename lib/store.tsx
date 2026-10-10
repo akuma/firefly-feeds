@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Edition } from "./edition";
+import { minutesIntoToday, type Edition } from "./edition";
 import {
   articleFingerprint,
   classificationFromOutcome,
@@ -37,7 +37,6 @@ import {
 } from "./languages";
 import {
   dayKey,
-  DIGEST_FIRST_WINDOW_MINUTES,
   digestIsStale,
   DIGEST_MIN_CANDIDATES,
   offerCandidates,
@@ -1047,32 +1046,33 @@ export function useReaderState(edition: Edition): Ctx {
   /* ---------------------------------------------------------- briefing */
 
   /*
-   * Today's briefing: one edition per day, written from the stories a reader
-   * already has. The sweep is lazier than classification's — one call a day,
-   * not one per story — and it only ever fires while the reader is on the
-   * briefing page itself. A reader who never opens it spends nothing.
+   * How far back "today" reaches. One definition for the column, the counts
+   * and the briefing, so the three can never disagree about what the day
+   * holds — and so yesterday's stories are yesterday's, not today's.
    */
-  /*
-   * How far back this edition reaches: to the moment the last one was written.
-   * Two editions therefore abut rather than overlap, which is what makes one
-   * day's briefing differ from the next — time does it, with nothing excluded
-   * for having been picked before. A story is offered to exactly one edition.
-   *
-   * Today's own writes never move the boundary: the window is fixed when the
-   * day starts, and only its far end grows as more arrives.
-   */
-  const digestWindowMinutes = useMemo(() => {
-    const today = dayKey(now);
-    let latest = 0;
-    for (const record of digests) {
-      if (record.day < today && record.updatedAt > latest) latest = record.updatedAt;
-    }
-    return latest > 0 ? Math.ceil((now - latest) / 60_000) : DIGEST_FIRST_WINDOW_MINUTES;
-  }, [digests, now]);
+  const todayWindow = useMemo(() => minutesIntoToday(now), [now]);
 
+  /*
+   * Whether a story belongs to today. The sample edition is not news and has
+   * no date: it stands where it is whatever the hour, so the column it fills
+   * on first run is the same column at midnight and at noon. Real stories are
+   * today's or yesterday's by when they were published, and never both.
+   */
+  const isToday = useCallback(
+    (s: Story) => s.live !== true || s.minutesAgo <= todayWindow,
+    [todayWindow],
+  );
+
+  /*
+   * Today's briefing: one edition per day, chosen from today's unread stories,
+   * written only when the reader asks. The day is what separates one edition
+   * from the next — a story is published on one day and not on two — so no
+   * story is excluded for having been picked before. There is nothing to
+   * exclude: each day offers its own stories, and only its own.
+   */
   const digestCandidates = useMemo(
-    () => selectCandidates(stories, state.read, digestWindowMinutes),
-    [stories, state.read, digestWindowMinutes],
+    () => selectCandidates(stories, state.read, todayWindow),
+    [stories, state.read, todayWindow],
   );
 
   const todayDigest = useMemo(() => {
@@ -1217,7 +1217,7 @@ export function useReaderState(edition: Edition): Ctx {
         .map((id) => byId.get(id))
         .filter((s): s is Story => s !== undefined);
     } else if (view === "today") {
-      list = list.filter((s) => s.minutesAgo < 60 * 24);
+      list = list.filter(isToday);
     } else if (view === "saved") {
       list = list.filter((s) => state.saved[s.id]);
     } else if (view === "later") {
@@ -1248,6 +1248,7 @@ export function useReaderState(edition: Edition): Ctx {
     feedIndex,
     topicFilter,
     viewedDigest,
+    isToday,
   ]);
 
   const story = useCallback((id: string) => stories.find((s) => s.id === id), [stories]);
@@ -1281,7 +1282,7 @@ export function useReaderState(edition: Edition): Ctx {
         feedCounts[s.feedId] = (feedCounts[s.feedId] ?? 0) + 1;
         const folder = feedIndex.get(s.feedId)?.folder;
         if (folder) folders[folder] += 1;
-        if (s.minutesAgo < 60 * 24) today += 1;
+        if (isToday(s)) today += 1;
       }
       // Saved and Later list everything in those collections, so the badge
       // counts must match what the column actually shows.
@@ -1289,15 +1290,15 @@ export function useReaderState(edition: Edition): Ctx {
       if (state.later[s.id]) later += 1;
     }
     return { all, today, saved, later, folders, feeds: feedCounts };
-  }, [stories, state, feedIndex]);
+  }, [stories, state, feedIndex, isToday]);
 
   const { todayMinutes, todayTotal } = useMemo(() => {
-    const todays = stories.filter((s) => s.minutesAgo < 60 * 24);
+    const todays = stories.filter(isToday);
     return {
       todayMinutes: todays.reduce((n, s) => n + readingTime(s.body), 0),
       todayTotal: todays.length,
     };
-  }, [stories]);
+  }, [stories, isToday]);
 
   /* ----------------------------------------------------------- routing */
 

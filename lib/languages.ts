@@ -82,7 +82,7 @@ const EN: DigestStrings = {
   offAction: "Open settings",
   quiet: "Not enough new today",
   quietNote:
-    "Three unread stories is the least an edition can be chosen from. An edition covers what has arrived since the last one.",
+    "Three unread stories is the least an edition can be chosen from. An edition covers the day's stories, and no other day's.",
   history: "Earlier editions",
   today: "Today",
   picks: (n) => `${n} ${n === 1 ? "story" : "stories"}`,
@@ -91,15 +91,14 @@ const EN: DigestStrings = {
   writing: "Writing today's edition…",
   retry: "Retry",
   write: "Write today's edition",
-  ready: (n) =>
-    `${n} unread ${n === 1 ? "story" : "stories"} since the last edition, ready to be written up.`,
+  ready: (n) => `${n} unread ${n === 1 ? "story" : "stories"} today, ready to be written up.`,
   regenerate: "Regenerate",
   rewriting: "Writing…",
   regenerateTitle: "Write today's edition again from the current stories",
   edition: (picks, offered, total) =>
     offered === total
-      ? `${picks} of ${total} newly arrived ${total === 1 ? "story" : "stories"}, chosen and summarised from your own feeds.`
-      : `${picks} of the ${offered} newest of your ${total} newly arrived stories, chosen and summarised from your own feeds.`,
+      ? `${picks} of today's ${total} ${total === 1 ? "story" : "stories"}, chosen and summarised from your own feeds.`
+      : `${picks} of the ${offered} newest of today's ${total} stories, chosen and summarised from your own feeds.`,
   provenance: "Written from each story's title and summary. Nothing fetched, nothing invented.",
   stale: (n) => `${n} new ${n === 1 ? "story" : "stories"} since this edition was written`,
   minutes: (n) => `${n} min read`,
@@ -110,7 +109,7 @@ const ZH_HANS: DigestStrings = {
   off: "导读已关闭",
   offAction: "打开设置",
   quiet: "今天的新内容不够",
-  quietNote: "至少要有三条未读，才谈得上挑选。一期导读覆盖的是自上一期以来新到的文章。",
+  quietNote: "至少要有三条未读，才谈得上挑选。一期导读只覆盖当天的文章。",
   history: "更早的导读",
   today: "今天",
   picks: (n) => `${n} 篇`,
@@ -119,14 +118,14 @@ const ZH_HANS: DigestStrings = {
   writing: "正在写今天的导读…",
   retry: "重试",
   write: "生成今天的导读",
-  ready: (n) => `自上一期导读以来有 ${n} 篇未读，可以写一期导读。`,
+  ready: (n) => `今天有 ${n} 篇未读，可以写一期导读。`,
   regenerate: "重新生成",
   rewriting: "正在写…",
   regenerateTitle: "用当前的故事重新写今天的导读",
   edition: (picks, offered, total) =>
     offered === total
-      ? `从新到的 ${total} 篇里选出 ${picks} 篇，取自你的订阅。`
-      : `从新到的 ${total} 篇里最新的 ${offered} 篇中选出 ${picks} 篇，取自你的订阅。`,
+      ? `从今天的 ${total} 篇里选出 ${picks} 篇，取自你的订阅。`
+      : `从今天 ${total} 篇里最新的 ${offered} 篇中选出 ${picks} 篇，取自你的订阅。`,
   provenance: "仅依据各篇的标题与摘要写成。没有抓取原文，也没有编造。",
   stale: (n) => `这版写完之后又来了 ${n} 篇新内容`,
   minutes: (n) => `约 ${n} 分钟`,
@@ -137,7 +136,7 @@ const ZH_HANT: DigestStrings = {
   off: "導讀已關閉",
   offAction: "開啟設定",
   quiet: "今天的新內容不夠",
-  quietNote: "至少要有三則未讀，才談得上挑選。一期導讀涵蓋的是自上一期以來新到的文章。",
+  quietNote: "至少要有三則未讀，才談得上挑選。一期導讀只涵蓋當天的文章。",
   history: "更早的導讀",
   today: "今天",
   picks: (n) => `${n} 則`,
@@ -146,14 +145,14 @@ const ZH_HANT: DigestStrings = {
   writing: "正在寫今天的導讀…",
   retry: "重試",
   write: "產生今天的導讀",
-  ready: (n) => `自上一期導讀以來有 ${n} 則未讀，可以寫一期導讀。`,
+  ready: (n) => `今天有 ${n} 則未讀，可以寫一期導讀。`,
   regenerate: "重新產生",
   rewriting: "正在寫…",
   regenerateTitle: "用目前的故事重寫今天的導讀",
   edition: (picks, offered, total) =>
     offered === total
-      ? `從新到的 ${total} 則裡選出 ${picks} 則，取自你的訂閱。`
-      : `從新到的 ${total} 則裡最新的 ${offered} 則中選出 ${picks} 則，取自你的訂閱。`,
+      ? `從今天的 ${total} 則裡選出 ${picks} 則，取自你的訂閱。`
+      : `從今天 ${total} 則裡最新的 ${offered} 則中選出 ${picks} 則，取自你的訂閱。`,
   provenance: "僅依據各則的標題與摘要寫成。沒有抓取原文，也沒有編造。",
   stale: (n) => `這版寫完之後又來了 ${n} 則新內容`,
   minutes: (n) => `約 ${n} 分鐘`,
@@ -164,7 +163,7 @@ const JA: DigestStrings = {
   off: "ブリーフィングはオフです",
   offAction: "設定を開く",
   quiet: "今日は新着が少なすぎます",
-  quietNote: "選ぶには未読が3件以上必要です。一版は前回以降に届いた記事を対象にします。",
+  quietNote: "選ぶには未読が3件以上必要です。一版はその日の記事だけを対象にします。",
   history: "過去の版",
   today: "今日",
   picks: (n) => `${n}件`,
@@ -173,14 +172,14 @@ const JA: DigestStrings = {
   writing: "今日のブリーフィングを書いています…",
   retry: "再試行",
   write: "今日の版を書く",
-  ready: (n) => `前回の版以降、未読が${n}件あります。一版にまとめられます。`,
+  ready: (n) => `今日は未読が${n}件あります。一版にまとめられます。`,
   regenerate: "書き直す",
   rewriting: "書き直しています…",
   regenerateTitle: "いまの記事から今日のブリーフィングを書き直す",
   edition: (picks, offered, total) =>
     offered === total
-      ? `新着${total}件から${picks}件を選び、購読フィードの内容からまとめました。`
-      : `新着${total}件のうち新しい${offered}件から${picks}件を選び、購読フィードの内容からまとめました。`,
+      ? `今日の${total}件から${picks}件を選び、購読フィードの内容からまとめました。`
+      : `今日の${total}件のうち新しい${offered}件から${picks}件を選び、購読フィードの内容からまとめました。`,
   provenance: "各記事のタイトルと要約だけを根拠に書いています。原文の取得も、創作もしていません。",
   stale: (n) => `この版を書いたあとに${n}件の新着があります`,
   minutes: (n) => `読了 ${n}分`,
@@ -191,8 +190,7 @@ const KO: DigestStrings = {
   off: "브리핑이 꺼져 있습니다",
   offAction: "설정 열기",
   quiet: "오늘은 새 글이 너무 적습니다",
-  quietNote:
-    "고르려면 읽지 않은 글이 3개 이상 있어야 합니다. 한 판은 지난 판 이후 새로 들어온 글을 다룹니다.",
+  quietNote: "고르려면 읽지 않은 글이 3개 이상 있어야 합니다. 한 판은 그날의 글만 다룹니다.",
   history: "이전 브리핑",
   today: "오늘",
   picks: (n) => `${n}개`,
@@ -201,14 +199,14 @@ const KO: DigestStrings = {
   writing: "오늘의 브리핑을 쓰는 중…",
   retry: "다시 시도",
   write: "오늘의 브리핑 쓰기",
-  ready: (n) => `지난 판 이후 읽지 않은 글 ${n}개가 있습니다. 한 판으로 정리할 수 있습니다.`,
+  ready: (n) => `오늘 읽지 않은 글 ${n}개가 있습니다. 한 판으로 정리할 수 있습니다.`,
   regenerate: "다시 쓰기",
   rewriting: "다시 쓰는 중…",
   regenerateTitle: "지금의 글들로 오늘의 브리핑을 다시 쓰기",
   edition: (picks, offered, total) =>
     offered === total
-      ? `새로 들어온 ${total}개 중 ${picks}개를 골라, 구독 피드의 내용으로 정리했습니다.`
-      : `새로 들어온 ${total}개 중 최신 ${offered}개에서 ${picks}개를 골라, 구독 피드의 내용으로 정리했습니다.`,
+      ? `오늘의 ${total}개 중 ${picks}개를 골라, 구독 피드의 내용으로 정리했습니다.`
+      : `오늘의 ${total}개 중 최신 ${offered}개에서 ${picks}개를 골라, 구독 피드의 내용으로 정리했습니다.`,
   provenance: "각 글의 제목과 요약만을 근거로 씁니다. 원문을 가져오지도, 지어내지도 않았습니다.",
   stale: (n) => `이 버전을 쓴 뒤 새 글이 ${n}개 더 왔습니다`,
   minutes: (n) => `약 ${n}분`,

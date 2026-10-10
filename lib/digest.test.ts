@@ -86,15 +86,15 @@ describe("the candidates", () => {
     expect(picked.map((c) => c.id)).toEqual(["newest", "oldest"]);
   });
 
-  it("offers each story to exactly one edition: the window reaches the last one", () => {
-    // Not a day, and not a sliding twenty-four hours: it reaches back to the
-    // moment the previous edition was written, so two editions abut and one can
-    // never repeat the other's stories. Nothing is excluded for having been
-    // picked before — the function has no way to know, and does not need one.
-    const stories = [story("older", { minutesAgo: 180 }), story("newer", { minutesAgo: 30 })];
-    // The last edition was written two hours ago, so the older story was its
-    // to offer and is not this one's.
-    expect(selectCandidates(stories, {}, 120).map((c) => c.id)).toEqual(["newer"]);
+  it("offers each story to exactly one day, and never a story from another", () => {
+    // The window is the day — how many minutes since local midnight — and not
+    // the last twenty-four hours. A sliding window carries yesterday's stories
+    // into today; this one does not, so yesterday's edition and today's can
+    // never share a story. Nothing is excluded for having been picked before:
+    // the function has no way to know, and does not need one.
+    const stories = [story("yesterday", { minutesAgo: 180 }), story("today", { minutesAgo: 30 })];
+    // Two hours past midnight, so today reaches back two hours.
+    expect(selectCandidates(stories, {}, 120).map((c) => c.id)).toEqual(["today"]);
   });
 
   it("counts the whole day, and caps only what one prompt carries", () => {
