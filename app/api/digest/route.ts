@@ -1,7 +1,7 @@
 import {
   buildDigestMessages,
   DIGEST_INTERESTS_LIMIT,
-  DIGEST_MAX_CANDIDATES,
+  DIGEST_OFFER_LIMIT,
   DIGEST_SUMMARY_LIMIT,
   DIGEST_TIMEOUT_MS,
   DIGEST_TITLE_LIMIT,
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         ok: false,
-        error: `Send between 1 and ${DIGEST_MAX_CANDIDATES} stories, each with an id, a title and a summary.`,
+        error: `Send between 1 and ${DIGEST_OFFER_LIMIT} stories, each with an id, a title and a summary.`,
       },
       { status: 400 },
     );
@@ -162,7 +162,7 @@ async function callService(
 function readCandidates(body: unknown): DigestCandidate[] | null {
   const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   const list = Array.isArray(record.candidates) ? record.candidates : null;
-  if (!list || list.length === 0 || list.length > DIGEST_MAX_CANDIDATES) return null;
+  if (!list || list.length === 0 || list.length > DIGEST_OFFER_LIMIT) return null;
 
   const candidates: DigestCandidate[] = [];
   for (const entry of list) {

@@ -41,12 +41,15 @@ export const DIGEST_PICKS = 5;
 export const DIGEST_MIN_CANDIDATES = 3;
 
 /**
- * The most stories sent in one call. This is half the cost control for the
- * feature; `LLM_MAX_TOKENS` is the other half. Between them, the worst a single
- * request can cost is knowable in advance, which is why the endpoint needs no
- * rate limiter of its own.
+ * The most one prompt ever carries.
+ *
+ * A safety valve, not a design limit: the day's whole eligible set is what an
+ * edition should choose from, and 20 arbitrary stories out of 30 is not that
+ * day. This exists because a prompt has to fit a context and a bill — and when
+ * it bites, the copy says how many of the day were offered rather than quietly
+ * counting them all.
  */
-export const DIGEST_MAX_CANDIDATES = 20;
+export const DIGEST_OFFER_LIMIT = 50;
 
 /** A day, for "today's stories". */
 const DAY_MINUTES = 60 * 24;
@@ -104,8 +107,16 @@ export function dayKey(at: number = Date.now()): string {
 
 /* ------------------------------------------------------------- candidates */
 
+/** The newest of a day's stories, and never more than one prompt carries. */
+export function offerCandidates(
+  candidates: readonly DigestCandidate[],
+): readonly DigestCandidate[] {
+  return candidates.slice(0, DIGEST_OFFER_LIMIT);
+}
+
 /**
- * The raw material: today's unread stories from real subscriptions, newest first.
+ * The raw material: today's unread stories from real subscriptions, newest
+ * first, all of them.
  *
  * The sample edition is excluded for the same reason it is never classified —
  * its input would be invented, and a gist about a story that does not exist
@@ -129,7 +140,6 @@ export function selectCandidates(
         story.minutesAgo < DAY_MINUTES,
     )
     .toSorted((a, b) => a.minutesAgo - b.minutesAgo)
-    .slice(0, DIGEST_MAX_CANDIDATES)
     .map((story) => ({
       id: story.id,
       title: story.title.slice(0, DIGEST_TITLE_LIMIT),

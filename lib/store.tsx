@@ -40,6 +40,7 @@ import {
   digestIsStale,
   DIGEST_MAX_PER_DAY,
   DIGEST_MIN_CANDIDATES,
+  offerCandidates,
   parseDigest,
   requestDigest,
   selectCandidates,
@@ -1147,6 +1148,9 @@ export function useReaderState(edition: Edition): Ctx {
         const fresh = pool.filter((c) => !todayDigest.picks.includes(c.id));
         if (fresh.length >= DIGEST_MIN_CANDIDATES) pool = fresh;
       }
+      // The day is what the edition chooses from; only what one prompt carries
+      // is capped, and the record remembers both so the page can say both.
+      pool = [...offerCandidates(pool)];
       if (pool.length < DIGEST_MIN_CANDIDATES) return;
       digestInFlight.current = true;
       setDigestWorking(true);
@@ -1190,6 +1194,7 @@ export function useReaderState(edition: Edition): Ctx {
           // The whole eligible set, not the pool a rewrite was offered: "what
           // arrived since" is about the day, not about one attempt at it.
           candidates: digestCandidates.map((candidate) => candidate.id),
+          offered: pool.length,
           provider: result.provider ?? llmConfig.service,
           ...(result.model ? { model: result.model } : {}),
           language: digestLanguage,

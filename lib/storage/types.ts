@@ -176,6 +176,8 @@ export type DigestRecord = {
    * the reader has already read wrong.
    */
   candidates: string[];
+  /** How many of those a prompt actually carried — the newest, capped. */
+  offered: number;
   /** The LLM service that wrote it. */
   provider: string;
   model?: string;

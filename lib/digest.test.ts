@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildDigestMessages,
   dayKey,
-  DIGEST_MAX_CANDIDATES,
+  DIGEST_OFFER_LIMIT,
+  offerCandidates,
   DIGEST_PICKS,
   digestIsStale,
   parseDigest,
@@ -50,6 +51,7 @@ function record(patch: Partial<DigestRecord> = {}): DigestRecord {
     gists: { a: "A gist." },
     reasons: { a: "A reason." },
     candidates: ["a", "b"],
+    offered: 2,
     provider: "ollama",
     language: "source",
     updatedAt: 1,
@@ -83,14 +85,19 @@ describe("the candidates", () => {
     expect(picked.map((c) => c.id)).toEqual(["newest", "oldest"]);
   });
 
-  it("caps the list, because the cost of a call is knowable in advance", () => {
-    const many = Array.from({ length: DIGEST_MAX_CANDIDATES + 5 }, (_, i) =>
+  it("counts the whole day, and caps only what one prompt carries", () => {
+    const many = Array.from({ length: DIGEST_OFFER_LIMIT + 5 }, (_, i) =>
       story(`s${i}`, { minutesAgo: i + 1 }),
     );
-    const picked = selectCandidates(many, {});
-    expect(picked).toHaveLength(DIGEST_MAX_CANDIDATES);
-    // The newest twenty, not the oldest twenty.
-    expect(picked[0].id).toBe("s0");
+    // The day is the day: a query does not quietly decide that twenty of thirty
+    // stories are the day's stories.
+    const all = selectCandidates(many, {});
+    expect(all).toHaveLength(DIGEST_OFFER_LIMIT + 5);
+    // What one prompt carries is capped — the newest, so it is the tail of the
+    // day a budget trims and never the head.
+    const offered = offerCandidates(all);
+    expect(offered).toHaveLength(DIGEST_OFFER_LIMIT);
+    expect(offered[0].id).toBe("s0");
   });
 
   it("judges a story with no summary on its cached body, and fetches nothing", () => {

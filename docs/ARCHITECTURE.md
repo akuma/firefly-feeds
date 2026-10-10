@@ -427,7 +427,7 @@ reader's data off the device.
 **One edition a day, written from what is already here.** When the reader opens
 the briefing page and their own calendar day has no edition, `lib/store.tsx`
 sends the day's unread stories — real subscriptions only, never the sample
-edition, at most twenty, judged on the title and the summary already stored —
+edition, judged on the title and the summary already stored —
 to the model chosen in Settings. Nothing is fetched to make the prompt better.
 The answer is up to five stories, each with one line on what it is and one on
 why it might be worth reading. Then it is left alone: stories arriving later
@@ -487,7 +487,7 @@ and the id is what ties the two together. A gist is deliberately one sentence �
 enough to decide whether to open the story, not enough to read in its place.
 
 **Cost is capped on the way in, which is why the endpoint has no rate limiter.**
-At most twenty candidates of three hundred characters each, at most three
+At most fifty candidates of three hundred characters each, at most three
 thousand tokens out, sixty seconds at most: what a request can cost is knowable
 in advance, and there is no legitimate burst to throttle — one edition a day is
 the whole traffic. The output ceiling is as high as it is because a thinking
@@ -501,7 +501,7 @@ key, so there is nothing to keep off the page — and everything else goes throu
 this app's own endpoint.
 
 Privacy: while a briefing is on, the only thing that leaves the device is the
-title and summary of the day's unread stories, up to twenty at a time, once a day
+title and summary of the day's unread stories, up to fifty at a time, once a day
 and on the reader's own request. It goes to this app's own endpoint, and then to
 the service the reader chose — nowhere at all when that is a local Ollama. No
 reading history, no subscription list, no full text, no Firefly account.

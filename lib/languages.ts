@@ -46,8 +46,8 @@ export type DigestStrings = {
   /** The daily cap, as a title on the control that is now inert. */
   capTitle: string;
   regenerateTitle: string;
-  /** How much of today made the edition. */
-  edition: (picks: number, candidates: number) => string;
+  /** How much of the day made the edition, and how much of it was offered. */
+  edition: (picks: number, offered: number, total: number) => string;
   provenance: string;
   /** What arrived after this edition was written. */
   stale: (n: number) => string;
@@ -92,8 +92,10 @@ const EN: DigestStrings = {
   rewriting: "Writing…",
   capTitle: "No rewrites left today",
   regenerateTitle: "Write today's edition again from the current stories",
-  edition: (picks, candidates) =>
-    `${picks} of ${candidates} ${candidates === 1 ? "story" : "stories"}, chosen and summarised from your own feeds.`,
+  edition: (picks, offered, total) =>
+    offered === total
+      ? `${picks} of ${total} ${total === 1 ? "story" : "stories"}, chosen and summarised from your own feeds.`
+      : `${picks} of the ${offered} newest of your ${total} stories, chosen and summarised from your own feeds.`,
   provenance: "Written from each story's title and summary. Nothing fetched, nothing invented.",
   stale: (n) => `${n} new ${n === 1 ? "story" : "stories"} since this edition was written`,
   minutes: (n) => `${n} min read`,
@@ -116,7 +118,10 @@ const ZH_HANS: DigestStrings = {
   rewriting: "正在写…",
   capTitle: "今天的重写次数已用完",
   regenerateTitle: "用当前的故事重新写今天的导读",
-  edition: (picks, candidates) => `从 ${candidates} 篇里选出 ${picks} 篇，取自你的订阅。`,
+  edition: (picks, offered, total) =>
+    offered === total
+      ? `从 ${total} 篇里选出 ${picks} 篇，取自你的订阅。`
+      : `从你 ${total} 篇里最新的 ${offered} 篇中选出 ${picks} 篇，取自你的订阅。`,
   provenance: "仅依据各篇的标题与摘要写成。没有抓取原文，也没有编造。",
   stale: (n) => `这版写完之后又来了 ${n} 篇新内容`,
   minutes: (n) => `约 ${n} 分钟`,
@@ -139,7 +144,10 @@ const ZH_HANT: DigestStrings = {
   rewriting: "正在寫…",
   capTitle: "今天的重寫次數已用完",
   regenerateTitle: "用目前的故事重寫今天的導讀",
-  edition: (picks, candidates) => `從 ${candidates} 則裡選出 ${picks} 則，取自你的訂閱。`,
+  edition: (picks, offered, total) =>
+    offered === total
+      ? `從 ${total} 則裡選出 ${picks} 則，取自你的訂閱。`
+      : `從你 ${total} 則裡最新的 ${offered} 則中選出 ${picks} 則，取自你的訂閱。`,
   provenance: "僅依據各則的標題與摘要寫成。沒有抓取原文，也沒有編造。",
   stale: (n) => `這版寫完之後又來了 ${n} 則新內容`,
   minutes: (n) => `約 ${n} 分鐘`,
@@ -162,8 +170,10 @@ const JA: DigestStrings = {
   rewriting: "書き直しています…",
   capTitle: "今日の書き直しは上限に達しました",
   regenerateTitle: "いまの記事から今日のブリーフィングを書き直す",
-  edition: (picks, candidates) =>
-    `${candidates}件から${picks}件を選び、購読フィードの内容からまとめました。`,
+  edition: (picks, offered, total) =>
+    offered === total
+      ? `${total}件から${picks}件を選び、購読フィードの内容からまとめました。`
+      : `あなたの${total}件のうち新しい${offered}件から${picks}件を選び、購読フィードの内容からまとめました。`,
   provenance: "各記事のタイトルと要約だけを根拠に書いています。原文の取得も、創作もしていません。",
   stale: (n) => `この版を書いたあとに${n}件の新着があります`,
   minutes: (n) => `読了 ${n}分`,
@@ -187,8 +197,10 @@ const KO: DigestStrings = {
   rewriting: "다시 쓰는 중…",
   capTitle: "오늘 다시 쓰기 횟수를 모두 썼습니다",
   regenerateTitle: "지금의 글들로 오늘의 브리핑을 다시 쓰기",
-  edition: (picks, candidates) =>
-    `${candidates}개 중 ${picks}개를 골라, 구독 피드의 내용으로 정리했습니다.`,
+  edition: (picks, offered, total) =>
+    offered === total
+      ? `${total}개 중 ${picks}개를 골라, 구독 피드의 내용으로 정리했습니다.`
+      : `당신의 ${total}개 중 최신 ${offered}개에서 ${picks}개를 골라, 구독 피드의 내용으로 정리했습니다.`,
   provenance: "각 글의 제목과 요약만을 근거로 씁니다. 원문을 가져오지도, 지어내지도 않았습니다.",
   stale: (n) => `이 버전을 쓴 뒤 새 글이 ${n}개 더 왔습니다`,
   minutes: (n) => `약 ${n}분`,

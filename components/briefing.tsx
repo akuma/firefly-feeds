@@ -49,7 +49,7 @@ export function Briefing() {
       {record && (
         <div className="flex items-baseline justify-between gap-4">
           <p className="max-w-[54ch] text-[13px] leading-[1.5] text-ink4">
-            {t.edition(picks.length, record.candidates.length)}
+            {t.edition(picks.length, record.offered, record.candidates.length)}
           </p>
           {/* A past edition is finished work: only today's can be rewritten. */}
           {today && (
