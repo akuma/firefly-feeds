@@ -551,7 +551,7 @@ export function Settings() {
 
                 <div className="mt-6">
                   <label htmlFor="llm-interests" className="label block text-ink4">
-                    What you care about
+                    Reading taste
                   </label>
                   <textarea
                     id="llm-interests"
@@ -561,14 +561,16 @@ export function Settings() {
                     }
                     rows={3}
                     spellCheck={false}
-                    placeholder="In your own words — a place, a kind of case, a period of history"
+                    placeholder="What you like, what you skip — and the kind of detail you want"
                     className="mono min-h-[64px] w-full resize-y border-b border-rulestrong bg-transparent py-2 text-[13px] leading-[1.5] text-ink2 outline-none placeholder:text-ink4"
                   />
                   <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
-                    Quoted to the model as fact about you, so the edition is chosen for what you
-                    actually want rather than for a reader nobody has met. The more specific the
-                    better — "how ideas get implemented in Michigan" beats "innovation". Empty, and
-                    the edition is chosen for a broadly curious reader instead.
+                    Write it as taste, not as a list of topics: what makes a piece worth your time —
+                    evidence, process, numbers — and what wastes it, such as predictions, funding
+                    news or press releases. What you skip is the strongest line here: it rules a
+                    story out however big it is. Subjects are welcome too, but taste travels further
+                    — it applies to tomorrow&apos;s stories even when they are about nothing you
+                    named. Empty, and the edition is chosen for a reader nobody has met.
                   </p>
                 </div>
 

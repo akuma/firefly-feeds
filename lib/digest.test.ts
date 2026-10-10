@@ -209,10 +209,14 @@ describe("the model's answer", () => {
       .map((m) => m.content)
       .join("\n");
     // Their words are quoted as fact about them, and the choice is theirs…
-    expect(mine).toMatch(/What this reader says they care about/);
+    expect(mine).toMatch(/What this reader says about their taste/);
+    // Taste is a filter, not just a ranking: what they skip is out, however big.
+    expect(mine).toMatch(/of the kind they skip is out/);
     expect(mine).toContain("名酒失窃");
-    expect(mine).toMatch(/Choose the 5 this reader/);
-    expect(mine).toMatch(/touches one of those interests/);
+    expect(mine).toMatch(/Choose up to the 5 this reader/);
+    // And the taste rule outranks the quota: a skipped kind never pads the list.
+    expect(mine).toMatch(/Never pad the edition/);
+    expect(mine).toMatch(/a story on it beats a story that is merely big/);
     // …and the writing is told to be specific rather than a restated title.
     expect(mine).toMatch(/Not a description of a document/);
     expect(mine).toMatch(/never the title in other words/);

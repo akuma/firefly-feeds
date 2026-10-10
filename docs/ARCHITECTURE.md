@@ -525,13 +525,16 @@ rather than reads. CJK text sets in the reader's own system fonts — the three
 faces here are Latin subsets, and bundling CJK would cost megabytes for glyphs
 the device already has.
 
-**The edition is chosen for one reader, not for a reader nobody has met.** A
-"What you care about" field takes the reader's own words and quotes them to the
-model as fact about them, which turns the job from "what a broadly curious
-reader would want" into "what this reader would want" — and a story that
-touches one of their interests outranks a story that is merely big. With the
-field empty, the old job stands: guessing at somebody's interests is worse than
-an edition that makes no claim to know them. There is no inferred profile of
+**The edition is chosen for one reader, and by taste rather than by subject.** A
+"Reading taste" field takes the reader's own words and quotes them to the model
+as fact about them. It is taste, not a topic list: what the reader says they
+skip rules a story out however big it is, what they like outranks what is merely
+important, and a subject they name is only a bonus — taste applies to tomorrow's
+stories whatever they turn out to be about, where a list of subjects welds the
+edition to a list of places. The edition is never padded to reach five; if
+fewer pass, fewer are printed. With the field empty, the old job stands:
+guessing at somebody's tastes is worse than an edition that makes no claim to
+know them. There is no inferred profile of
 what was read and for how long; the explicit sentence is more accurate, is
 editable, and needs no explaining. The writing is told to be specific with the
 same hand — a gist states the number or the claim rather than restating the

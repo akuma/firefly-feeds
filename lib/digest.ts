@@ -209,15 +209,15 @@ function systemPrompt(language: DigestLanguage, interests: string): string {
   // old job stands, because a guess at somebody's interests is worse than an
   // edition that makes no claim to know them.
   const about = interests.trim()
-    ? `What this reader says they care about:\n${interests.trim()}\n`
+    ? `What this reader says about their taste:\n${interests.trim()}\n`
     : "";
   const forWhom = interests.trim() ? "this reader" : "a broadly curious reader";
   const weight = interests.trim()
-    ? "Weight what they said they care about above general importance: a story that touches one of those interests beats a story that is merely big."
+    ? "Use it as taste, not as a list of subjects. Where it names a kind of piece they like or skip, that decides the pick: a piece of the kind they skip is out however big it is, and a piece of the kind they like beats one that is merely important. Where it names a subject, a story on it beats a story that is merely big."
     : "";
   return `You are the editor of a daily edition. You are given a numbered list of today's unread stories, each as an id in square brackets, a title, and a summary.
 
-${about}Choose the ${DIGEST_PICKS} ${forWhom} would most want to read today, best first. ${weight} Never choose more than 2 stories from the same publication. Prefer range over several pieces on the same subject.
+${about}Choose up to the ${DIGEST_PICKS} ${forWhom} would most want to read today, best first. ${weight} Never choose more than 2 stories from the same publication. Prefer range over several pieces on the same subject. Never pad the edition to reach the number: if fewer pass, return fewer, and a piece of a kind they skip is never included to make up the count.
 
 For each chosen story write two fields:
 - "gist": one sentence, at most ${language.lineLimit} characters, carrying the one specific detail that makes this piece worth three minutes — the number, the name, the finding, the mechanism. Not a description of a document: never "this article covers" or its equivalents, never the title in other words.
