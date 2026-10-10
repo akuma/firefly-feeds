@@ -37,6 +37,7 @@ import {
 } from "./languages";
 import {
   dayKey,
+  DIGEST_FIRST_WINDOW_MINUTES,
   digestIsStale,
   DIGEST_MIN_CANDIDATES,
   offerCandidates,
@@ -1056,23 +1057,26 @@ export function useReaderState(edition: Edition): Ctx {
    * briefing page itself. A reader who never opens it spends nothing.
    */
   /*
-   * Stories an earlier edition has already featured. An edition does not
-   * re-recommend: tomorrow has to find tomorrow's stories rather than
-   * re-listing today's, which is what makes a history worth looking back at.
+   * How far back this edition reaches: to the moment the last one was written.
+   * Two editions therefore abut rather than overlap, which is what makes one
+   * day's briefing differ from the next — time does it, with nothing excluded
+   * for having been picked before. A story is offered to exactly one edition.
+   *
+   * Today's own writes never move the boundary: the window is fixed when the
+   * day starts, and only its far end grows as more arrives.
    */
-  const featuredPicks = useMemo(() => {
+  const digestWindowMinutes = useMemo(() => {
     const today = dayKey(now);
-    const picks = new Set<string>();
+    let latest = 0;
     for (const record of digests) {
-      if (record.day >= today) continue;
-      for (const id of record.picks) picks.add(id);
+      if (record.day < today && record.updatedAt > latest) latest = record.updatedAt;
     }
-    return picks;
+    return latest > 0 ? Math.ceil((now - latest) / 60_000) : DIGEST_FIRST_WINDOW_MINUTES;
   }, [digests, now]);
 
   const digestCandidates = useMemo(
-    () => selectCandidates(stories, state.read, featuredPicks),
-    [stories, state.read, featuredPicks],
+    () => selectCandidates(stories, state.read, digestWindowMinutes),
+    [stories, state.read, digestWindowMinutes],
   );
 
   const todayDigest = useMemo(() => {
@@ -1115,81 +1119,72 @@ export function useReaderState(edition: Edition): Ctx {
     digestEnabledRef.current = digestEnabled;
   });
 
-  const writeDigest = useCallback(
-    async (force: boolean) => {
-      // A rewrite is asked for when the reader wants a different edition, so
-      // today's own picks step aside for it — unless that would leave too little
-      // to choose from, in which case a thin day still deserves an edition.
-      let pool = digestCandidates;
-      if (force && todayDigest) {
-        const fresh = pool.filter((c) => !todayDigest.picks.includes(c.id));
-        if (fresh.length >= DIGEST_MIN_CANDIDATES) pool = fresh;
-      }
-      // The day is what the edition chooses from; only what one prompt carries
-      // is capped, and the record remembers both so the page can say both.
-      pool = [...offerCandidates(pool)];
-      if (pool.length < DIGEST_MIN_CANDIDATES) return;
-      digestInFlight.current = true;
-      setDigestWorking(true);
-      try {
-        // Pace the request with classification's own delay, so the two AI
-        // features cannot add up to a burst from the reader's page.
-        const wait = classifyDelay(digestTimes.current, Date.now());
-        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-        if (!digestEnabledRef.current) return;
-        const at = Date.now();
-        digestTimes.current = [
-          ...digestTimes.current.filter((time) => at - time < CLASSIFY_WINDOW_MS),
-          at,
-        ];
+  const writeDigest = useCallback(async () => {
+    // A rewrite draws from the same day again, whatever the last one picked:
+    // the reader asked for today's edition again, not for a different five.
+    // Only what one prompt carries is capped, and the record remembers both
+    // numbers so the page can say both.
+    const pool = [...offerCandidates(digestCandidates)];
+    if (pool.length < DIGEST_MIN_CANDIDATES) return;
+    digestInFlight.current = true;
+    setDigestWorking(true);
+    try {
+      // Pace the request with classification's own delay, so the two AI
+      // features cannot add up to a burst from the reader's page.
+      const wait = classifyDelay(digestTimes.current, Date.now());
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      if (!digestEnabledRef.current) return;
+      const at = Date.now();
+      digestTimes.current = [
+        ...digestTimes.current.filter((time) => at - time < CLASSIFY_WINDOW_MS),
+        at,
+      ];
 
-        const result = await requestDigest({
-          candidates: pool,
-          llm: llmConfig,
-          language: digestLanguage,
-          interests: digestInterests,
-        });
-        if (!result.ok) {
-          setDigestError(result.error);
-          return;
-        }
-        setDigestProvider(result.provider ?? null);
-        const ids = new Set(pool.map((candidate) => candidate.id));
-        const picks = parseDigest(result.text, ids, findLanguage(digestLanguage).lineLimit);
-        // A reply with nothing usable in it is a failure, shown as one — half an
-        // edition would be worse than none.
-        if (picks.length === 0) {
-          setDigestError("The model's answer could not be used.");
-          return;
-        }
-        const record: DigestRecord = {
-          day: dayKey(),
-          picks: picks.map((pick) => pick.id),
-          gists: Object.fromEntries(picks.map((pick) => [pick.id, pick.gist])),
-          reasons: Object.fromEntries(picks.map((pick) => [pick.id, pick.why])),
-          // The whole eligible set, not the pool a rewrite was offered: "what
-          // arrived since" is about the day, not about one attempt at it.
-          candidates: digestCandidates.map((candidate) => candidate.id),
-          offered: pool.length,
-          provider: result.provider ?? llmConfig.service,
-          ...(result.model ? { model: result.model } : {}),
-          language: digestLanguage,
-          updatedAt: Date.now(),
-        };
-        setDigests((current) => [...current.filter((d) => d.day !== record.day), record]);
-        void repo.putDigest(record);
-      } catch (error) {
-        // A malformed answer is a visible failure, not a silent one.
-        setDigestError(
-          error instanceof Error ? error.message : "Today's briefing could not be written.",
-        );
-      } finally {
-        digestInFlight.current = false;
-        setDigestWorking(false);
+      const result = await requestDigest({
+        candidates: pool,
+        llm: llmConfig,
+        language: digestLanguage,
+        interests: digestInterests,
+      });
+      if (!result.ok) {
+        setDigestError(result.error);
+        return;
       }
-    },
-    [digestCandidates, todayDigest, llmConfig, digestLanguage, digestInterests],
-  );
+      setDigestProvider(result.provider ?? null);
+      const ids = new Set(pool.map((candidate) => candidate.id));
+      const picks = parseDigest(result.text, ids, findLanguage(digestLanguage).lineLimit);
+      // A reply with nothing usable in it is a failure, shown as one — half an
+      // edition would be worse than none.
+      if (picks.length === 0) {
+        setDigestError("The model's answer could not be used.");
+        return;
+      }
+      const record: DigestRecord = {
+        day: dayKey(),
+        picks: picks.map((pick) => pick.id),
+        gists: Object.fromEntries(picks.map((pick) => [pick.id, pick.gist])),
+        reasons: Object.fromEntries(picks.map((pick) => [pick.id, pick.why])),
+        // The whole eligible set, not the pool a rewrite was offered: "what
+        // arrived since" is about the day, not about one attempt at it.
+        candidates: digestCandidates.map((candidate) => candidate.id),
+        offered: pool.length,
+        provider: result.provider ?? llmConfig.service,
+        ...(result.model ? { model: result.model } : {}),
+        language: digestLanguage,
+        updatedAt: Date.now(),
+      };
+      setDigests((current) => [...current.filter((d) => d.day !== record.day), record]);
+      void repo.putDigest(record);
+    } catch (error) {
+      // A malformed answer is a visible failure, not a silent one.
+      setDigestError(
+        error instanceof Error ? error.message : "Today's briefing could not be written.",
+      );
+    } finally {
+      digestInFlight.current = false;
+      setDigestWorking(false);
+    }
+  }, [digestCandidates, llmConfig, digestLanguage, digestInterests]);
 
   // No ceiling on how often a reader may ask. It is their key and their money,
   // and what protects them from a stray click is the one-at-a-time lock and the
@@ -1218,7 +1213,7 @@ export function useReaderState(edition: Edition): Ctx {
     // One edition a day: today's is written once, and rewritten only when asked.
     if (!forced && todayDigest) return;
     if (digestCandidates.length < DIGEST_MIN_CANDIDATES) return;
-    void writeDigest(forced);
+    void writeDigest();
   }, [
     ready,
     digestEnabled,

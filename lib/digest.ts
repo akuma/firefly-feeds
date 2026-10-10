@@ -52,8 +52,11 @@ export const DIGEST_MIN_CANDIDATES = 3;
 export const DIGEST_OFFER_LIMIT = 50;
 export const DIGEST_OFFER_BUDGET = 24_000;
 
-/** A day, for "today's stories". */
-const DAY_MINUTES = 60 * 24;
+/**
+ * What the first edition covers when there is no earlier one to abut: a day.
+ * Every edition after it covers what arrived since the one before.
+ */
+export const DIGEST_FIRST_WINDOW_MINUTES = 60 * 24;
 
 /** Input caps, enforced before anything leaves the device. */
 export const DIGEST_TITLE_LIMIT = 300;
@@ -136,8 +139,8 @@ export function excerptFor(story: Story): string {
 }
 
 /**
- * The raw material: today's unread stories from real subscriptions, newest
- * first, all of them.
+ * The raw material: the unread stories that have arrived since the last
+ * edition, newest first, all of them.
  *
  * The sample edition is excluded for the same reason it is never classified —
  * its input would be invented, and a gist about a story that does not exist
@@ -147,18 +150,19 @@ export function excerptFor(story: Story): string {
 export function selectCandidates(
   stories: readonly Story[],
   read: Readonly<Record<string, boolean>>,
-  alreadyPicked: ReadonlySet<string> = new Set(),
+  maxAgeMinutes: number,
 ): DigestCandidate[] {
   return stories
     .filter(
       (story) =>
         story.live === true &&
         !read[story.id] &&
-        // An edition does not re-recommend. A story that has already had its
-        // moment is out of the pool, so tomorrow's edition has to find tomorrow's
-        // stories rather than re-listing today's.
-        !alreadyPicked.has(story.id) &&
-        story.minutesAgo < DAY_MINUTES,
+        // Everything since the last edition, and nothing older. That is what
+        // separates one day's edition from the next: the windows abut, so two
+        // editions can never share a story and none can fall between them.
+        // Nothing is excluded for having been picked before — there is nothing
+        // to exclude, because a story is offered to exactly one edition.
+        story.minutesAgo <= maxAgeMinutes,
     )
     .toSorted((a, b) => a.minutesAgo - b.minutesAgo)
     .map((story) => ({

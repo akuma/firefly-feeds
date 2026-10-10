@@ -71,18 +71,30 @@ describe("the day", () => {
 });
 
 describe("the candidates", () => {
-  it("takes today's unread stories from real subscriptions, newest first", () => {
+  it("takes the unread stories that arrived within the window, newest first", () => {
     const picked = selectCandidates(
       [
         story("oldest", { minutesAgo: 600 }),
         story("newest", { minutesAgo: 5 }),
         story("read", { minutesAgo: 2 }),
         story("sample", { minutesAgo: 1, live: false }),
-        story("yesterday", { minutesAgo: 60 * 25 }),
+        story("too old", { minutesAgo: 60 * 25 }),
       ],
       { read: true },
+      60 * 24,
     );
     expect(picked.map((c) => c.id)).toEqual(["newest", "oldest"]);
+  });
+
+  it("offers each story to exactly one edition: the window reaches the last one", () => {
+    // Not a day, and not a sliding twenty-four hours: it reaches back to the
+    // moment the previous edition was written, so two editions abut and one can
+    // never repeat the other's stories. Nothing is excluded for having been
+    // picked before — the function has no way to know, and does not need one.
+    const stories = [story("older", { minutesAgo: 180 }), story("newer", { minutesAgo: 30 })];
+    // The last edition was written two hours ago, so the older story was its
+    // to offer and is not this one's.
+    expect(selectCandidates(stories, {}, 120).map((c) => c.id)).toEqual(["newer"]);
   });
 
   it("counts the whole day, and caps only what one prompt carries", () => {
@@ -91,7 +103,7 @@ describe("the candidates", () => {
     );
     // The day is the day: a query does not quietly decide that twenty of thirty
     // stories are the day's stories.
-    const all = selectCandidates(many, {});
+    const all = selectCandidates(many, {}, 60 * 24);
     expect(all).toHaveLength(DIGEST_OFFER_LIMIT + 5);
     // What one prompt carries is capped — the newest, so it is the tail of the
     // day a budget trims and never the head.
@@ -110,19 +122,9 @@ describe("the candidates", () => {
         }),
       ],
       {},
+      60 * 24,
     );
     expect(picked[0].excerpt).toBe("The first paragraph.");
-  });
-
-  it("does not offer a story an earlier edition has already featured", () => {
-    // An edition that re-recommends is not worth looking back at: yesterday's
-    // picks have to leave the pool for tomorrow to have a pool at all.
-    const picked = selectCandidates(
-      [story("featured", { minutesAgo: 3 }), story("fresh", { minutesAgo: 4 })],
-      {},
-      new Set(["featured"]),
-    );
-    expect(picked.map((c) => c.id)).toEqual(["fresh"]);
   });
 });
 
