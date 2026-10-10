@@ -209,11 +209,8 @@ type Ctx = {
   digestWorking: boolean;
   /** The service behind the last successful briefing, if any. */
   digestProvider: string | null;
-  /** Manual rewrites left today. */
-  /** Write today's edition again, counting against the daily cap. */
-  regenerateDigest: () => void;
-  /** Clear a failure and let the sweep run again. */
-  retryDigest: () => void;
+  /** Write today's edition, or write it again. Never on its own. */
+  writeEdition: () => void;
 
   settingsOpen: boolean;
   setSettingsOpen: (v: boolean) => void;
@@ -330,7 +327,6 @@ export function useReaderState(edition: Edition): Ctx {
   const [digestWorking, setDigestWorking] = useState(false);
   /** Which service wrote the last successful briefing. */
   const [digestProvider, setDigestProvider] = useState<string | null>(null);
-  const [digestNonce, setDigestNonce] = useState(0);
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -1110,8 +1106,6 @@ export function useReaderState(edition: Edition): Ctx {
   }, [digests, digestDay, now]);
 
   const digestInFlight = useRef(false);
-  /** Set by a manual rewrite, cleared by the sweep that consumes it. */
-  const digestForce = useRef(false);
   // Send times of recent calls, sharing classification's politeness budget.
   const digestTimes = useRef<number[]>([]);
   const digestEnabledRef = useRef(digestEnabled);
@@ -1119,7 +1113,14 @@ export function useReaderState(edition: Edition): Ctx {
     digestEnabledRef.current = digestEnabled;
   });
 
-  const writeDigest = useCallback(async () => {
+  /**
+   * Write today's edition — only ever on the reader's asking. Nothing is
+   * written for them while they are reading something else: the call spends
+   * their key and their machine's time, and neither is this app's to spend.
+   */
+  const writeEdition = useCallback(async () => {
+    if (digestInFlight.current) return;
+    setDigestError(null);
     // A rewrite draws from the same day again, whatever the last one picked:
     // the reader asked for today's edition again, not for a different five.
     // Only what one prompt carries is capped, and the record remembers both
@@ -1185,46 +1186,6 @@ export function useReaderState(edition: Edition): Ctx {
       setDigestWorking(false);
     }
   }, [digestCandidates, llmConfig, digestLanguage, digestInterests]);
-
-  // No ceiling on how often a reader may ask. It is their key and their money,
-  // and what protects them from a stray click is the one-at-a-time lock and the
-  // pacing below — a daily allowance was a limit that only ever got in the way
-  // of somebody improving the thing.
-  const regenerateDigest = useCallback(() => {
-    digestForce.current = true;
-    setDigestNonce((n) => n + 1);
-  }, []);
-
-  const retryDigest = useCallback(() => {
-    setDigestError(null);
-    // A failed rewrite is retried as a rewrite; a failed first write as a first
-    // write, so the picks it steps aside for are the right ones.
-    if (todayDigest) digestForce.current = true;
-    setDigestNonce((n) => n + 1);
-  }, [todayDigest]);
-
-  /* oxlint-disable react/set-state-in-effect, react/exhaustive-effect-dependencies */
-  useEffect(() => {
-    if (!ready || !digestEnabled || digestError) return;
-    if (view !== "briefing") return;
-    if (digestInFlight.current) return;
-    const forced = digestForce.current;
-    digestForce.current = false;
-    // One edition a day: today's is written once, and rewritten only when asked.
-    if (!forced && todayDigest) return;
-    if (digestCandidates.length < DIGEST_MIN_CANDIDATES) return;
-    void writeDigest();
-  }, [
-    ready,
-    digestEnabled,
-    digestError,
-    digestNonce,
-    view,
-    todayDigest,
-    digestCandidates,
-    writeDigest,
-  ]);
-  /* oxlint-enable react/set-state-in-effect, react/exhaustive-effect-dependencies */
 
   /* ------------------------------------------------------------- filter */
 
@@ -1677,8 +1638,7 @@ export function useReaderState(edition: Edition): Ctx {
     digestError,
     digestWorking,
     digestProvider,
-    regenerateDigest,
-    retryDigest,
+    writeEdition,
     settingsOpen,
     setSettingsOpen,
     addOpen,

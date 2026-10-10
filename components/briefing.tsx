@@ -38,6 +38,9 @@ export function Briefing() {
     return service ? serviceReady(service, r.llmConfig) : false;
   })();
   const picks = record ? record.picks : [];
+  // The only way an edition is ever written: nothing happens on the reader's
+  // behalf, because the call spends their key and their machine's time.
+  const canWrite = configured && today && candidates.length >= DIGEST_MIN_CANDIDATES;
   const newSince = today ? staleCount(record ?? undefined, candidates) : 0;
   // An edition written before the reader changed their mind about language is
   // not wrong, but it is not what they asked for — so it says so rather than
@@ -60,7 +63,7 @@ export function Briefing() {
             {today && (
               <button
                 type="button"
-                onClick={r.regenerateDigest}
+                onClick={r.writeEdition}
                 disabled={r.digestWorking}
                 title={t.regenerateTitle}
                 className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink disabled:opacity-40"
@@ -68,6 +71,23 @@ export function Briefing() {
                 {r.digestWorking ? t.rewriting : t.regenerate}
               </button>
             )}
+          </div>
+        )}
+
+        {canWrite && !record && (
+          <div className="flex items-baseline justify-between gap-4">
+            <p className="max-w-[54ch] text-[13px] leading-[1.5] text-ink4">
+              {t.ready(candidates.length)}
+            </p>
+            <button
+              type="button"
+              onClick={r.writeEdition}
+              disabled={r.digestWorking}
+              title={t.write}
+              className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70 disabled:opacity-40"
+            >
+              {r.digestWorking ? t.writing : t.write}
+            </button>
           </div>
         )}
 
@@ -106,21 +126,12 @@ export function Briefing() {
             </EmptyState>
           )}
 
-        {r.digestEnabled &&
-          !record &&
-          today &&
-          (r.digestWorking || (configured && !r.digestError)) && (
-            <p className="mono mt-4 text-[10px] tracking-[0.12em] text-ink4 uppercase">
-              {t.writing}
-            </p>
-          )}
-
         {r.digestError && (
           <div className="mt-4 flex items-start justify-between gap-4 border-l-2 border-spark py-1 pl-4">
             <p className="text-[13.5px] leading-[1.5] text-ink2">{r.digestError}</p>
             <button
               type="button"
-              onClick={r.retryDigest}
+              onClick={r.writeEdition}
               className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
             >
               {t.retry}

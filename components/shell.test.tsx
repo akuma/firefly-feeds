@@ -3077,9 +3077,10 @@ describe("today's briefing", () => {
 
     try {
       const { user } = await mount();
-      // A page of its own: the edition is written when the reader opens it,
-      // and not before.
+      // A page of its own, and an edition written only when the reader asks
+      // for one — the call spends their key and their machine's time.
       await openBriefing(user);
+      await user.click(within(briefing()).getByRole("button", { name: /Write today's edition/ }));
       const block = briefing();
 
       // the two lines that make a gist a summary and not a substitute
@@ -3113,6 +3114,30 @@ describe("today's briefing", () => {
       await waitFor(() => expect(stream().querySelector("[data-t='briefing']")).toBeNull());
       // …and the same story is untagged in the stream: rows are rows
       await waitFor(() => expect(stream().querySelector("[data-t='story-topic']")).toBeNull());
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it("writes nothing until the reader asks", async () => {
+    localStorage.setItem("firefly.feeds.v1", JSON.stringify(LLM_PREFS));
+    await seedDigestStories();
+    const spy = digestSpy();
+
+    try {
+      const { user } = await mount();
+      await openBriefing(user);
+
+      // the page is open, the stories are there, and still nothing is spent
+      await waitFor(() =>
+        expect(
+          within(briefing()).getByRole("button", { name: /Write today's edition/ }),
+        ).toBeInTheDocument(),
+      );
+      expect(spy.seen).toHaveLength(0);
+
+      await user.click(within(briefing()).getByRole("button", { name: /Write today's edition/ }));
+      await waitFor(() => expect(spy.seen).toHaveLength(1));
     } finally {
       spy.restore();
     }

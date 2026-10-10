@@ -301,7 +301,7 @@ export async function clearAll(): Promise<void> {
   if (!available()) return;
   const database = await db();
   const tx = database.transaction(
-    ["sources", "articles", "reading", "topics", "classifications"],
+    ["sources", "articles", "reading", "topics", "classifications", "digests"],
     "readwrite",
   );
   await Promise.all([
@@ -310,6 +310,7 @@ export async function clearAll(): Promise<void> {
     tx.objectStore("reading").clear(),
     tx.objectStore("topics").clear(),
     tx.objectStore("classifications").clear(),
+    tx.objectStore("digests").clear(),
     tx.done,
   ]);
 }

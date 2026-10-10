@@ -431,8 +431,11 @@ today's stories are worth my time?_ It is opt-in and off by default, for the sam
 reason classification is — it is the other part of the app that sends any of the
 reader's data off the device.
 
-**One edition a day, written from what is already here.** When the reader opens
-the briefing page and their own calendar day has no edition, `lib/store.tsx`
+**One edition a day, written from what is already here, and only when the reader
+asks.** Nothing is written on their behalf: opening the page writes nothing, a
+new day writes nothing. The call spends their key and their machine's time, and
+"spending it for you" and "deciding for you" are the same thing. When the reader
+asks, `lib/store.tsx`
 sends the day's unread stories — real subscriptions only, never the sample
 edition, judged on the title and the article's own opening words already stored —
 never on a feed's teaser alone, which is what a publisher says about a piece and

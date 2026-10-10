@@ -668,7 +668,7 @@ export function Settings() {
                     <p className="text-[13.5px] leading-[1.5] text-ink2">{r.digestError}</p>
                     <button
                       type="button"
-                      onClick={r.retryDigest}
+                      onClick={r.writeEdition}
                       className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
                     >
                       Retry
