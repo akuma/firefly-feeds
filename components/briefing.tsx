@@ -45,78 +45,89 @@ export function Briefing() {
   const otherLanguage = record ? (record.language ?? "source") !== r.digestLanguage : false;
 
   return (
-    <div data-t="briefing" className="px-5 pt-5 pb-12 lg:px-6">
-      {record && (
-        <div className="flex items-baseline justify-between gap-4">
-          <p className="max-w-[54ch] text-[13px] leading-[1.5] text-ink4">
-            {t.edition(picks.length, record.offered, record.candidates.length)}
-          </p>
-          {/* A past edition is finished work: only today's can be rewritten. */}
-          {today && (
-            <button
-              type="button"
-              onClick={r.regenerateDigest}
-              disabled={r.digestWorking}
-              title={t.regenerateTitle}
-              className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink disabled:opacity-40"
-            >
-              {r.digestWorking ? t.rewriting : t.regenerate}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* ------------------------------------------------------- states */}
-      {!r.digestEnabled && (
-        <EmptyState title={t.off}>
-          <button
-            type="button"
-            onClick={() => r.setSettingsOpen(true)}
-            className="mono mt-2 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
-          >
-            {t.offAction}
-          </button>
-        </EmptyState>
-      )}
-
-      {r.digestEnabled && !record && candidates.length < DIGEST_MIN_CANDIDATES && (
-        <EmptyState title={t.quiet}>
-          <p className="max-w-[46ch]">{t.quietNote}</p>
-        </EmptyState>
-      )}
-
-      {r.digestEnabled && !record && !configured && candidates.length >= DIGEST_MIN_CANDIDATES && (
-        <EmptyState title={t.unconfigured}>
-          <p className="max-w-[46ch]">{t.unconfiguredNote}</p>
-          <button
-            type="button"
-            onClick={() => r.setSettingsOpen(true)}
-            className="mono mt-2 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
-          >
-            {t.offAction}
-          </button>
-        </EmptyState>
-      )}
-
-      {r.digestEnabled &&
-        !record &&
-        today &&
-        (r.digestWorking || (configured && !r.digestError)) && (
-          <p className="mono mt-4 text-[10px] tracking-[0.12em] text-ink4 uppercase">{t.writing}</p>
+    <div data-t="briefing" className="pb-12">
+      {/* Page chrome keeps the column's margin. The rows below are the
+          stream's own rows, and are full-bleed like it — a row inset by this
+          column's padding is a row whose hover, rail and title sit in the
+          wrong place. */}
+      <div className="px-5 pt-5 lg:px-6">
+        {record && (
+          <div className="flex items-baseline justify-between gap-4">
+            <p className="max-w-[54ch] text-[13px] leading-[1.5] text-ink4">
+              {t.edition(picks.length, record.offered, record.candidates.length)}
+            </p>
+            {/* A past edition is finished work: only today's can be rewritten. */}
+            {today && (
+              <button
+                type="button"
+                onClick={r.regenerateDigest}
+                disabled={r.digestWorking}
+                title={t.regenerateTitle}
+                className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink disabled:opacity-40"
+              >
+                {r.digestWorking ? t.rewriting : t.regenerate}
+              </button>
+            )}
+          </div>
         )}
 
-      {r.digestError && (
-        <div className="mt-4 flex items-start justify-between gap-4 border-l-2 border-spark py-1 pl-4">
-          <p className="text-[13.5px] leading-[1.5] text-ink2">{r.digestError}</p>
-          <button
-            type="button"
-            onClick={r.retryDigest}
-            className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
-          >
-            {t.retry}
-          </button>
-        </div>
-      )}
+        {/* ------------------------------------------------------- states */}
+        {!r.digestEnabled && (
+          <EmptyState title={t.off}>
+            <button
+              type="button"
+              onClick={() => r.setSettingsOpen(true)}
+              className="mono mt-2 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
+            >
+              {t.offAction}
+            </button>
+          </EmptyState>
+        )}
+
+        {r.digestEnabled && !record && candidates.length < DIGEST_MIN_CANDIDATES && (
+          <EmptyState title={t.quiet}>
+            <p className="max-w-[46ch]">{t.quietNote}</p>
+          </EmptyState>
+        )}
+
+        {r.digestEnabled &&
+          !record &&
+          !configured &&
+          candidates.length >= DIGEST_MIN_CANDIDATES && (
+            <EmptyState title={t.unconfigured}>
+              <p className="max-w-[46ch]">{t.unconfiguredNote}</p>
+              <button
+                type="button"
+                onClick={() => r.setSettingsOpen(true)}
+                className="mono mt-2 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
+              >
+                {t.offAction}
+              </button>
+            </EmptyState>
+          )}
+
+        {r.digestEnabled &&
+          !record &&
+          today &&
+          (r.digestWorking || (configured && !r.digestError)) && (
+            <p className="mono mt-4 text-[10px] tracking-[0.12em] text-ink4 uppercase">
+              {t.writing}
+            </p>
+          )}
+
+        {r.digestError && (
+          <div className="mt-4 flex items-start justify-between gap-4 border-l-2 border-spark py-1 pl-4">
+            <p className="text-[13.5px] leading-[1.5] text-ink2">{r.digestError}</p>
+            <button
+              type="button"
+              onClick={r.retryDigest}
+              className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
+            >
+              {t.retry}
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* -------------------------------------------------- the edition */}
       {record && (
@@ -153,32 +164,34 @@ export function Briefing() {
         </div>
       )}
 
-      {/* ------------------------------------- provenance, and what is new */}
-      {record && (
-        <p className="mono mt-6 max-w-[58ch] text-[9.5px] leading-[1.8] tracking-[0.08em] text-ink4 uppercase">
-          {t.provenance}
-        </p>
-      )}
+      <div className="px-5 lg:px-6">
+        {/* ------------------------------------- provenance, and what is new */}
+        {record && (
+          <p className="mono mt-6 max-w-[58ch] text-[9.5px] leading-[1.8] tracking-[0.08em] text-ink4 uppercase">
+            {t.provenance}
+          </p>
+        )}
 
-      {record && otherLanguage && (
-        <p className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-spark uppercase">
-          {t.otherLanguage}
-        </p>
-      )}
+        {record && otherLanguage && (
+          <p className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-spark uppercase">
+            {t.otherLanguage}
+          </p>
+        )}
 
-      {record && newSince > 0 && (
-        <p className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-spark uppercase">
-          {t.stale(newSince)}
-        </p>
-      )}
+        {record && newSince > 0 && (
+          <p className="mono mt-2.5 text-[9.5px] tracking-[0.14em] text-spark uppercase">
+            {t.stale(newSince)}
+          </p>
+        )}
 
-      <EarlierEditions
-        records={r.digestHistory}
-        onOpen={r.setDigestDay}
-        todayLabel={t.today}
-        heading={t.history}
-        count={t.picks}
-      />
+        <EarlierEditions
+          records={r.digestHistory}
+          onOpen={r.setDigestDay}
+          todayLabel={t.today}
+          heading={t.history}
+          count={t.picks}
+        />
+      </div>
     </div>
   );
 }
