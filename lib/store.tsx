@@ -38,7 +38,6 @@ import {
 import {
   dayKey,
   digestIsStale,
-  DIGEST_MAX_PER_DAY,
   DIGEST_MIN_CANDIDATES,
   offerCandidates,
   parseDigest,
@@ -210,7 +209,6 @@ type Ctx = {
   /** The service behind the last successful briefing, if any. */
   digestProvider: string | null;
   /** Manual rewrites left today. */
-  digestRunsLeft: number;
   /** Write today's edition again, counting against the daily cap. */
   regenerateDigest: () => void;
   /** Clear a failure and let the sweep run again. */
@@ -332,11 +330,6 @@ export function useReaderState(edition: Edition): Ctx {
   /** Which service wrote the last successful briefing. */
   const [digestProvider, setDigestProvider] = useState<string | null>(null);
   const [digestNonce, setDigestNonce] = useState(0);
-  /** Manual rewrites used today, so the daily cap survives a reload. */
-  const [digestRuns, setDigestRuns] = useState<{ day: string; count: number }>({
-    day: "",
-    count: 0,
-  });
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -382,7 +375,6 @@ export function useReaderState(edition: Edition): Ctx {
     setLlmConfig(readLlmConfigFromPrefs(prefs));
     setDigestLanguage(readDigestLanguage(prefs.digestLanguage));
     setDigestInterests(typeof prefs.digestInterests === "string" ? prefs.digestInterests : "");
-    if (prefs.digestRuns) setDigestRuns(prefs.digestRuns);
   }, []);
 
   useEffect(() => {
@@ -458,7 +450,6 @@ export function useReaderState(edition: Edition): Ctx {
       llmConfig,
       digestLanguage,
       digestInterests,
-      digestRuns,
     });
   }, [
     ready,
@@ -472,7 +463,6 @@ export function useReaderState(edition: Edition): Ctx {
     llmConfig,
     digestLanguage,
     digestInterests,
-    digestRuns,
   ]);
 
   /* ------------------------------------------------------ derive views */
@@ -1115,11 +1105,6 @@ export function useReaderState(edition: Edition): Ctx {
       .toSorted((a, b) => b.day.localeCompare(a.day));
   }, [digests, digestDay, now]);
 
-  const digestRunsLeft = useMemo(() => {
-    const used = digestRuns.day === dayKey(now) ? digestRuns.count : 0;
-    return Math.max(0, DIGEST_MAX_PER_DAY - used);
-  }, [digestRuns, now]);
-
   const digestInFlight = useRef(false);
   /** Set by a manual rewrite, cleared by the sweep that consumes it. */
   const digestForce = useRef(false);
@@ -1129,14 +1114,6 @@ export function useReaderState(edition: Edition): Ctx {
   useEffect(() => {
     digestEnabledRef.current = digestEnabled;
   });
-
-  /** Manual rewrites are what the daily cap counts. */
-  const noteDigestRun = useCallback(() => {
-    const day = dayKey();
-    setDigestRuns((current) =>
-      current.day === day ? { day, count: current.count + 1 } : { day, count: 1 },
-    );
-  }, []);
 
   const writeDigest = useCallback(
     async (force: boolean) => {
@@ -1165,7 +1142,6 @@ export function useReaderState(edition: Edition): Ctx {
           ...digestTimes.current.filter((time) => at - time < CLASSIFY_WINDOW_MS),
           at,
         ];
-        if (force) noteDigestRun();
 
         const result = await requestDigest({
           candidates: pool,
@@ -1212,22 +1188,25 @@ export function useReaderState(edition: Edition): Ctx {
         setDigestWorking(false);
       }
     },
-    [digestCandidates, todayDigest, llmConfig, digestLanguage, digestInterests, noteDigestRun],
+    [digestCandidates, todayDigest, llmConfig, digestLanguage, digestInterests],
   );
 
+  // No ceiling on how often a reader may ask. It is their key and their money,
+  // and what protects them from a stray click is the one-at-a-time lock and the
+  // pacing below — a daily allowance was a limit that only ever got in the way
+  // of somebody improving the thing.
   const regenerateDigest = useCallback(() => {
-    if (digestRunsLeft <= 0) return;
     digestForce.current = true;
     setDigestNonce((n) => n + 1);
-  }, [digestRunsLeft]);
+  }, []);
 
   const retryDigest = useCallback(() => {
     setDigestError(null);
     // A failed rewrite is retried as a rewrite; a failed first write as a first
-    // write, so it does not spend one of the day's manual rewrites.
-    if (todayDigest && digestRunsLeft > 0) digestForce.current = true;
+    // write, so the picks it steps aside for are the right ones.
+    if (todayDigest) digestForce.current = true;
     setDigestNonce((n) => n + 1);
-  }, [todayDigest, digestRunsLeft]);
+  }, [todayDigest]);
 
   /* oxlint-disable react/set-state-in-effect, react/exhaustive-effect-dependencies */
   useEffect(() => {
@@ -1239,7 +1218,6 @@ export function useReaderState(edition: Edition): Ctx {
     // One edition a day: today's is written once, and rewritten only when asked.
     if (!forced && todayDigest) return;
     if (digestCandidates.length < DIGEST_MIN_CANDIDATES) return;
-    if (forced && digestRunsLeft <= 0) return;
     void writeDigest(forced);
   }, [
     ready,
@@ -1249,7 +1227,6 @@ export function useReaderState(edition: Edition): Ctx {
     view,
     todayDigest,
     digestCandidates,
-    digestRunsLeft,
     writeDigest,
   ]);
   /* oxlint-enable react/set-state-in-effect, react/exhaustive-effect-dependencies */
@@ -1705,7 +1682,6 @@ export function useReaderState(edition: Edition): Ctx {
     digestError,
     digestWorking,
     digestProvider,
-    digestRunsLeft,
     regenerateDigest,
     retryDigest,
     settingsOpen,

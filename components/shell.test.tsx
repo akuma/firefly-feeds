@@ -3142,13 +3142,13 @@ describe("today's briefing", () => {
     }
   });
 
-  it("stops accepting rewrites once the day's are used up", async () => {
+  it("lets the reader rewrite as often as they like", async () => {
+    localStorage.setItem("firefly.feeds.v1", JSON.stringify(LLM_PREFS));
     await seedDigestStories();
     const repo = await import("@/lib/storage/repository");
-    const { dayKey, DIGEST_MAX_PER_DAY } = await import("@/lib/digest");
-    const day = dayKey();
+    const { dayKey } = await import("@/lib/digest");
     await repo.putDigest({
-      day,
+      day: dayKey(),
       picks: ["sdig~one"],
       gists: { "sdig~one": "A written gist." },
       reasons: { "sdig~one": "A written reason." },
@@ -3159,27 +3159,25 @@ describe("today's briefing", () => {
       language: "source",
       updatedAt: Date.now(),
     });
-    // The cap is the one guard on spending the reader's own key, so it lives
-    // on this device and survives a reload.
-    localStorage.setItem(
-      "firefly.feeds.v1",
-      JSON.stringify({
-        ...LLM_PREFS,
-        digestRuns: { day, count: DIGEST_MAX_PER_DAY },
-      }),
-    );
     const spy = digestSpy();
 
     try {
       const { user } = await mount();
       await openBriefing(user);
       const button = within(briefing()).getByRole("button", { name: /Regenerate/ });
-      expect(button).toBeDisabled();
+
+      // It is the reader's key and their money. What stands between them and a
+      // stray click is the one-at-a-time lock and the pacing between calls —
+      // a daily allowance only ever got in the way of somebody improving this.
+      await user.click(button);
+      await waitFor(() => expect(spy.seen.length).toBe(1));
+      await waitFor(() => expect(button).toBeEnabled());
 
       await user.click(button);
-      expect(spy.seen).toHaveLength(0);
+      await waitFor(() => expect(spy.seen.length).toBe(2), { timeout: 15_000 });
+      await waitFor(() => expect(button).toBeEnabled());
     } finally {
       spy.restore();
     }
-  });
+  }, 20_000);
 });

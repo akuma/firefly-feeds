@@ -43,8 +43,6 @@ export type DigestStrings = {
   regenerate: string;
   /** While a rewrite is in flight. */
   rewriting: string;
-  /** The daily cap, as a title on the control that is now inert. */
-  capTitle: string;
   regenerateTitle: string;
   /** How much of the day made the edition, and how much of it was offered. */
   edition: (picks: number, offered: number, total: number) => string;
@@ -90,7 +88,6 @@ const EN: DigestStrings = {
   retry: "Retry",
   regenerate: "Regenerate",
   rewriting: "Writing…",
-  capTitle: "No rewrites left today",
   regenerateTitle: "Write today's edition again from the current stories",
   edition: (picks, offered, total) =>
     offered === total
@@ -116,7 +113,6 @@ const ZH_HANS: DigestStrings = {
   retry: "重试",
   regenerate: "重新生成",
   rewriting: "正在写…",
-  capTitle: "今天的重写次数已用完",
   regenerateTitle: "用当前的故事重新写今天的导读",
   edition: (picks, offered, total) =>
     offered === total
@@ -142,7 +138,6 @@ const ZH_HANT: DigestStrings = {
   retry: "重試",
   regenerate: "重新產生",
   rewriting: "正在寫…",
-  capTitle: "今天的重寫次數已用完",
   regenerateTitle: "用目前的故事重寫今天的導讀",
   edition: (picks, offered, total) =>
     offered === total
@@ -168,7 +163,6 @@ const JA: DigestStrings = {
   retry: "再試行",
   regenerate: "書き直す",
   rewriting: "書き直しています…",
-  capTitle: "今日の書き直しは上限に達しました",
   regenerateTitle: "いまの記事から今日のブリーフィングを書き直す",
   edition: (picks, offered, total) =>
     offered === total
@@ -195,7 +189,6 @@ const KO: DigestStrings = {
   retry: "다시 시도",
   regenerate: "다시 쓰기",
   rewriting: "다시 쓰는 중…",
-  capTitle: "오늘 다시 쓰기 횟수를 모두 썼습니다",
   regenerateTitle: "지금의 글들로 오늘의 브리핑을 다시 쓰기",
   edition: (picks, offered, total) =>
     offered === total

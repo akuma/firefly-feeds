@@ -66,12 +66,6 @@ export const DIGEST_GIST_LIMIT = 120;
 export const DIGEST_WHY_LIMIT = 120;
 
 /**
- * Manual rewrites a reader gets in a day. The daily edition itself is not
- * counted: it is written once, on its own, whether or not the reader is watching.
- */
-export const DIGEST_MAX_PER_DAY = 6;
-
-/**
  * How long a briefing may take.
  *
  * This is a watchdog, not a budget: it stops a request that has hung, and it is

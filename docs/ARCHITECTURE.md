@@ -434,8 +434,10 @@ to the model chosen in Settings. Nothing is fetched to make the prompt better.
 The answer is up to five stories, each with one line on what it is and one on
 why it might be worth reading. Then it is left alone: stories arriving later
 mark the edition stale with a count of what is new, and only a reader who asks
-rewrites it. A manual rewrite is capped at six a day, so a paid key cannot be
-spent by a stray click.
+rewrites it. There is no ceiling on how often: it is the reader's key and
+their money, and what stands between them and a stray click is that one
+edition writes at a time and calls are paced apart. A daily allowance was
+tried and only ever got in the way of somebody improving the thing.
 
 **The briefing is a page, not a banner.** It is a view of its own — a row under
 "Edition" in the navigation, and a tab on mobile — because it answers a

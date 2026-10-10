@@ -56,8 +56,8 @@ export function Briefing() {
             <button
               type="button"
               onClick={r.regenerateDigest}
-              disabled={r.digestWorking || r.digestRunsLeft <= 0}
-              title={r.digestRunsLeft <= 0 ? t.capTitle : t.regenerateTitle}
+              disabled={r.digestWorking}
+              title={t.regenerateTitle}
               className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink disabled:opacity-40"
             >
               {r.digestWorking ? t.rewriting : t.regenerate}
