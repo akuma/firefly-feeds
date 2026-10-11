@@ -173,7 +173,7 @@ type Ctx = {
   /** The active article-topic filter, independent of folders and sources. */
   topicFilter: string | null;
   setTopicFilter: (id: string | null) => void;
-  /** How many stories carry each topic, for the filter's counts. */
+  /** How many stories in the open column carry each topic, for the filter's counts. */
   topicCounts: Record<string, number>;
 
   /** Today's briefing, when one has been written for the reader's day. */
@@ -1206,7 +1206,7 @@ export function useReaderState(edition: Edition): Ctx {
    * story read removes it from the Unread column, and the pane still has to know
    * the story belongs to the view so it is not yanked to the next one.
    */
-  const { filtered, listed } = useMemo(() => {
+  const { filtered, listed, scoped } = useMemo(() => {
     const q = query.trim().toLowerCase();
     let list = stories;
     // The briefing page lists its own edition rather than the day's stories, in
@@ -1238,14 +1238,19 @@ export function useReaderState(edition: Edition): Ctx {
       const id = view.slice(5) as FeedId;
       list = list.filter((s) => s.feedId === id);
     }
-    // Article topics are a filter layered on whatever view is open, not a
-    // navigation view of their own: a folder and a topic answer different
-    // questions and can be combined.
-    if (topicFilter) list = list.filter((s) => s.topics.includes(topicFilter));
     const column = briefingPage ? list : list.toSorted((a, b) => a.minutesAgo - b.minutesAgo);
     const visible =
       streamFilter === "unread" && !briefingPage ? column.filter((s) => !state.read[s.id]) : column;
-    return { filtered: visible, listed: column };
+    // Article topics are a filter layered on whatever view is open, not a
+    // navigation view of their own: a folder and a topic answer different
+    // questions and can be combined. `scoped` is the column before that last
+    // layer — the scope the topic counts must be taken over, so they answer
+    // what a topic would show *here* rather than across the whole library.
+    return {
+      filtered: topicFilter ? visible.filter((s) => s.topics.includes(topicFilter)) : visible,
+      listed: topicFilter ? column.filter((s) => s.topics.includes(topicFilter)) : column,
+      scoped: visible,
+    };
   }, [
     stories,
     view,
@@ -1264,15 +1269,17 @@ export function useReaderState(edition: Edition): Ctx {
 
   /*
    * A story counts toward every topic it was classified into, not just its
-   * primary one — the topic filter should find it under any of them.
+   * primary one — the topic filter should find it under any of them. The count
+   * is scoped to the open column (view, search, collections and the Unread
+   * filter), so picking a topic shows exactly the number printed beside it.
    */
   const topicCounts = useMemo(() => {
     const byTopic: Record<string, number> = {};
-    for (const s of stories) {
+    for (const s of scoped) {
       for (const id of s.topics) byTopic[id] = (byTopic[id] ?? 0) + 1;
     }
     return byTopic;
-  }, [stories]);
+  }, [scoped]);
 
   /* ------------------------------------------------------------ counts */
 

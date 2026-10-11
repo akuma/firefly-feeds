@@ -5,6 +5,7 @@ import { editionFor } from "@/lib/edition";
 import { articleFingerprint, defaultTopics } from "@/lib/classify";
 import { ARTICLE_STALE_MS, EXTRACTOR_VERSION, EXTRACTION_RETRY_MS } from "@/lib/refreshing";
 import { Shell } from "./shell";
+import type { FolderId } from "@/lib/types";
 
 /**
  * The shell is the only place where state, storage and layout meet, so these
@@ -2460,34 +2461,50 @@ describe("appearance", () => {
  * the classifier's own decision rules live in `lib/classify.test.ts`.
  */
 async function seedClassifiedStories() {
+  await seedClassifiedSource({
+    id: "scls",
+    title: "Classified Source",
+    host: "cls.example",
+    folder: "news",
+    stories: [
+      {
+        id: "scls~chips",
+        title: "Chips and wafers",
+        summary: "Semiconductors.",
+        topic: "technology",
+      },
+      { id: "scls~novel", title: "A new novel", summary: "Fiction.", topic: "books" },
+    ],
+  });
+}
+
+/** One source of already-classified stories, filed under one folder. */
+async function seedClassifiedSource(opts: {
+  id: string;
+  title: string;
+  host: string;
+  folder: FolderId;
+  stories: { id: string; title: string; summary: string; topic: string }[];
+}) {
   const repo = await import("@/lib/storage/repository");
   const now = Date.now();
   await repo.putTopics(defaultTopics(now));
   await repo.putSource({
-    id: "scls",
-    url: "https://cls.example/feed.xml",
-    siteUrl: "https://cls.example",
-    title: "Classified Source",
-    host: "cls.example",
-    folder: "news",
+    id: opts.id,
+    url: `https://${opts.host}/feed.xml`,
+    siteUrl: `https://${opts.host}`,
+    title: opts.title,
+    host: opts.host,
+    folder: opts.folder,
     addedAt: now,
     fetchedAt: now,
     updatedAt: now,
   });
-  const stories = [
-    {
-      id: "scls~chips",
-      title: "Chips and wafers",
-      summary: "Semiconductors.",
-      topic: "technology",
-    },
-    { id: "scls~novel", title: "A new novel", summary: "Fiction.", topic: "books" },
-  ];
   await repo.replaceArticles(
-    "scls",
-    stories.map((story) => ({
+    opts.id,
+    opts.stories.map((story) => ({
       id: story.id,
-      sourceId: "scls",
+      sourceId: opts.id,
       title: story.title,
       publishedAt: now,
       fetchedAt: now,
@@ -2500,7 +2517,7 @@ async function seedClassifiedStories() {
     })),
   );
   await Promise.all(
-    stories.map((story) =>
+    opts.stories.map((story) =>
       repo.putClassification({
         itemId: story.id,
         topicIds: [story.topic],
@@ -2542,6 +2559,61 @@ describe("article classification", () => {
     await waitFor(() => expect(rows()).toHaveLength(1));
     expect(within(stream()).getByText("Chips and wafers")).toBeInTheDocument();
     expect(within(stream()).queryByText("A new novel")).not.toBeInTheDocument();
+  });
+
+  it("counts topics within the open column, not the whole library", async () => {
+    await seedClassifiedStories();
+    // the same topic again under another folder: a global count would say 2
+    await seedClassifiedSource({
+      id: "scls2",
+      title: "Culture Source",
+      host: "cult.example",
+      folder: "culture",
+      stories: [
+        {
+          id: "scls2~wafer",
+          title: "Bigger wafers",
+          summary: "Even more semiconductors.",
+          topic: "technology",
+        },
+      ],
+    });
+    const { user } = await mount();
+    // the folder rows live in their own navigation section; source rows are
+    // buttons too and their names can start with a folder's
+    const folders = [...nav().querySelectorAll("section")].find(
+      (sec) => sec.querySelector(".label")?.textContent === "Folders",
+    )!;
+
+    // News holds one technology story and one books story; what the culture
+    // source filed is another column's business
+    await user.click(within(folders).getByText("News"));
+    await waitFor(() =>
+      expect(stream().querySelector("[data-t='viewtitle']")).toHaveTextContent("News"),
+    );
+    await user.click(stream().querySelector<HTMLElement>("[data-topic-trigger]")!);
+    let listbox = stream().querySelector<HTMLElement>('[aria-label="Filter by topic"]')!;
+    expect(within(listbox).getByRole("option", { name: "Technology" }).textContent).toBe(
+      "Technology1",
+    );
+    expect(within(listbox).getByRole("option", { name: "Books" }).textContent).toBe("Books1");
+
+    // and the printed count is what the topic shows when picked
+    await user.click(within(listbox).getByRole("option", { name: "Technology" }));
+    await waitFor(() => expect(rows()).toHaveLength(1));
+    expect(within(stream()).getByText("Chips and wafers")).toBeInTheDocument();
+
+    // the count follows the column when the reader moves to another one
+    await user.click(within(folders).getByText("Culture"));
+    await waitFor(() =>
+      expect(stream().querySelector("[data-t='viewtitle']")).toHaveTextContent("Culture"),
+    );
+    await user.click(stream().querySelector<HTMLElement>("[data-topic-trigger]")!);
+    listbox = stream().querySelector<HTMLElement>('[aria-label="Filter by topic"]')!;
+    expect(within(listbox).getByRole("option", { name: "Technology" }).textContent).toBe(
+      "Technology1",
+    );
+    expect(within(listbox).queryByRole("option", { name: "Books" })).toBeInTheDocument();
   });
 
   it("keeps the doubt off the row and on the topic in the reader", async () => {

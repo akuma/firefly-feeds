@@ -60,11 +60,13 @@ function TopicFilter() {
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  // Hidden until there is something to filter by: a topic set with no
-  // classified story (the sample edition, or a fresh install) would otherwise
-  // offer a filter that empties the column.
+  // Hidden until there is something to filter by: the counts are scoped to the
+  // open column, so a column with no classified story (the sample edition, a
+  // folder nobody has classified, or a fresh install) would otherwise offer a
+  // filter that empties the column. A topic already filtering the column stays
+  // visible and clearable even where its count is zero.
   if (!r.classifyEnabled || r.topics.length === 0) return null;
-  if (Object.keys(r.topicCounts).length === 0) return null;
+  if (!r.topicFilter && Object.keys(r.topicCounts).length === 0) return null;
   const active = r.topicFilter ? r.topics.find((topic) => topic.id === r.topicFilter) : undefined;
 
   return (

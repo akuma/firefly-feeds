@@ -396,7 +396,9 @@ for the doubt, which is the right shape for scanning a column of dozens and the
 wrong shape for anything else: on a row it reads as more of the publication's
 name than as a category, and a tag beside a story's own summary is noise beside
 it. A topic narrows the column and describes the open story; those two places
-carry it.
+carry it. The filter's counts are scoped to the open column too: a folder's
+topic count is what that folder shows, not what the whole library holds, so the
+number beside a topic is the number of rows picking it produces.
 
 Above `CONFIDENCE_THRESHOLD` (0.6) the topic is stored as `auto`; below it the
 same topic is stored as `needs_review`, shown to the reader as a question rather
