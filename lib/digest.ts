@@ -35,10 +35,15 @@ import type { Story } from "./types";
 export const DIGEST_PICKS = 5;
 
 /**
- * Below this there is no edition to write. Three unread stories is a quiet day,
- * and "your three stories, ranked" is not an editorial act — it is a list.
+ * Below this there is no edition to write.
+ *
+ * The value of a briefing is the choosing: five out of many. Five out of eight
+ * is barely a choice, and five out of three is not one at all — that is a list,
+ * and the reader can read a list. Counted here is what can actually be chosen
+ * from: today's unread. Read stories are not candidates, so a busy day read to
+ * the end can still be too small to brief.
  */
-export const DIGEST_MIN_CANDIDATES = 3;
+export const DIGEST_MIN_CANDIDATES = 10;
 
 /**
  * The most one prompt ever carries: the newest stories, and never past the

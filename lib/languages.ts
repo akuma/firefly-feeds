@@ -82,7 +82,7 @@ const EN: DigestStrings = {
   offAction: "Open settings",
   quiet: "Not enough new today",
   quietNote:
-    "Three unread stories is the least an edition can be chosen from. An edition covers the day's stories, and no other day's.",
+    "Ten unread stories is the least an edition can be chosen from: below that there is no choosing to do. An edition covers the day's stories, and no other day's.",
   history: "Earlier editions",
   today: "Today",
   picks: (n) => `${n} ${n === 1 ? "story" : "stories"}`,
@@ -109,7 +109,8 @@ const ZH_HANS: DigestStrings = {
   off: "导读已关闭",
   offAction: "打开设置",
   quiet: "今天的新内容不够",
-  quietNote: "至少要有三条未读，才谈得上挑选。一期导读只覆盖当天的文章。",
+  quietNote:
+    "至少要有 10 篇未读，才谈得上挑选——少于这个数，没什么可挑的。一期导读只覆盖当天的文章。",
   history: "更早的导读",
   today: "今天",
   picks: (n) => `${n} 篇`,
@@ -136,7 +137,8 @@ const ZH_HANT: DigestStrings = {
   off: "導讀已關閉",
   offAction: "開啟設定",
   quiet: "今天的新內容不夠",
-  quietNote: "至少要有三則未讀，才談得上挑選。一期導讀只涵蓋當天的文章。",
+  quietNote:
+    "至少要有 10 則未讀，才談得上挑選——少於這個數，沒什麼可挑的。一期導讀只涵蓋當天的文章。",
   history: "更早的導讀",
   today: "今天",
   picks: (n) => `${n} 則`,
@@ -163,7 +165,8 @@ const JA: DigestStrings = {
   off: "ブリーフィングはオフです",
   offAction: "設定を開く",
   quiet: "今日は新着が少なすぎます",
-  quietNote: "選ぶには未読が3件以上必要です。一版はその日の記事だけを対象にします。",
+  quietNote:
+    "選ぶには未読が10件以上必要です。それ以下では選ぶ余地がありません。一版はその日の記事だけを対象にします。",
   history: "過去の版",
   today: "今日",
   picks: (n) => `${n}件`,
@@ -190,7 +193,8 @@ const KO: DigestStrings = {
   off: "브리핑이 꺼져 있습니다",
   offAction: "설정 열기",
   quiet: "오늘은 새 글이 너무 적습니다",
-  quietNote: "고르려면 읽지 않은 글이 3개 이상 있어야 합니다. 한 판은 그날의 글만 다룹니다.",
+  quietNote:
+    "고르려면 읽지 않은 글이 10개 이상 있어야 합니다. 그보다 적으면 고를 것이 없습니다. 한 판은 그날의 글만 다룹니다.",
   history: "이전 브리핑",
   today: "오늘",
   picks: (n) => `${n}개`,

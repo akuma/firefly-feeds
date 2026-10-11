@@ -442,7 +442,11 @@ never on a feed's teaser alone, which is what a publisher says about a piece and
 not the piece: a gist written from a paraphrase is a paraphrase of a paraphrase.
 to the model chosen in Settings. Nothing is fetched to make the prompt better.
 The answer is up to five stories, each with one line on what it is and one on
-why it might be worth reading. Then it is left alone: stories arriving later
+why it might be worth reading. There is only an edition where there is a
+choice to make: ten unread stories at least. Five of eight is barely a
+choosing and five of three is a list, and a reader can read a list. What is
+counted is what can be chosen from — today's unread — so a busy day read to
+the end can still be too small to brief. Then it is left alone: stories arriving later
 mark the edition stale with a count of what is new, and only a reader who asks
 rewrites it. There is no ceiling on how often: it is the reader's key and
 their money, and what stands between them and a stray click is that one

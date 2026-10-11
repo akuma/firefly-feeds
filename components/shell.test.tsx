@@ -2970,10 +2970,16 @@ async function seedDigestStories() {
     fetchedAt: now,
     updatedAt: now,
   });
+  // Ten, because an edition is only written where there is a choice to make
   const stories = [
     { id: "sdig~one", title: "A first story", summary: "The first summary." },
     { id: "sdig~two", title: "A second story", summary: "The second summary." },
     { id: "sdig~three", title: "A third story", summary: "The third summary." },
+    ...Array.from({ length: 7 }, (_, i) => ({
+      id: `sdig~filler${i}`,
+      title: `Filler story ${i}`,
+      summary: `Filler summary ${i}.`,
+    })),
   ];
   await repo.replaceArticles(
     "sdig",
