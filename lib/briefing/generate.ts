@@ -6,7 +6,7 @@ import {
   serviceReady,
   type LlmConfig,
 } from "../llm";
-import { BRIEFING_LLM_TIMEOUT_MS } from "./constants";
+import { BRIEFING_LLM_TIMEOUT_MS, BRIEFING_MAX_TOKENS } from "./constants";
 import { buildComposeMessages, buildShortlistMessages } from "./prompts";
 import { parseJsonObject, validateComposition, validateShortlist } from "./validate";
 import type {
@@ -72,9 +72,10 @@ export async function generatePhase(input: {
   let parsed: unknown;
   let provider: string = service.id;
   let model = modelFor(llm);
+  let truncated = false;
   try {
     if (service.direct?.(llm)) {
-      const call = service.call(llm, messages);
+      const call = service.call(llm, messages, { maxTokens: BRIEFING_MAX_TOKENS[phase] });
       const res = await fetch(call.url, {
         method: "POST",
         headers: call.headers,
@@ -89,6 +90,7 @@ export async function generatePhase(input: {
           reply.status === 429 || reply.status >= 500,
         );
       }
+      truncated = reply.truncated;
       parsed = parseJsonObject(reply.text);
     } else {
       const res = await fetch("/api/briefing/generate", {
@@ -115,9 +117,20 @@ export async function generatePhase(input: {
   // ends run the same functions, so a direct call and a routed call cannot
   // come to different conclusions about what may be published.
   if (parsed === null) {
-    return failure("INVALID_OUTPUT", "The model's answer was not JSON.", true, [
-      "output: expected one JSON object",
-    ]);
+    // A cut-off answer is not a wrong one: saying "not JSON" about a JSON that
+    // ran out of room sends the reader to the wrong fix.
+    return truncated
+      ? failure(
+          "OUTPUT_TRUNCATED",
+          "The model's answer ran out of room before the JSON ended.",
+          true,
+          [
+            "output: cut off at the token limit — write more compactly, with shorter excerpts and fewer optional sections",
+          ],
+        )
+      : failure("INVALID_OUTPUT", "The model's answer was not JSON.", true, [
+          "output: expected one JSON object",
+        ]);
   }
   const validated =
     phase === "shortlist"

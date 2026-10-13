@@ -61,3 +61,16 @@ export const BRIEFING_BODY_LIMITS = {
 
 /** How long one model call may take before the phase fails as timed out. */
 export const BRIEFING_LLM_TIMEOUT_MS = 120_000;
+
+/**
+ * What one answer may take to write.
+ *
+ * A briefing's composition is the longest text this app asks a model for —
+ * five stories, several sections each, every claim carrying its quoted
+ * excerpt — and an allowance sized for classification gists returns that JSON
+ * cut in half, which reads as a model that cannot follow instructions.
+ */
+export const BRIEFING_MAX_TOKENS = {
+  shortlist: 4_000,
+  compose: 8_000,
+} as const;

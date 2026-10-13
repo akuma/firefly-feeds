@@ -58,6 +58,9 @@ export type LlmConfig = {
 
 export type LlmMessage = { role: "system" | "user"; content: string };
 
+/** What one call may override without becoming a different request. */
+export type CallOptions = { maxTokens?: number };
+
 /** One thing the reader fills in. Rendered from the service's own entry. */
 export type LlmField = {
   key: "wire" | "baseUrl" | "model" | "key";
@@ -103,7 +106,7 @@ export type LlmService = {
    */
   thinkOff?: Record<string, unknown>;
   fields: readonly LlmField[];
-  call(config: LlmConfig, messages: readonly LlmMessage[]): ProviderCall;
+  call(config: LlmConfig, messages: readonly LlmMessage[], options?: CallOptions): ProviderCall;
   /**
    * Whether the browser may call this service itself. True only for one that
    * needs no credential and sits on the reader's own network — a local Ollama,
@@ -269,11 +272,11 @@ export function serviceLabel(id: string | null | undefined): string | null {
 
 /* ----------------------------------------------------------------- bodies */
 
-function openAIBody(config: LlmConfig, messages: readonly LlmMessage[]) {
+function openAIBody(config: LlmConfig, messages: readonly LlmMessage[], maxTokens: number) {
   return {
     model: modelFor(config),
     temperature: LLM_TEMPERATURE,
-    max_tokens: LLM_MAX_TOKENS,
+    max_tokens: maxTokens,
     // Asked for rather than assumed: a gateway that streams by default answers
     // in event-stream chunks, which is not a reply this app can read.
     stream: false,
@@ -286,7 +289,7 @@ function openAIBody(config: LlmConfig, messages: readonly LlmMessage[]) {
  * message, `max_tokens` is required rather than optional, and the version is
  * pinned in a header. Those are the only three differences that matter.
  */
-function anthropicBody(config: LlmConfig, messages: readonly LlmMessage[]) {
+function anthropicBody(config: LlmConfig, messages: readonly LlmMessage[], maxTokens: number) {
   const system = messages
     .filter((message) => message.role === "system")
     .map((message) => message.content)
@@ -294,7 +297,7 @@ function anthropicBody(config: LlmConfig, messages: readonly LlmMessage[]) {
   return {
     model: modelFor(config),
     temperature: LLM_TEMPERATURE,
-    max_tokens: LLM_MAX_TOKENS,
+    max_tokens: maxTokens,
     ...(system ? { system } : {}),
     messages: messages
       .filter((message) => message.role !== "system")
@@ -308,12 +311,12 @@ function anthropicBody(config: LlmConfig, messages: readonly LlmMessage[]) {
  * deliberation off. Measured on a 27B model: 7s and no reasoning with it, 16s
  * and a paragraph of reasoning without.
  */
-function ollamaBody(config: LlmConfig, messages: readonly LlmMessage[]) {
+function ollamaBody(config: LlmConfig, messages: readonly LlmMessage[], maxTokens: number) {
   return {
     model: modelFor(config),
     think: false,
     stream: false,
-    options: { temperature: LLM_TEMPERATURE, num_predict: LLM_MAX_TOKENS },
+    options: { temperature: LLM_TEMPERATURE, num_predict: maxTokens },
     messages: messages.map((message) => ({ ...message })),
   };
 }
@@ -323,15 +326,19 @@ function serviceCall(
   service: LlmService,
   config: LlmConfig,
   messages: readonly LlmMessage[],
+  options?: CallOptions,
 ): ProviderCall {
   const wire = effectiveWire(service, config);
   const anthropic = wire === "anthropic";
+  // A caller with a long answer to write may ask for the room to write it;
+  // the default stays the classification-sized allowance.
+  const maxTokens = options?.maxTokens ?? LLM_MAX_TOKENS;
   const body =
     wire === "ollama"
-      ? ollamaBody(config, messages)
+      ? ollamaBody(config, messages, maxTokens)
       : anthropic
-        ? anthropicBody(config, messages)
-        : openAIBody(config, messages);
+        ? anthropicBody(config, messages, maxTokens)
+        : openAIBody(config, messages, maxTokens);
   return {
     url: endpointFor(service, config),
     // Whatever this service needs to answer rather than deliberate, on top of
@@ -429,6 +436,21 @@ export function llmSilence(raw: unknown, wire: LlmWire): string {
 const THOUGHT_BUDGET = "The model spent its allowance thinking and never reached the answer.";
 
 /**
+ * Whether the reply ran out of allowance before it finished.
+ *
+ * A cut-off answer is not a wrong answer: telling the reader their model
+ * "was not JSON" when the JSON was simply cut in half sends them to the wrong
+ * fix. Every wire says which end it stopped at.
+ */
+function wasTruncated(raw: unknown, wire: LlmWire): boolean {
+  const body = asRecord(raw);
+  if (wire === "anthropic") return body?.stop_reason === "max_tokens";
+  if (wire === "ollama") return body?.done_reason === "length";
+  const first = asRecord(Array.isArray(body?.choices) ? body.choices[0] : undefined);
+  return first?.finish_reason === "length";
+}
+
+/**
  * Read one upstream reply, in whatever shape it arrived.
  *
  * Both ways of calling a model come through here, so "what did the model say"
@@ -439,7 +461,9 @@ export async function readLlmReply(
   res: Response,
   service: LlmService,
   config: LlmConfig,
-): Promise<{ ok: true; text: string } | { ok: false; error: string; status: number }> {
+): Promise<
+  { ok: true; text: string; truncated: boolean } | { ok: false; error: string; status: number }
+> {
   const wire = effectiveWire(service, config);
   const bodyText = await res.text().catch(() => "");
   let raw: unknown = null;
@@ -453,7 +477,7 @@ export async function readLlmReply(
     return { ok: false, error: llmFailure(service, config, res.status, raw), status: res.status };
   }
   const answer = readLlmText(raw, wire);
-  if (answer) return { ok: true, text: answer };
+  if (answer) return { ok: true, text: answer, truncated: wasTruncated(raw, wire) };
   if (raw === null) {
     return {
       ok: false,
@@ -591,7 +615,7 @@ export const LLM_SERVICES: readonly LlmService[] = (
   const service: LlmService = {
     ...seed,
     fields: fieldsFor(seed),
-    call: (config, messages) => serviceCall(service, config, messages),
+    call: (config, messages, options) => serviceCall(service, config, messages, options),
     ...(seed.id === "ollama"
       ? { direct: (config: LlmConfig) => onReadersNetwork(baseUrlFor(service, config)) }
       : {}),

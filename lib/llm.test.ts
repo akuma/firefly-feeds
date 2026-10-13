@@ -296,7 +296,7 @@ describe("reading an answer", () => {
       service,
       config,
     );
-    expect(fine).toEqual({ ok: true, text: "Five." });
+    expect(fine).toEqual({ ok: true, text: "Five.", truncated: false });
   });
 });
 

@@ -3,6 +3,7 @@ import {
   BRIEFING_BODY_LIMITS,
   BRIEFING_LIMITS,
   BRIEFING_LLM_TIMEOUT_MS,
+  BRIEFING_MAX_TOKENS,
 } from "@/lib/briefing/constants";
 import { parseJsonObject, validateComposition, validateShortlist } from "@/lib/briefing/validate";
 import type { GenerateFailureCode, GenerateResult } from "@/lib/briefing/types";
@@ -141,7 +142,7 @@ export async function POST(request: Request): Promise<Response> {
       ? buildShortlistMessages(read.input as never, feedback)
       : buildComposeMessages(read.input as never, feedback);
 
-  const call = service.call(config, messages);
+  const call = service.call(config, messages, { maxTokens: BRIEFING_MAX_TOKENS[read.phase] });
   try {
     const res = await fetch(call.url, {
       method: "POST",
@@ -164,9 +165,21 @@ export async function POST(request: Request): Promise<Response> {
 
     const answer = parseJsonObject(reply.text);
     if (answer === null) {
-      return failure("INVALID_OUTPUT", "The model's answer was not JSON.", true, 502, [
-        "output: expected one JSON object",
-      ]);
+      // A cut-off answer is not a wrong one: "not JSON" about a JSON that ran
+      // out of room sends the reader to the wrong fix.
+      return reply.truncated
+        ? failure(
+            "OUTPUT_TRUNCATED",
+            "The model's answer ran out of room before the JSON ended.",
+            true,
+            502,
+            [
+              "output: cut off at the token limit — write more compactly, with shorter excerpts and fewer optional sections",
+            ],
+          )
+        : failure("INVALID_OUTPUT", "The model's answer was not JSON.", true, 502, [
+            "output: expected one JSON object",
+          ]);
     }
     const validated =
       read.phase === "shortlist"
