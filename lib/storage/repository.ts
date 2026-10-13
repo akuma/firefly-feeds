@@ -3,6 +3,8 @@ import type {
   ArticleClassification,
   ArticleRecord,
   ArticleTopic,
+  BriefingEdition,
+  BriefingRun,
   Changeset,
   DigestRecord,
   ReadingRecord,
@@ -301,7 +303,16 @@ export async function clearAll(): Promise<void> {
   if (!available()) return;
   const database = await db();
   const tx = database.transaction(
-    ["sources", "articles", "reading", "topics", "classifications", "digests"],
+    [
+      "sources",
+      "articles",
+      "reading",
+      "topics",
+      "classifications",
+      "digests",
+      "briefings",
+      "briefingRuns",
+    ],
     "readwrite",
   );
   await Promise.all([
@@ -311,8 +322,97 @@ export async function clearAll(): Promise<void> {
     tx.objectStore("topics").clear(),
     tx.objectStore("classifications").clear(),
     tx.objectStore("digests").clear(),
+    tx.objectStore("briefings").clear(),
+    tx.objectStore("briefingRuns").clear(),
     tx.done,
   ]);
 }
 
 export { articleIdFor, sourceIdFor };
+
+/* ------------------------------------------------------------- briefings */
+
+/**
+ * Editions and runs are read on demand — a library of editions carries its
+ * own prose, and loading it at startup would be loading yesterday's writing.
+ */
+export async function getBriefings(): Promise<BriefingEdition[]> {
+  if (!available()) return [];
+  return (await db()).getAll("briefings");
+}
+
+export async function getBriefing(id: string): Promise<BriefingEdition | undefined> {
+  if (!available()) return undefined;
+  return (await db()).get("briefings", id);
+}
+
+export async function listBriefingRuns(): Promise<BriefingRun[]> {
+  if (!available()) return [];
+  return (await db()).getAll("briefingRuns");
+}
+
+export async function getBriefingRun(runId: string): Promise<BriefingRun | undefined> {
+  if (!available()) return undefined;
+  return (await db()).get("briefingRuns", runId);
+}
+
+export async function putBriefingRun(run: BriefingRun): Promise<void> {
+  if (!available()) return;
+  await (await db()).put("briefingRuns", run);
+}
+
+/**
+ * Takes or renews the single active-run lease, atomically: one readwrite
+ * transaction decides and writes, so two tabs cannot both believe they own the
+ * run. The lock lives here rather than in React state because React state is
+ * per tab and this is the opposite of per tab.
+ */
+export async function claimBriefingRun(
+  run: BriefingRun,
+  owner: string,
+  now: number,
+  leaseMs: number,
+): Promise<boolean> {
+  if (!available()) return false;
+  const database = await db();
+  const tx = database.transaction("briefingRuns", "readwrite");
+  const existing = await tx.store.get(run.runId);
+  const held = existing?.lease;
+  if (held && held.ownerId !== owner && held.expiresAt > now) {
+    await tx.done;
+    return false;
+  }
+  await tx.store.put({ ...run, lease: { ownerId: owner, expiresAt: now + leaseMs } });
+  await tx.done;
+  return true;
+}
+
+/**
+ * Publishing is one transaction: a finished edition and its run's `ready`
+ * marker land together, so a reader can never find an edition whose run is
+ * still "failed", or the other way round.
+ */
+export async function publishBriefing(edition: BriefingEdition, run: BriefingRun): Promise<void> {
+  if (!available()) return;
+  const database = await db();
+  const tx = database.transaction(["briefings", "briefingRuns"], "readwrite");
+  await Promise.all([
+    tx.objectStore("briefings").put(edition),
+    tx.objectStore("briefingRuns").put(run),
+    tx.done,
+  ]);
+}
+
+/** Only runs are disposable; a published edition is never cleaned up here. */
+export async function deleteBriefingRun(runId: string): Promise<void> {
+  if (!available()) return;
+  await (await db()).delete("briefingRuns", runId);
+}
+
+export async function cleanupBriefingRuns(olderThan: number): Promise<void> {
+  if (!available()) return;
+  const database = await db();
+  const tx = database.transaction("briefingRuns", "readwrite");
+  const stale = await tx.store.index("by-updated").getAllKeys(IDBKeyRange.upperBound(olderThan));
+  await Promise.all([...stale.map((key) => tx.store.delete(key)), tx.done]);
+}

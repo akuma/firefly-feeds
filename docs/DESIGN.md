@@ -140,6 +140,17 @@ Navigation moves into a drawer.
 Safe-area insets are honoured top and bottom, because a full-screen reading
 surface is the one place a notch actually matters.
 
+## The briefing
+
+The briefing follows the same paper and type rules as everything else: a serif
+headline, mono metadata, hairline rules, no cards and no AI dashboard. The
+middle column is the edition's contents and its history; the right pane is the
+writing itself. A cited source is a mono line — publication, headline — that
+opens the ordinary article reader with a clear `Back to Briefing`, returning to
+the exact place in the page. Reading a briefing never marks anything read.
+While a run works, the column shows real counts (`Reading sources · 3 of 8
+articles checked`), never a fabricated percentage, and failures say what failed.
+
 ## One action, one control
 
 A control lives in the column it acts on, and an action has one control — not a

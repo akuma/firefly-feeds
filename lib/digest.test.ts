@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDigestMessages,
+  concentratedPublication,
   dayKey,
   DIGEST_OFFER_LIMIT,
   offerCandidates,
@@ -59,7 +60,16 @@ function record(patch: Partial<DigestRecord> = {}): DigestRecord {
   };
 }
 
-const candidate = (id: string): DigestCandidate => ({ id, title: `Title ${id}`, excerpt: "s" });
+const candidate = (id: string, source = "The Daily"): DigestCandidate => ({
+  id,
+  title: `Title ${id}`,
+  source,
+  excerpt: "s",
+});
+
+/** A model's reply choosing exactly these ids, all with usable lines. */
+const reply = (...chosen: string[]) =>
+  JSON.stringify(chosen.map((id) => ({ id, gist: "G.", why: "W." })));
 
 describe("the day", () => {
   it("is the reader's own calendar day, not a UTC one", () => {
@@ -82,8 +92,12 @@ describe("the candidates", () => {
       ],
       { read: true },
       60 * 24,
+      () => "The Daily",
     );
     expect(picked.map((c) => c.id)).toEqual(["newest", "oldest"]);
+    // the publication travels with the story — the per-publication rule
+    // cannot be followed without it
+    expect(picked.map((c) => c.source)).toEqual(["The Daily", "The Daily"]);
   });
 
   it("offers each story to exactly one day, and never a story from another", () => {
@@ -94,7 +108,9 @@ describe("the candidates", () => {
     // the function has no way to know, and does not need one.
     const stories = [story("yesterday", { minutesAgo: 180 }), story("today", { minutesAgo: 30 })];
     // Two hours past midnight, so today reaches back two hours.
-    expect(selectCandidates(stories, {}, 120).map((c) => c.id)).toEqual(["today"]);
+    expect(selectCandidates(stories, {}, 120, () => "The Daily").map((c) => c.id)).toEqual([
+      "today",
+    ]);
   });
 
   it("counts the whole day, and caps only what one prompt carries", () => {
@@ -103,7 +119,7 @@ describe("the candidates", () => {
     );
     // The day is the day: a query does not quietly decide that twenty of thirty
     // stories are the day's stories.
-    const all = selectCandidates(many, {}, 60 * 24);
+    const all = selectCandidates(many, {}, 60 * 24, () => "The Daily");
     expect(all).toHaveLength(DIGEST_OFFER_LIMIT + 5);
     // What one prompt carries is capped — the newest, so it is the tail of the
     // day a budget trims and never the head.
@@ -123,13 +139,16 @@ describe("the candidates", () => {
       ],
       {},
       60 * 24,
+      () => "The Daily",
     );
     expect(picked[0].excerpt).toBe("The first paragraph.");
   });
 });
 
 describe("the model's answer", () => {
-  const ids = new Set(["a", "b", "c", "d", "e", "f"]);
+  // Each offered story from its own publication, so no test stumbles over the
+  // spread rule unless it is asking for it.
+  const ids = new Map(["a", "b", "c", "d", "e", "f"].map((id) => [id, `Daily ${id}`]));
 
   it("takes the JSON out of a reply that wrapped it in markdown", () => {
     const picks = parseDigest(
@@ -174,6 +193,115 @@ describe("the model's answer", () => {
     expect(picks).toHaveLength(DIGEST_PICKS);
   });
 
+  it("refuses a third story from one publication, however good the reasons", () => {
+    // The spread across the day's feeds is the edition's value, so the rule is
+    // held to here and not only written in the prompt: five pieces from the
+    // publisher who sent the most is a feed, not an edit.
+    const offers = new Map([
+      ["a", "The Daily"],
+      ["b", "The Daily"],
+      ["c", "The Daily"],
+      ["d", "Weekly"],
+      ["e", "The Daily"],
+      ["f", "Weekly"],
+    ]);
+    const picks = parseDigest(
+      JSON.stringify(["a", "b", "c", "d", "e", "f"].map((id) => ({ id, gist: "G.", why: "W." }))),
+      offers,
+    );
+    expect(picks.map((p) => p.id)).toEqual(["a", "b", "d", "f"]);
+  });
+
+  it("tells the model which publication each story came from, in piles", () => {
+    // Without the name, the per-publication rule was an instruction no model
+    // could follow: the stories arrived with no provenance at all. And the
+    // stories arrive grouped, because a quota is followed where it sits beside
+    // the pile it caps and misread where a flat list buries the name.
+    const messages = buildDigestMessages([
+      candidate("a", "The Daily"),
+      candidate("c", "The Daily"),
+      candidate("b", "Weekly"),
+    ]);
+    const list = messages[1].content;
+    expect(list).toContain("Publication: The Daily");
+    expect(list).toContain("Publication: Weekly");
+    // …grouped: the second Daily story sits under its own publication, before
+    // the next publication's header
+    expect(list.indexOf("Publication: Weekly")).toBeGreaterThan(list.indexOf("[c]"));
+    expect(messages[0].content).toMatch(/grouped by publication/);
+    expect(messages[0].content).toMatch(/at most 2 stories from any one publication/);
+  });
+
+  it("tells the next attempt what the last one got wrong, in our words", () => {
+    // The wire carries a kind and a name, never text: a request that brought
+    // its own instructions would be a general proxy with our domain on it.
+    const plain = buildDigestMessages([candidate("a")])[0].content;
+    expect(plain).not.toMatch(/previous attempt/);
+
+    const unreadable = buildDigestMessages([candidate("a")], "source", "", {
+      kind: "tighten",
+    })[0].content;
+    expect(unreadable).toMatch(/A note on a previous attempt/);
+    expect(unreadable).toMatch(/character limit/);
+
+    // A column of one publisher is named, so a model that over-used one pile
+    // is told which pile it over-used and where to look instead.
+    const column = buildDigestMessages([candidate("a", "The Daily")], "source", "", {
+      kind: "spread",
+      source: "The Daily",
+    })[0].content;
+    expect(column).toMatch(/chose every story from The Daily/);
+    expect(column).toMatch(/at least three of the publications/);
+    // …and the pile it over-used is listed last, so the second answer is not
+    // anchored on the same one again.
+    const reordered = buildDigestMessages(
+      [candidate("a", "The Daily"), candidate("b", "Weekly")],
+      "source",
+      "",
+      { kind: "spread", source: "The Daily" },
+    )[1].content;
+    expect(reordered.indexOf("Publication: Weekly")).toBeLessThan(
+      reordered.indexOf("Publication: The Daily"),
+    );
+
+    // A short answer is told how short it was, and of how many — data, not
+    // flattery.
+    const short = buildDigestMessages(
+      ["a", "b", "c", "d", "e", "f"].map((id, i) => candidate(id, i < 2 ? "The Daily" : "Weekly")),
+      "source",
+      "",
+      { kind: "few", picked: 3 },
+    )[0].content;
+    expect(short).toMatch(/chose only 3 of the 6 stories offered/);
+  });
+
+  it("lifts the ceiling when the whole day is one publication", () => {
+    // There is no spread to keep where the day offered none: the stories
+    // compete on merit alone, and five of them make the edition.
+    const solo = new Map(["a", "b", "c", "d", "e", "f"].map((id) => [id, "The Daily"]));
+    const picks = parseDigest(
+      JSON.stringify(["a", "b", "c", "d", "e", "f"].map((id) => ({ id, gist: "G.", why: "W." }))),
+      solo,
+    );
+    expect(picks.map((p) => p.id)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(concentratedPublication(picks, solo)).toBeNull();
+  });
+
+  it("refuses to call one publication's column an edition", () => {
+    const offers = new Map([
+      ["a", "The Daily"],
+      ["b", "The Daily"],
+      ["c", "Weekly"],
+    ]);
+    // Every pick from one publisher while the day offered several: the answer
+    // that must not become an edition, however good its two lines are.
+    expect(concentratedPublication(parseDigest(reply("a", "b"), offers), offers)).toBe("The Daily");
+    // One pick is not a column — "if fewer pass, return fewer" still stands.
+    expect(concentratedPublication(parseDigest(reply("a"), offers), offers)).toBeNull();
+    // …and a spread is an edition.
+    expect(concentratedPublication(parseDigest(reply("a", "c"), offers), offers)).toBeNull();
+  });
+
   it("is asked for a choice over a numbered list of ids it can copy back", () => {
     const messages = buildDigestMessages([candidate("a"), candidate("b")]);
     expect(messages[0].role).toBe("system");
@@ -215,9 +343,10 @@ describe("the model's answer", () => {
     // Taste is a filter, not just a ranking: what they skip is out, however big.
     expect(mine).toMatch(/of the kind they skip is out/);
     expect(mine).toContain("名酒失窃");
-    expect(mine).toMatch(/Choose up to the 5 this reader/);
+    expect(mine).toMatch(/Choose the 5 this reader/);
     // And the taste rule outranks the quota: a skipped kind never pads the list.
-    expect(mine).toMatch(/Never pad the edition/);
+    expect(mine).toMatch(/Five is the edition when the list holds five/);
+    expect(mine).toMatch(/never pad with a piece of a kind they skip/);
     expect(mine).toMatch(/a story on it beats a story that is merely big/);
     // …and the writing is told to be specific rather than a restated title.
     expect(mine).toMatch(/Not a description of a document/);
@@ -232,7 +361,7 @@ describe("the model's answer", () => {
 
   it("drops a line the language has no room for", () => {
     const long = "x".repeat(80);
-    const one = new Set(["a"]);
+    const one = new Map([["a", "The Daily"]]);
     // English has room for it; Chinese does not, and a gist that had to be cut
     // off mid-sentence is not a gist.
     expect(parseDigest(JSON.stringify([{ id: "a", gist: long, why: "W." }]), one)).toHaveLength(1);

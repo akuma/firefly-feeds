@@ -56,6 +56,8 @@ export type DigestStrings = {
   minutes: (n: number) => string;
   /** This edition was written before the reader changed the language. */
   otherLanguage: string;
+  /** A pick whose article the cache has dropped: the row stays, unopenable. */
+  gone: string;
 };
 
 export type DigestLanguage = {
@@ -99,10 +101,12 @@ const EN: DigestStrings = {
     offered === total
       ? `${picks} of today's ${total} ${total === 1 ? "story" : "stories"}, chosen and summarised from your own feeds.`
       : `${picks} of the ${offered} newest of today's ${total} stories, chosen and summarised from your own feeds.`,
-  provenance: "Written from each story's title and summary. Nothing fetched, nothing invented.",
+  provenance:
+    "Written from each story's title, summary and publication. Nothing fetched, nothing invented.",
   stale: (n) => `${n} new ${n === 1 ? "story" : "stories"} since this edition was written`,
   minutes: (n) => `${n} min read`,
   otherLanguage: "This edition is in another language. Regenerate to rewrite it.",
+  gone: "No longer in your library",
 };
 
 const ZH_HANS: DigestStrings = {
@@ -127,10 +131,11 @@ const ZH_HANS: DigestStrings = {
     offered === total
       ? `从今天的 ${total} 篇里选出 ${picks} 篇，取自你的订阅。`
       : `从今天 ${total} 篇里最新的 ${offered} 篇中选出 ${picks} 篇，取自你的订阅。`,
-  provenance: "仅依据各篇的标题与摘要写成。没有抓取原文，也没有编造。",
+  provenance: "仅依据各篇的标题、摘要与出处写成。没有抓取原文，也没有编造。",
   stale: (n) => `这版写完之后又来了 ${n} 篇新内容`,
   minutes: (n) => `约 ${n} 分钟`,
   otherLanguage: "这版导读不是用你现在的语言写的。点「重新生成」重写。",
+  gone: "已不在你的文库中",
 };
 
 const ZH_HANT: DigestStrings = {
@@ -155,10 +160,11 @@ const ZH_HANT: DigestStrings = {
     offered === total
       ? `從今天的 ${total} 則裡選出 ${picks} 則，取自你的訂閱。`
       : `從今天 ${total} 則裡最新的 ${offered} 則中選出 ${picks} 則，取自你的訂閱。`,
-  provenance: "僅依據各則的標題與摘要寫成。沒有抓取原文，也沒有編造。",
+  provenance: "僅依據各則的標題、摘要與出處寫成。沒有抓取原文，也沒有編造。",
   stale: (n) => `這版寫完之後又來了 ${n} 則新內容`,
   minutes: (n) => `約 ${n} 分鐘`,
   otherLanguage: "這版導讀不是用你現在的語言寫的。點「重新產生」重寫。",
+  gone: "已不在你的文庫中",
 };
 
 const JA: DigestStrings = {
@@ -183,10 +189,12 @@ const JA: DigestStrings = {
     offered === total
       ? `今日の${total}件から${picks}件を選び、購読フィードの内容からまとめました。`
       : `今日の${total}件のうち新しい${offered}件から${picks}件を選び、購読フィードの内容からまとめました。`,
-  provenance: "各記事のタイトルと要約だけを根拠に書いています。原文の取得も、創作もしていません。",
+  provenance:
+    "各記事のタイトル・要約・出典だけを根拠に書いています。原文の取得も、創作もしていません。",
   stale: (n) => `この版を書いたあとに${n}件の新着があります`,
   minutes: (n) => `読了 ${n}分`,
   otherLanguage: "この版は別の言語で書かれています。「書き直す」で書き直してください。",
+  gone: "ライブラリにはもうありません",
 };
 
 const KO: DigestStrings = {
@@ -211,10 +219,12 @@ const KO: DigestStrings = {
     offered === total
       ? `오늘의 ${total}개 중 ${picks}개를 골라, 구독 피드의 내용으로 정리했습니다.`
       : `오늘의 ${total}개 중 최신 ${offered}개에서 ${picks}개를 골라, 구독 피드의 내용으로 정리했습니다.`,
-  provenance: "각 글의 제목과 요약만을 근거로 씁니다. 원문을 가져오지도, 지어내지도 않았습니다.",
+  provenance:
+    "각 글의 제목, 요약, 출처만을 근거로 씁니다. 원문을 가져오지도, 지어내지도 않았습니다.",
   stale: (n) => `이 버전을 쓴 뒤 새 글이 ${n}개 더 왔습니다`,
   minutes: (n) => `약 ${n}분`,
   otherLanguage: "이 버전은 다른 언어로 쓰여 있습니다. '다시 쓰기'로 다시 써 주세요.",
+  gone: "이제 라이브러리에 없습니다",
 };
 
 /**

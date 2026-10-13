@@ -39,19 +39,21 @@ kebab-case of the package: `firefly-feeds`. A localStorage key is a flat
 namespace shared with anything else on the origin, so it takes the dotted,
 versioned form: `firefly.feeds.v1`.
 
-## Six stores, six lifetimes
+## Eight stores, eight lifetimes
 
 The mistake a reader's storage usually makes is keeping these in one record.
 
-| Store             | Holds                            | Size                          | Synced?                                       |
-| ----------------- | -------------------------------- | ----------------------------- | --------------------------------------------- |
-| `sources`         | the subscription registry        | tiny, durable, low write rate | **yes**                                       |
-| `reading`         | read / saved / later per article | tiny, high write rate         | **yes** — and the most valuable thing you own |
-| `articles`        | cached bodies                    | large, disposable             | **never**                                     |
-| `topics`          | the reader's article topics      | tiny, durable                 | **yes**                                       |
-| `classifications` | one topic per story              | small, low write rate         | **yes**                                       |
-| `digests`         | one edition of Today's briefing  | tiny, derived                 | **never**                                     |
-| `meta`            | the seeding flag                 | —                             | no                                            |
+| Store             | Holds                             | Size                          | Synced?                                       |
+| ----------------- | --------------------------------- | ----------------------------- | --------------------------------------------- |
+| `sources`         | the subscription registry         | tiny, durable, low write rate | **yes**                                       |
+| `reading`         | read / saved / later per article  | tiny, high write rate         | **yes** — and the most valuable thing you own |
+| `articles`        | cached bodies                     | large, disposable             | **never**                                     |
+| `topics`          | the reader's article topics       | tiny, durable                 | **yes**                                       |
+| `classifications` | one topic per story               | small, low write rate         | **yes**                                       |
+| `digests`         | one edition of Today's briefing   | tiny, derived                 | **never**                                     |
+| `briefings`       | published daily briefing editions | grows with history, durable   | **never** (v1)                                |
+| `briefingRuns`    | one generation run's checkpoints  | small, disposable             | **never**                                     |
+| `meta`            | the seeding flag                  | —                             | no                                            |
 
 Cached prose is re-fetchable; your reading state is not. Keeping them apart means
 a future sync uploads a few kilobytes of state rather than megabytes of somebody
@@ -75,6 +77,24 @@ worth replicating: a new device writes its own edition rather than downloading
 somebody else's prose. It is keyed by the reader's own calendar day and written
 over the previous edition for that day — no tombstone, because there is nothing
 to propagate.
+
+**An edition keeps its own headlines.** `articles` is disposable and a refresh
+deletes what the feed no longer offers, but a dated edition is finished work —
+so `digests` stores each pick's title, publication and link (`snapshots`) beside
+its gist and reason. A pick whose article the cache has since dropped still
+prints its row from that copy, with the link out to the original. The field is
+optional: a record written before it existed renders as it always did, so the
+change needs no migration.
+
+**Briefing editions are durable; their runs are not.** `DB_VERSION` 3 → 4 adds
+`briefings` and `briefingRuns` in the same additive way the earlier bumps did —
+a v2 or v3 database keeps every subscription, read flag and cached body and
+gains two empty stores. A published `BriefingEdition` carries its own source
+snapshots (headline, publication, link) beside every evidence excerpt, so it
+survives the article cache by construction; `briefingRuns` holds the frozen
+input and stage checkpoints of one generation, and is the only thing
+`cleanupBriefingRuns` ever deletes. Publishing writes the edition and its run's
+`ready` marker in one transaction, so the two can never disagree.
 
 ## Why IndexedDB, and why localStorage survives anyway
 

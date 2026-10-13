@@ -4,6 +4,8 @@ import type {
   ArticleClassification,
   ArticleRecord,
   ArticleTopic,
+  BriefingEdition,
+  BriefingRun,
   DigestRecord,
   MetaRecord,
   ReadingRecord,
@@ -18,12 +20,12 @@ import type {
 
 const DB_NAME = "firefly-feeds";
 /**
- * 2 added the classification stores. 3 added the briefing store. Both changes
- * are additive — the earlier stores are untouched — so an existing database
- * keeps its subscriptions, read flags and cached bodies and simply gains one
- * more empty store.
+ * 2 added the classification stores, 3 the digest store, 4 the briefing
+ * edition/run stores. All three changes are additive — earlier stores are
+ * untouched — so an existing database keeps its subscriptions, read flags and
+ * cached bodies and simply gains one more empty store.
  */
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const SEEDED = "seed:initialised";
 
 export interface FireflyDB extends DBSchema {
@@ -55,6 +57,16 @@ export interface FireflyDB extends DBSchema {
   digests: {
     key: string;
     value: DigestRecord;
+    indexes: { "by-updated": number };
+  };
+  briefings: {
+    key: string;
+    value: BriefingEdition;
+    indexes: { "by-editionKey": string; "by-updated": number };
+  };
+  briefingRuns: {
+    key: string;
+    value: BriefingRun;
     indexes: { "by-updated": number };
   };
   meta: {
@@ -124,6 +136,16 @@ async function connect(): Promise<IDBPDatabase<FireflyDB>> {
         // edition: it is read as a whole and rewritten as a whole.
         const digests = instance.createObjectStore("digests", { keyPath: "day" });
         digests.createIndex("by-updated", "updatedAt");
+      }
+
+      if (oldVersion < 4) {
+        // Editions are the durable result; runs are the disposable working
+        // state that produced them. Separate stores, separate lifetimes.
+        const briefings = instance.createObjectStore("briefings", { keyPath: "id" });
+        briefings.createIndex("by-editionKey", "editionKey");
+        briefings.createIndex("by-updated", "updatedAt");
+        const runs = instance.createObjectStore("briefingRuns", { keyPath: "runId" });
+        runs.createIndex("by-updated", "updatedAt");
       }
     },
   });

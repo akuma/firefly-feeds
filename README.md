@@ -30,6 +30,18 @@ _The built-in sample edition, shown on first launch._
 - **Local-first storage** — IndexedDB, no account, no sync service
 - **Open the original** in a new tab, from the stream or the reader
 - **A sample edition** on first run, so there is something to look at
+- **AI Daily Briefing** — an AI-edited edition of your own day (`The Big
+Picture`, `Top Stories`, `Worth Reading`), written on request by the model you
+  configure, with every claim traced to a quoted excerpt of a real story
+
+### What leaves the device
+
+Nothing, until you ask. Feed fetching and article extraction happen server-side
+on your behalf; reading state never leaves the browser. Two features send data
+elsewhere, both only when you turn them on: classification and the daily
+briefing each send the selected stories' titles and summaries (the briefing may
+also send at most ten stories' text) to the AI provider you chose. Your API key
+is stored in this browser and sent only to that provider.
 
 ## Why it is not like the others
 

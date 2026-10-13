@@ -24,6 +24,14 @@
         "period": 60,
       },
     },
+    {
+      "name": "BRIEFING_LLM",
+      "namespace_id": "1003",
+      "simple": {
+        "limit": 12,
+        "period": 60,
+      },
+    },
   ],
   "routes": [
     {

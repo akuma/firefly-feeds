@@ -53,6 +53,11 @@ export type Prefs = {
   dayZone?: string;
   /** What the reader says they care about, in their own words. */
   digestInterests?: string;
+  /**
+   * The topics the briefing leans toward — at most three, and only ever a
+   * small weight behind editorial value, never a filter.
+   */
+  briefingFocus?: string[];
 };
 
 export function loadPrefs(): Prefs {

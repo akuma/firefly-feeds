@@ -9,7 +9,7 @@ import {
   type LlmMessage,
 } from "./llm";
 import type { DigestRecord } from "./storage/types";
-import type { Story } from "./types";
+import type { FeedId, Story } from "./types";
 
 /**
  * Today's briefing: which of today's stories are worth a reader's time, and one
@@ -25,14 +25,27 @@ import type { Story } from "./types";
  *      when a feed refreshes, because a reader who has already read it should
  *      not find it rewritten underneath them, and because "regenerate on every
  *      refresh" is how a paid key gets spent.
- *   2. **Nothing is shown that cannot be traced.** The model is given titles and
- *      summaries and nothing else, and its answer is accepted only where every
- *      picked id is one it was given. That is what keeps a gist a summary of a
- *      real story rather than a plausible sentence about nothing.
+ *   2. **Nothing is shown that cannot be traced.** The model is given titles,
+ *      publications and summaries and nothing else, and its answer is accepted
+ *      only where every picked id is one it was given and no more than two come
+ *      from one publication. That is what keeps a gist a summary of a real
+ *      story rather than a plausible sentence about nothing, and the edition a
+ *      spread across the day's feeds rather than five stories from whichever
+ *      publication sent most.
  */
 
 /** How many stories make the edition. */
 export const DIGEST_PICKS = 5;
+
+/**
+ * How many of those may come from one publication.
+ *
+ * The spread is the edition's value — five pieces from the publisher who sent
+ * the most is a feed, not an edit — so the rule is in the prompt and held to in
+ * the parser: without the publication's name in the prompt it could not be
+ * followed at all, and without the parser it would only be advice.
+ */
+export const DIGEST_PER_PUBLICATION = 2;
 
 /**
  * Below this there is no edition to write.
@@ -87,9 +100,15 @@ export const DIGEST_WHY_LIMIT = 120;
  */
 export const DIGEST_TIMEOUT_MS = 180_000;
 
-/** One story as the model sees it: an id to point back at, a title, and the
- * article's own words where we have them. */
-export type DigestCandidate = { id: string; title: string; excerpt: string };
+/** One story as the model sees it: an id to point back at, a title, the
+ * publication it came from, and the article's own words where we have them. */
+export type DigestCandidate = {
+  id: string;
+  title: string;
+  /** The publication's name — the one fact the per-publication rule needs. */
+  source: string;
+  excerpt: string;
+};
 
 /** One accepted line of the edition. */
 export type DigestPick = { id: string; gist: string; why: string };
@@ -157,6 +176,7 @@ export function selectCandidates(
   stories: readonly Story[],
   read: Readonly<Record<string, boolean>>,
   maxAgeMinutes: number,
+  nameOf: (feedId: FeedId) => string,
 ): DigestCandidate[] {
   return stories
     .filter(
@@ -175,6 +195,9 @@ export function selectCandidates(
     .map((story) => ({
       id: story.id,
       title: story.title.slice(0, DIGEST_TITLE_LIMIT),
+      // The publication travels with the story: a rule about spread cannot be
+      // followed by a model that cannot tell which stories are whose.
+      source: nameOf(story.feedId),
       excerpt: excerptFor(story),
     }));
 }
@@ -208,6 +231,27 @@ export function staleCount(
 /** How much of themselves a reader may say. A paragraph, not an essay. */
 export const DIGEST_INTERESTS_LIMIT = 600;
 
+/** What a previous attempt got wrong, so the next call can say so. */
+export type DigestReminder =
+  { kind: "tighten" } | { kind: "spread"; source: string } | { kind: "few"; picked: number };
+
+/**
+ * The correction, in our words rather than the caller's.
+ *
+ * A request that carried its own instructions would be a general LLM proxy, so
+ * the wire carries a kind and a number and every word of this is written here.
+ * What it names is data, and only ever what the request itself offered.
+ */
+function reminderNote(reminder: DigestReminder, total: number): string {
+  if (reminder.kind === "spread") {
+    return `A previous attempt at this edition chose every story from ${reminder.source} and stopped — one publication's column, not an edition. Answer again: five stories in total, best first, at most two from any one publication, drawn from at least three of the publications listed above, and not more than two of them from ${reminder.source}.`;
+  }
+  if (reminder.kind === "few") {
+    return `A previous attempt at this edition chose only ${reminder.picked} of the ${total} stories offered, though the day holds enough for ${DIGEST_PICKS}. Answer again with ${DIGEST_PICKS} stories, best first — at most two from any one publication, drawn from at least three publications where the list offers them — and stop only where the list genuinely cannot fill ${DIGEST_PICKS}.`;
+  }
+  return `A note on a previous attempt at this edition: it was not usable — it was not a JSON array of { "id", "gist", "why" } objects, or its lines were over the character limit. Answer again with the JSON array alone — five objects when the list justifies it — and keep every gist and why within the character limit stated above.`;
+}
+
 function systemPrompt(language: DigestLanguage, interests: string): string {
   // A named language is one instruction among the rest, not the whole prompt:
   // the contract stays in one language so it is readable where it is written,
@@ -226,19 +270,19 @@ function systemPrompt(language: DigestLanguage, interests: string): string {
   const weight = interests.trim()
     ? "Use it as taste, not as a list of subjects. Where it names a kind of piece they like or skip, that decides the pick: a piece of the kind they skip is out however big it is, and a piece of the kind they like beats one that is merely important. Where it names a subject, a story on it beats a story that is merely big."
     : "";
-  return `You are the editor of a daily edition. You are given a numbered list of today's unread stories, each as an id in square brackets, a title, and a summary.
+  return `You are the editor of a daily edition. You are given today's unread stories, grouped by publication: under each publication, a numbered list of its stories, each as an id in square brackets, a title, and a summary.
 
-${about}Choose up to the ${DIGEST_PICKS} ${forWhom} would most want to read today, best first. ${weight} Never choose more than 2 stories from the same publication. Prefer range over several pieces on the same subject. Never pad the edition to reach the number: if fewer pass, return fewer, and a piece of a kind they skip is never included to make up the count.
+${about}Choose the ${DIGEST_PICKS} ${forWhom} would most want to read today, best first. ${weight} Five is the edition when the list holds five worth three minutes — it usually does: return fewer only when it genuinely does not, and never pad with a piece of a kind they skip to make up the count. The edition is a spread across the publications below, counted like this: at most ${DIGEST_PER_PUBLICATION} stories from any one publication — a good edition is 2 + 2 + 1 from three different publications — and never all ${DIGEST_PICKS} from one. Only when the whole list is a single publication do you take its best ${DIGEST_PICKS}. Prefer range over several pieces on the same subject.
 
 For each chosen story write two fields:
 - "gist": one sentence, at most ${language.lineLimit} characters, carrying the one specific detail that makes this piece worth three minutes — the number, the name, the finding, the mechanism. Not a description of a document: never "this article covers" or its equivalents, never the title in other words.
 - "why": one sentence, at most ${language.lineLimit} characters, giving the stake in plain terms — what it changes, what is still open, what ${forWhom} will see or know after reading. It must add something the gist has not given: no restating the gist, no taste-talk such as "this fits your interest in X", and never "interesting", "important" or "worth reading". Stay inside the text: no claims about industries, history or society that it does not make. A piece with no stake is allowed to have none — say plainly what it is rather than manufacture one.
 
 Rules:
-- Use only the titles and summaries you were given. Never add a fact, number, quote, person or link that is not in them.
+- Use only the titles, summaries and publication names you were given. Never add a fact, number, quote, person or link that is not in them.
 - ${writtenIn}
 - Do not write the five in one shape: vary what each sentence leads with, in both fields.
-- Reply with a JSON array of { "id", "gist", "why" } objects, in the order you chose them, and with the id copied exactly from the list.
+- Reply with a JSON array of { "id", "gist", "why" } objects — ${DIGEST_PICKS} objects when the day offers ${DIGEST_PICKS} worth reading — in the order you chose them, and with the id copied exactly from the list.
 - Nothing else in your reply: no prose before or after, and no markdown fence.`;
 }
 
@@ -256,16 +300,43 @@ export function buildDigestMessages(
   candidates: readonly DigestCandidate[],
   languageId: DigestLanguageId = "source",
   interests = "",
+  reminder?: DigestReminder,
 ): LlmMessage[] {
   const language = findLanguage(languageId);
-  const list = candidates
-    .map(
-      (candidate, index) =>
-        `${index + 1}. [${candidate.id}] ${candidate.title}\n${candidate.excerpt}`,
-    )
+  // Grouped, not interleaved: the per-publication rule is one a model follows
+  // when the stories arrive in publication piles, and misreads when a long
+  // flat list buries the name three lines above each title.
+  const byPublication = new Map<string, DigestCandidate[]>();
+  for (const candidate of candidates) {
+    const group = byPublication.get(candidate.source) ?? [];
+    group.push(candidate);
+    byPublication.set(candidate.source, group);
+  }
+  let number = 0;
+  const groups = [...byPublication.entries()];
+  // A model that over-used one pile is shown the other piles first on the
+  // second call, so its answer is not anchored on the same one again.
+  if (reminder?.kind === "spread") {
+    groups.sort(([a], [b]) => (a === reminder.source ? 1 : b === reminder.source ? -1 : 0));
+  }
+  const list = groups
+    .map(([source, group]) => {
+      const entries = group
+        .map((candidate) => {
+          number += 1;
+          return `${number}. [${candidate.id}] ${candidate.title}\n${candidate.excerpt}`;
+        })
+        .join("\n\n");
+      return `Publication: ${source || "unknown"}\n${entries}`;
+    })
     .join("\n\n");
   return [
-    { role: "system", content: systemPrompt(language, interests) },
+    {
+      role: "system",
+      content: reminder
+        ? `${systemPrompt(language, interests)}\n\n${reminderNote(reminder, candidates.length)}`
+        : systemPrompt(language, interests),
+    },
     { role: "user", content: `Today's unread stories:\n\n${list}` },
   ];
 }
@@ -278,12 +349,16 @@ export function buildDigestMessages(
  * Every rule here exists to refuse rather than to repair. An id the model was
  * not given is dropped, because a gist attached to the wrong story is worse than
  * no gist; a field over its limit is dropped, because the edition's layout has
- * no room for a sentence that had to be cut; and a reply from which nothing
- * survives is a failure, shown as one, rather than half an edition.
+ * no room for a sentence that had to be cut; a third story from one publication
+ * is dropped, because the spread is the edition's promise and not a hope; and a
+ * reply from which nothing survives is a failure, shown as one, rather than
+ * half an edition. An edition-level question is left to the caller:
+ * `concentratedPublication` says when what survived is one publisher's column.
  */
 export function parseDigest(
   raw: string,
-  knownIds: ReadonlySet<string>,
+  /** Every offered id, mapped to the publication it came from. */
+  offered: ReadonlyMap<string, string>,
   lineLimit: number = DIGEST_GIST_LIMIT,
 ): DigestPick[] {
   const json = firstJSONArray(raw);
@@ -298,17 +373,49 @@ export function parseDigest(
 
   const picks: DigestPick[] = [];
   const seen = new Set<string>();
+  const perPublication = new Map<string, number>();
+  // The spread rule binds only where there is a spread to keep: when the day
+  // offered a single publication, its stories compete on merit alone.
+  const spreadPossible = new Set(offered.values()).size > 1;
   for (const entry of parsed) {
     const record = asRecord(entry);
     const id = typeof record?.id === "string" ? record.id : "";
     const gist = text(record?.gist, lineLimit);
     const why = text(record?.why, lineLimit);
-    if (!knownIds.has(id) || seen.has(id) || !gist || !why) continue;
+    if (!offered.has(id) || seen.has(id) || !gist || !why) continue;
+    // The model is told this rule too; here is where it stops being advice. A
+    // story whose publication is unknown is not capped — there is nothing to
+    // count it against.
+    const publication = offered.get(id) ?? "";
+    const used = perPublication.get(publication) ?? 0;
+    if (spreadPossible && publication && used >= DIGEST_PER_PUBLICATION) continue;
+    if (publication) perPublication.set(publication, used + 1);
     seen.add(id);
     picks.push({ id, gist, why });
     if (picks.length >= DIGEST_PICKS) break;
   }
   return picks;
+}
+
+/**
+ * Which publication an edition drew on alone, or null when it is a spread.
+ *
+ * Two or more picks from a single publisher are not an edition where the day
+ * offered several — it is one publisher's column, and the reader who was
+ * promised a spread is being shown something else. The answer is then refused
+ * as a failure rather than written as a stub: half an edition is worse than
+ * none, the name goes into what the next attempt is told, and the reader sees
+ * both facts. One pick is not a column, and a day that offered a single
+ * publication cannot spread at all; both are shown.
+ */
+export function concentratedPublication(
+  picks: readonly DigestPick[],
+  offered: ReadonlyMap<string, string>,
+): string | null {
+  if (picks.length < 2) return null;
+  if (new Set(offered.values()).size <= 1) return null;
+  const publications = new Set(picks.map((pick) => offered.get(pick.id) ?? ""));
+  return publications.size === 1 ? [...publications][0] || null : null;
 }
 
 /**
@@ -357,6 +464,8 @@ export async function requestDigest(input: {
   llm: LlmConfig;
   language?: DigestLanguageId;
   interests?: string;
+  /** What a previous attempt got wrong, told to the model in our words. */
+  reminder?: DigestReminder;
 }): Promise<DigestResult> {
   const service = findService(input.llm.service);
   if (!service) return { ok: false, error: "Choose a model in Settings." };
@@ -371,6 +480,7 @@ export async function requestDigest(input: {
     input.candidates,
     input.language ?? "source",
     input.interests ?? "",
+    input.reminder,
   );
   const direct = service.direct?.(input.llm) === true;
 
@@ -395,6 +505,15 @@ export async function requestDigest(input: {
         candidates: input.candidates,
         language: input.language ?? "source",
         interests: input.interests ?? "",
+        ...(input.reminder
+          ? {
+              reminder: input.reminder.kind,
+              ...(input.reminder.kind === "spread"
+                ? { reminderSource: input.reminder.source }
+                : {}),
+              ...(input.reminder.kind === "few" ? { reminderCount: input.reminder.picked } : {}),
+            }
+          : {}),
         ...input.llm,
       }),
     });

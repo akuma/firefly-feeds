@@ -36,8 +36,12 @@ import {
   type DigestLanguageId,
 } from "./languages";
 import {
+  concentratedPublication,
+  DIGEST_PICKS,
   digestIsStale,
   DIGEST_MIN_CANDIDATES,
+  type DigestPick,
+  type DigestReminder,
   offerCandidates,
   parseDigest,
   requestDigest,
@@ -57,6 +61,7 @@ import {
 import { SAMPLE_FEEDS, SAMPLE_STORIES } from "./sample";
 import { FOLDERS, SUGGESTED_BY_ID, SUGGESTED_SOURCES, type SuggestedSource } from "./sources";
 import { feedFromSource, readingFlags, storyFromArticle } from "./shaping";
+import { ensureArticleContent } from "./article-content";
 import * as repo from "./storage/repository";
 import { loadPrefs, savePrefs, type Prefs } from "./storage/prefs";
 import type {
@@ -64,6 +69,7 @@ import type {
   ArticleRecord,
   ArticleTopic,
   DigestRecord,
+  DigestSnapshot,
   ReadingRecord,
   SourceRecord,
 } from "./storage/types";
@@ -201,6 +207,9 @@ type Ctx = {
   /** What the reader says they care about — the one signal that is theirs. */
   digestInterests: string;
   setDigestInterests: (v: string) => void;
+  /** The topics the briefing leans toward — at most three, never a filter. */
+  briefingFocus: string[];
+  setBriefingFocus: (ids: string[]) => void;
   /** Today's unread stories: the briefing's raw material. */
   digestCandidates: DigestCandidate[];
   /** True when today's candidates differ from the ones it was written from. */
@@ -326,6 +335,8 @@ export function useReaderState(edition: Edition): Ctx {
   const [dayZone, setDayZone] = useState<string>(localZone);
   /** What the reader says they care about, quoted to the model as fact. */
   const [digestInterests, setDigestInterests] = useState("");
+  /** Topics the briefing leans toward; editorial value still decides first. */
+  const [briefingFocus, setBriefingFocus] = useState<string[]>([]);
   /** Which day's edition is on screen. Null is today's. */
   const [digestDay, setDigestDay] = useState<string | null>(null);
   const [digestError, setDigestError] = useState<string | null>(null);
@@ -378,6 +389,11 @@ export function useReaderState(edition: Edition): Ctx {
     setDigestLanguage(readDigestLanguage(prefs.digestLanguage));
     setDayZone(readDayZone(prefs));
     setDigestInterests(typeof prefs.digestInterests === "string" ? prefs.digestInterests : "");
+    setBriefingFocus(
+      Array.isArray(prefs.briefingFocus)
+        ? prefs.briefingFocus.filter((id): id is string => typeof id === "string").slice(0, 3)
+        : [],
+    );
   }, []);
 
   useEffect(() => {
@@ -454,6 +470,7 @@ export function useReaderState(edition: Edition): Ctx {
       digestLanguage,
       digestInterests,
       dayZone,
+      briefingFocus,
     });
   }, [
     ready,
@@ -468,6 +485,7 @@ export function useReaderState(edition: Edition): Ctx {
     digestLanguage,
     digestInterests,
     dayZone,
+    briefingFocus,
   ]);
 
   /* ------------------------------------------------------ derive views */
@@ -1080,8 +1098,14 @@ export function useReaderState(edition: Edition): Ctx {
    * exclude: each day offers its own stories, and only its own.
    */
   const digestCandidates = useMemo(
-    () => selectCandidates(stories, state.read, todayWindow),
-    [stories, state.read, todayWindow],
+    () =>
+      selectCandidates(
+        stories,
+        state.read,
+        todayWindow,
+        (feedId) => feedIndex.get(feedId)?.name ?? "",
+      ),
+    [stories, state.read, todayWindow, feedIndex],
   );
 
   const todayDigest = useMemo(() => {
@@ -1115,6 +1139,10 @@ export function useReaderState(edition: Edition): Ctx {
   }, [digests, digestDay, now, dayZone]);
 
   const digestInFlight = useRef(false);
+  // Why the last attempt missed, so the reader's next press can tell the model
+  // exactly what to fix. One press is still one call: the correction rides
+  // along with the call the reader asked for rather than spending another.
+  const digestReminder = useRef<DigestReminder | undefined>(undefined);
   // Send times of recent calls, sharing classification's politeness budget.
   const digestTimes = useRef<number[]>([]);
   const digestEnabledRef = useRef(digestEnabled);
@@ -1139,47 +1167,118 @@ export function useReaderState(edition: Edition): Ctx {
     digestInFlight.current = true;
     setDigestWorking(true);
     try {
-      // Pace the request with classification's own delay, so the two AI
-      // features cannot add up to a burst from the reader's page.
-      const wait = classifyDelay(digestTimes.current, Date.now());
-      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-      if (!digestEnabledRef.current) return;
-      const at = Date.now();
-      digestTimes.current = [
-        ...digestTimes.current.filter((time) => at - time < CLASSIFY_WINDOW_MS),
-        at,
-      ];
+      const offered = new Map(pool.map((candidate) => [candidate.id, candidate.source]));
+      const lineLimit = findLanguage(digestLanguage).lineLimit;
+      const publications = new Set(offered.values()).size;
+      // One edition, at most two calls. An answer that cannot make an edition,
+      // or that stops short of the five the day holds, earns a second call with
+      // the reason attached, inside the press that asked for one: nothing is
+      // spent before the reader asks, and the calls stay paced apart. What the
+      // second call is told is written in `lib/digest.ts`.
+      let best: { picks: DigestPick[]; provider?: string; model?: string } | null = null;
+      let reminder = digestReminder.current;
+      let failure = "The model's answer could not be used.";
+      // Sequential by necessity: the second call exists because of what the
+      // first answered, and the pacing lives inside the loop.
+      /* oxlint-disable no-await-in-loop */
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        // Pace the request with classification's own delay, so the two AI
+        // features cannot add up to a burst from the reader's page.
+        const wait = classifyDelay(digestTimes.current, Date.now());
+        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+        if (!digestEnabledRef.current) return;
+        const at = Date.now();
+        digestTimes.current = [
+          ...digestTimes.current.filter((time) => at - time < CLASSIFY_WINDOW_MS),
+          at,
+        ];
 
-      const result = await requestDigest({
-        candidates: pool,
-        llm: llmConfig,
-        language: digestLanguage,
-        interests: digestInterests,
-      });
-      if (!result.ok) {
-        setDigestError(result.error);
+        const result = await requestDigest({
+          candidates: pool,
+          llm: llmConfig,
+          language: digestLanguage,
+          interests: digestInterests,
+          reminder,
+        });
+        // A transport or setup failure is nothing the model can correct.
+        if (!result.ok) {
+          setDigestError(result.error);
+          return;
+        }
+        const attemptPicks = parseDigest(result.text, offered, lineLimit);
+        // A reply with nothing usable in it is a failure, shown as one — half
+        // an edition would be worse than none.
+        if (attemptPicks.length === 0) {
+          reminder = { kind: "tighten" };
+          continue;
+        }
+        // The same doctrine covers a column of one publisher: refused as a
+        // failure rather than written as a stub that looks like an edition,
+        // and the second call is told which publication it over-used.
+        const only = concentratedPublication(attemptPicks, offered);
+        if (only) {
+          // The facts go into the message: how many picks survived, and how
+          // many publications were on offer — a failure should say what it is.
+          failure = `All ${attemptPicks.length} usable picks came from "${only}" — ${publications} publications were on offer. Try again.`;
+          reminder = { kind: "spread", source: only };
+          continue;
+        }
+        // The longer answer wins: a second call that comes back shorter, or
+        // not at all, must not cost the reader what the first one had.
+        if (!best || attemptPicks.length > best.picks.length) {
+          best = { picks: attemptPicks, provider: result.provider, model: result.model };
+        }
+        // A short edition stands — "return fewer only when the day does not
+        // hold five" — but a day this full usually does, so one more call asks
+        // for the rest before anything is written.
+        if (attemptPicks.length >= DIGEST_PICKS) break;
+        reminder = { kind: "few", picked: attemptPicks.length };
+      }
+      /* oxlint-enable no-await-in-loop */
+      if (!best) {
+        // Remembered, so the reader's own next press carries the correction.
+        digestReminder.current = reminder;
+        setDigestError(failure);
         return;
       }
-      setDigestProvider(result.provider ?? null);
-      const ids = new Set(pool.map((candidate) => candidate.id));
-      const picks = parseDigest(result.text, ids, findLanguage(digestLanguage).lineLimit);
-      // A reply with nothing usable in it is a failure, shown as one — half an
-      // edition would be worse than none.
-      if (picks.length === 0) {
-        setDigestError("The model's answer could not be used.");
-        return;
-      }
+      const picks = best.picks;
+      const provider = best.provider;
+      const model = best.model;
+      setDigestProvider(provider ?? null);
+      // A short edition stands, but the next attempt is told how many the day
+      // could carry.
+      digestReminder.current =
+        picks.length < DIGEST_PICKS ? { kind: "few", picked: picks.length } : undefined;
+      // The record keeps what its rows print. The article cache is disposable
+      // and a feed rotation may delete a picked story tomorrow; an edition is
+      // finished work and has to outlive it (see STORAGE.md).
+      const byStory = new Map(stories.map((s) => [s.id, s]));
+      const byCandidate = new Map(pool.map((candidate) => [candidate.id, candidate]));
+      const snapshots = Object.fromEntries(
+        picks.map((pick): [string, DigestSnapshot] => {
+          const target = byStory.get(pick.id);
+          return [
+            pick.id,
+            {
+              title: target?.title ?? byCandidate.get(pick.id)?.title ?? "",
+              source: target ? (feedById(target.feedId)?.name ?? "") : "",
+              ...(target?.link ? { link: target.link } : {}),
+            },
+          ];
+        }),
+      );
       const record: DigestRecord = {
         day: dayKeyIn(Date.now(), dayZone),
         picks: picks.map((pick) => pick.id),
         gists: Object.fromEntries(picks.map((pick) => [pick.id, pick.gist])),
         reasons: Object.fromEntries(picks.map((pick) => [pick.id, pick.why])),
+        snapshots,
         // The whole eligible set, not the pool a rewrite was offered: "what
         // arrived since" is about the day, not about one attempt at it.
         candidates: digestCandidates.map((candidate) => candidate.id),
         offered: pool.length,
-        provider: result.provider ?? llmConfig.service,
-        ...(result.model ? { model: result.model } : {}),
+        provider: provider ?? llmConfig.service,
+        ...(model ? { model } : {}),
         language: digestLanguage,
         updatedAt: Date.now(),
       };
@@ -1194,7 +1293,7 @@ export function useReaderState(edition: Edition): Ctx {
       digestInFlight.current = false;
       setDigestWorking(false);
     }
-  }, [digestCandidates, llmConfig, digestLanguage, digestInterests, dayZone]);
+  }, [digestCandidates, stories, feedById, llmConfig, digestLanguage, digestInterests, dayZone]);
 
   /* ------------------------------------------------------------- filter */
 
@@ -1387,8 +1486,7 @@ export function useReaderState(edition: Edition): Ctx {
   const pendingBodies = useRef(new Map<string, ArticleRecord>());
 
   const loadArticle = useCallback(async (record: ArticleRecord) => {
-    const url = record.link;
-    if (!url) return;
+    if (!record.link) return;
     // A fresh body from the current extractor is revalidated. Anything else —
     // never fetched, produced by an older extractor, or a legacy record with
     // no version at all — is fetched as if for the first time, so the open
@@ -1397,99 +1495,30 @@ export function useReaderState(edition: Edition): Ctx {
       typeof record.contentFetchedAt === "number" && record.extractorVersion === EXTRACTOR_VERSION;
     extractingRef.current.add(record.id);
     if (!revalidation) setExtracting(record.id);
-
-    const at = Date.now();
-    const params = new URLSearchParams({ url });
-    // Conditional GET is only useful when the cached body came from this same
-    // extractor. After a version bump the page may be unchanged while the body
-    // still has to be rebuilt, and a `304` would leave no HTML to rebuild from.
-    if (revalidation) {
-      if (record.etag) params.set("etag", record.etag);
-      else if (record.lastModified) params.set("lastModified", record.lastModified);
-    }
-    // The source's own title, so the page can trim a site name it glued to the
-    // headline (“Article - Site”).
-    const sourceTitle = sourcesRef.current.find((s) => s.id === record.sourceId)?.title;
-    if (sourceTitle) params.set("site", sourceTitle);
-
     try {
-      const res = await fetch(`/api/article?${params.toString()}`);
-      const data = await res.json();
-      if (!data?.ok) throw new Error(data?.error ?? "failed");
-
-      if (data.notModified) {
-        await repo.putArticle({ ...record, contentCheckedAt: at });
-        setArticles((current) =>
-          current.map((a) => (a.id === record.id ? { ...a, contentCheckedAt: at } : a)),
-        );
-        return;
-      }
-
-      const article = data.article as {
-        title?: string;
-        author?: string;
-        blocks: ArticleRecord["body"];
-        truncated?: boolean;
-        image?: string;
-        hasCover?: boolean;
-        imageCaption?: string;
-        videoPage?: boolean;
-        etag?: string;
-        lastModified?: string;
-      };
-      const next: ArticleRecord = {
-        ...record,
-        title: article.title || record.title,
-        author: article.author || record.author,
-        body: article.blocks,
-        image: article.image ?? record.image,
-        hasCover: article.hasCover ?? record.hasCover,
-        imageCaption: article.imageCaption ?? record.imageCaption,
-        videoPage: article.videoPage ?? record.videoPage,
-        // Only a body that was not cut by our own budget may call itself full.
-        contentState: article.truncated ? "truncated" : "full",
-        extractionState: "success",
-        contentFetchedAt: at,
-        contentCheckedAt: at,
-        etag: article.etag ?? record.etag,
-        lastModified: article.lastModified ?? record.lastModified,
-        extractorVersion: EXTRACTOR_VERSION,
-      };
-      await repo.putArticle(next);
-      if (revalidation) {
-        pendingBodies.current.set(next.id, next);
-        setArticles((current) =>
-          current.map((a) =>
-            a.id === next.id
-              ? { ...a, contentCheckedAt: at, etag: next.etag, lastModified: next.lastModified }
-              : a,
-          ),
-        );
-      } else {
-        setArticles((current) => current.map((a) => (a.id === next.id ? next : a)));
-      }
-    } catch {
-      // A failure keeps whatever body is already there. The checked time moves,
-      // so the retry window — not a permanent lockout — decides the next try.
-      const hasOriginal = typeof record.contentFetchedAt === "number";
-      await repo.putArticle({
-        ...record,
-        extractionState: hasOriginal ? record.extractionState : "failed",
-        contentCheckedAt: at,
-        // Stamp the attempt so a version change does not retrigger every render.
-        extractorVersion: EXTRACTOR_VERSION,
-      });
+      const source = sourcesRef.current.find((s) => s.id === record.sourceId);
+      if (!source) return;
+      // The fetching, caching and retry rules live in one place, shared with
+      // the briefing's bounded enrichment; only the reader's own policy — not
+      // swapping a body under someone mid-read — is decided here.
+      const result = await ensureArticleContent({ article: record, source, purpose: "reader" });
+      const next = result.article;
       setArticles((current) =>
-        current.map((a) =>
-          a.id === record.id
-            ? {
-                ...a,
-                extractionState: hasOriginal ? a.extractionState : "failed",
-                contentCheckedAt: at,
-                extractorVersion: EXTRACTOR_VERSION,
-              }
-            : a,
-        ),
+        current.map((a) => {
+          if (a.id !== next.id) return a;
+          if (!revalidation) return next;
+          if (next.body !== record.body) pendingBodies.current.set(next.id, next);
+          // Revalidation writes the cache and the freshness marks only: the
+          // body on screen is the reader's, whatever the server just sent.
+          return {
+            ...a,
+            contentCheckedAt: next.contentCheckedAt,
+            etag: next.etag,
+            lastModified: next.lastModified,
+            extractionState: next.extractionState,
+            extractorVersion: next.extractorVersion,
+          };
+        }),
       );
     } finally {
       extractingRef.current.delete(record.id);
@@ -1652,6 +1681,8 @@ export function useReaderState(edition: Edition): Ctx {
     setDayZone,
     digestInterests,
     setDigestInterests,
+    briefingFocus,
+    setBriefingFocus,
     digestCandidates,
     digestStale,
     digestError,

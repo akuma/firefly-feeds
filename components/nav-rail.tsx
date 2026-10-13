@@ -384,23 +384,13 @@ export function NavRail({
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain pb-8">
         {/*
          * The briefing is a page rather than a reading state — a curated
-         * edition, not a filter over what arrived — so it sits above them. And
-         * it appears only once the reader has switched it on: a row leading to
-         * a page that can only say "turn me on in Settings" is a dead end.
+         * edition, not a filter over what arrived — so it leads the reading
+         * section, ahead of Today.
          */}
-        {r.digestEnabled && (
-          <Section title="Edition" first>
-            <Row
-              active={r.view === "briefing"}
-              onClick={() => go("briefing")}
-              count={r.digest?.picks.length}
-            >
-              Briefing
-            </Row>
-          </Section>
-        )}
-
-        <Section title="Reading" first={!r.digestEnabled}>
+        <Section title="Reading" first>
+          <Row active={r.view === "briefing"} onClick={() => go("briefing")}>
+            Briefing
+          </Row>
           {views.map((v) => (
             <Row key={v.id} active={r.view === v.id} onClick={() => go(v.id)} count={v.count}>
               {v.name}

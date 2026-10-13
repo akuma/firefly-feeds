@@ -3027,8 +3027,62 @@ describe("turning classification on", () => {
   });
 });
 
-/** Three real stories: below that there is no edition to write. */
-async function seedDigestStories() {
+/* -------------------------------------------------------- daily briefing */
+
+/**
+ * The briefing pipeline at the shell level: the model and the network are
+ * stubbed; candidate preparation, validation, publication and the run state
+ * are the real thing. The fixtures follow docs/specs/ai-daily-briefing.md §11.
+ */
+
+const BRIEFING_PREFS = {
+  llmConfig: {
+    service: "ollama",
+    wire: "openai",
+    baseUrl: "",
+    models: { ollama: "llama3.2" },
+    keys: {},
+  },
+};
+
+const shortlistReply = {
+  schemaVersion: 1,
+  groups: [
+    {
+      groupId: "g1",
+      kind: "news",
+      workingHeadline: "A first story explained",
+      articleIds: ["sdig~one", "sdig~two"],
+      value: 3,
+      novelty: 2,
+      evidence: 2,
+      selectionReason: "Two stories, one development",
+      missingInformation: "",
+    },
+  ],
+  extractArticleIds: ["sdig~one"],
+};
+
+const composeReply = {
+  schemaVersion: 1,
+  bigPicture: null,
+  topStories: [
+    {
+      headline: "A first story explained",
+      whatHappened: {
+        text: "The first summary is the whole of what happened.",
+        evidence: [{ articleId: "sdig~one", excerpt: "The first summary." }],
+      },
+      context: null,
+      whyItMatters: null,
+      perspectives: [],
+    },
+  ],
+  worthReading: [],
+};
+
+/** Real stories from one source: the material the edition is written from. */
+async function seedBriefingStories() {
   const repo = await import("@/lib/storage/repository");
   const now = Date.now();
   await repo.putSource({
@@ -3042,24 +3096,34 @@ async function seedDigestStories() {
     fetchedAt: now,
     updatedAt: now,
   });
-  // Ten, because an edition is only written where there is a choice to make
   const stories = [
-    { id: "sdig~one", title: "A first story", summary: "The first summary." },
-    { id: "sdig~two", title: "A second story", summary: "The second summary." },
-    { id: "sdig~three", title: "A third story", summary: "The third summary." },
-    ...Array.from({ length: 7 }, (_, i) => ({
-      id: `sdig~filler${i}`,
-      title: `Filler story ${i}`,
-      summary: `Filler summary ${i}.`,
-    })),
+    {
+      id: "sdig~one",
+      title: "A first story",
+      summary: "The first summary.",
+      link: "https://dig.example/one",
+    },
+    {
+      id: "sdig~two",
+      title: "A second story",
+      summary: "The second summary.",
+      link: "https://dig.example/two",
+    },
+    {
+      id: "sdig~three",
+      title: "A third story",
+      summary: "The third summary.",
+      link: "https://dig.example/three",
+    },
   ];
   await repo.replaceArticles(
     "sdig",
-    stories.map((story, i) => ({
+    stories.map((story) => ({
       id: story.id,
       sourceId: "sdig",
       title: story.title,
-      publishedAt: now - i * 60_000,
+      link: story.link,
+      publishedAt: now,
       fetchedAt: now,
       summary: story.summary,
       body: [{ kind: "p" as const, text: story.summary }],
@@ -3068,69 +3132,28 @@ async function seedDigestStories() {
       contentState: "full" as const,
       extractionState: "idle" as const,
     })),
-  ); // One of them carries a topic, so the edition's row can be checked for not
-  // showing it — a tag on a row that is already chosen is noise.
-  await repo.putTopics(defaultTopics(now));
-  await repo.putClassification({
-    itemId: "sdig~two",
-    topicIds: ["technology"],
-    primaryTopicId: "technology",
-    confidence: 0.9,
-    status: "confirmed",
-    provider: "jev",
-    contentFingerprint: articleFingerprint("A second story", "The second summary."),
-    updatedAt: now,
-  });
-}
-
-/** A local model, already set up: no key, and nothing off the machine. */
-const LLM_PREFS = {
-  digest: true,
-  llmConfig: {
-    service: "ollama",
-    wire: "openai",
-    baseUrl: "",
-    models: { ollama: "llama3.2" },
-    keys: {},
-  },
-};
-
-function digestAnswer() {
-  // Ollama's own answer shape: one message, not a list of choices.
-  return new Response(
-    JSON.stringify({
-      message: {
-        role: "assistant",
-        content: JSON.stringify([
-          {
-            id: "sdig~two",
-            gist: "A gist about the second story.",
-            why: "It explains the week.",
-          },
-          {
-            id: "sdig~one",
-            gist: "A gist about the first story.",
-            why: "It has the numbers.",
-          },
-        ]),
-      },
-      done: true,
-    }),
-    { headers: { "content-type": "application/json" } },
   );
 }
 
-/** Only the requests this feature could have made. */
-function digestSpy() {
-  const seen: { url: string; body: string }[] = [];
+/** The model, one call at a time: the shortlist first, then the composition. */
+function briefingSpy() {
+  const seen: string[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url.includes("/api/chat") || url.includes("/api/digest")) {
-      seen.push({ url, body: String(init?.body ?? "") });
-      return digestAnswer();
+    if (url.includes("/api/chat") || url.includes("/api/briefing")) {
+      seen.push(String(init?.body ?? ""));
+      const answer = seen.length % 2 === 1 ? shortlistReply : composeReply;
+      return new Response(
+        JSON.stringify({
+          message: { role: "assistant", content: JSON.stringify(answer) },
+          done: true,
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
     }
-    return new Response(JSON.stringify({ ok: true, items: [] }), {
+    // the extractor refuses; the feed summary carries the story onward
+    return new Response(JSON.stringify({ ok: false, error: "blocked" }), {
       headers: { "content-type": "application/json" },
     });
   }) as typeof fetch;
@@ -3140,171 +3163,104 @@ function digestSpy() {
 /** The briefing is a page of its own, reached from the navigation. */
 async function openBriefing(user: ReturnType<typeof userEvent.setup>) {
   await user.click(within(nav()).getByRole("button", { name: /Briefing/ }));
-  await waitFor(() => expect(stream().querySelector("[data-t='briefing']")).toBeInTheDocument());
+  await waitFor(() =>
+    expect(stream().querySelector("[data-t='briefing-column']")).toBeInTheDocument(),
+  );
 }
 
 function briefing() {
-  return stream().querySelector<HTMLElement>("[data-t='briefing']")!;
+  return stream().querySelector<HTMLElement>("[data-t='briefing-column']")!;
 }
 
-describe("today's briefing", () => {
-  it("writes the edition from the stories it has, and says where the words came from", async () => {
-    localStorage.setItem("firefly.feeds.v1", JSON.stringify(LLM_PREFS));
-    await seedDigestStories();
-    const spy = digestSpy();
-
-    try {
-      const { user } = await mount();
-      // A page of its own, and an edition written only when the reader asks
-      // for one — the call spends their key and their machine's time.
-      await openBriefing(user);
-      await user.click(within(briefing()).getByRole("button", { name: /Write today's edition/ }));
-      const block = briefing();
-
-      // the two lines that make a gist a summary and not a substitute
-      await waitFor(() =>
-        expect(within(block).getByText("A gist about the second story.")).toBeInTheDocument(),
-      );
-      expect(within(block).getByText("It explains the week.")).toBeInTheDocument();
-      expect(within(block).getByText(/Nothing fetched, nothing invented/)).toBeInTheDocument();
-
-      // the topic tag and the marker that questions it are scanning aids for a
-      // column of dozens; in an edition of five the gist does that work
-      expect(block.querySelector("[data-t='story-topic']")).toBeNull();
-
-      // a local model is called straight from the browser, not through our
-      // endpoint — our own server cannot see the reader's machine
-      expect(spy.seen).toHaveLength(1);
-      expect(spy.seen[0].url).toBe("http://localhost:11434/api/chat");
-      // and it is given the stories, not a question of its own
-      const sent = JSON.parse(spy.seen[0].body);
-      expect(sent.messages[1].content).toContain("A first story");
-      expect(sent.messages[1].content).toContain("A third story");
-
-      // the item is one row, one click target — the same as anywhere in the
-      // stream, so the words in it open the story too
-      await user.click(within(block).getByText("A gist about the second story."));
-      await waitFor(() => expect(within(reader()).getByText("A second story")).toBeInTheDocument());
-
-      // and the stream is the stream again: the edition is a page, not a
-      // banner riding along at the top of Today
-      await user.click(within(nav()).getByRole("button", { name: /Today/ }));
-      await waitFor(() => expect(stream().querySelector("[data-t='briefing']")).toBeNull());
-      // …and the same story is untagged in the stream: rows are rows
-      await waitFor(() => expect(stream().querySelector("[data-t='story-topic']")).toBeNull());
-    } finally {
-      spy.restore();
-    }
-  });
-
-  it("writes nothing until the reader asks", async () => {
-    localStorage.setItem("firefly.feeds.v1", JSON.stringify(LLM_PREFS));
-    await seedDigestStories();
-    const spy = digestSpy();
+describe("the daily briefing", () => {
+  it("writes, publishes and cites an edition, and says where the words came from", async () => {
+    localStorage.setItem("firefly.feeds.v1", JSON.stringify(BRIEFING_PREFS));
+    await seedBriefingStories();
+    const spy = briefingSpy();
 
     try {
       const { user } = await mount();
       await openBriefing(user);
-
-      // the page is open, the stories are there, and still nothing is spent
-      await waitFor(() =>
-        expect(
-          within(briefing()).getByRole("button", { name: /Write today's edition/ }),
-        ).toBeInTheDocument(),
-      );
+      // nothing is written until the reader asks: the calls spend their key
       expect(spy.seen).toHaveLength(0);
-
-      await user.click(within(briefing()).getByRole("button", { name: /Write today's edition/ }));
-      await waitFor(() => expect(spy.seen).toHaveLength(1));
-    } finally {
-      spy.restore();
-    }
-  });
-
-  it("leaves an edition the reader has already read alone", async () => {
-    localStorage.setItem("firefly.feeds.v1", JSON.stringify(LLM_PREFS));
-    await seedDigestStories();
-    const repo = await import("@/lib/storage/repository");
-    const { dayKey } = await import("@/lib/digest");
-    await repo.putDigest({
-      day: dayKey(),
-      picks: ["sdig~one"],
-      gists: { "sdig~one": "A written gist." },
-      reasons: { "sdig~one": "A written reason." },
-      candidates: ["sdig~one", "sdig~two", "sdig~three"],
-      offered: 3,
-      provider: "ollama",
-      model: "llama3.2",
-      language: "source",
-      updatedAt: Date.now(),
-    });
-    const spy = digestSpy();
-
-    try {
-      const { user } = await mount();
-      await openBriefing(user);
-      await waitFor(() =>
-        expect(within(briefing()).getByText("A written gist.")).toBeInTheDocument(),
+      await user.click(
+        within(briefing()).getByRole("button", { name: /Generate today's briefing/ }),
       );
-      // one edition a day: nothing is rewritten behind the reader's back
-      expect(spy.seen).toHaveLength(0);
-    } finally {
-      spy.restore();
-    }
-  });
 
-  it("is off until the reader asks for it", async () => {
-    await seedDigestStories();
-    const spy = digestSpy();
+      // the edition appears with its evidence: the sources are the program's
+      // metadata, not the model's words
+      await waitFor(
+        () => expect(within(reader()).getByText("A first story explained")).toBeInTheDocument(),
+        { timeout: 15_000 },
+      );
+      const pane = reader().querySelector<HTMLElement>("[data-t='briefing-reader']")!;
+      expect(
+        within(pane).getByText("The first summary is the whole of what happened."),
+      ).toBeInTheDocument();
+      expect(within(pane).getByText(/Written from the selected stories/)).toBeInTheDocument();
+      expect(within(briefing()).getByText(/2 model calls/)).toBeInTheDocument();
+      // the whole day was considered, and the run spent its two model calls
+      expect(within(briefing()).getByText(/3 stories considered/)).toBeInTheDocument();
 
-    try {
-      await mount();
-      // no page, no tab, and nothing sent — a navigation row that leads to
-      // "turn me on in Settings" would be a dead end
-      expect(within(nav()).queryByRole("button", { name: /Briefing/ })).toBeNull();
-      expect(stream().querySelector("[data-t='briefing']")).toBeNull();
-      expect(spy.seen).toHaveLength(0);
-    } finally {
-      spy.restore();
-    }
-  });
-
-  it("lets the reader rewrite as often as they like", async () => {
-    localStorage.setItem("firefly.feeds.v1", JSON.stringify(LLM_PREFS));
-    await seedDigestStories();
-    const repo = await import("@/lib/storage/repository");
-    const { dayKey } = await import("@/lib/digest");
-    await repo.putDigest({
-      day: dayKey(),
-      picks: ["sdig~one"],
-      gists: { "sdig~one": "A written gist." },
-      reasons: { "sdig~one": "A written reason." },
-      candidates: ["sdig~one", "sdig~two", "sdig~three"],
-      offered: 3,
-      provider: "ollama",
-      model: "llama3.2",
-      language: "source",
-      updatedAt: Date.now(),
-    });
-    const spy = digestSpy();
-
-    try {
-      const { user } = await mount();
-      await openBriefing(user);
-      const button = within(briefing()).getByRole("button", { name: /Regenerate/ });
-
-      // It is the reader's key and their money. What stands between them and a
-      // stray click is the one-at-a-time lock and the pacing between calls —
-      // a daily allowance only ever got in the way of somebody improving this.
-      await user.click(button);
-      await waitFor(() => expect(spy.seen.length).toBe(1));
-      await waitFor(() => expect(button).toBeEnabled());
-
-      await user.click(button);
-      await waitFor(() => expect(spy.seen.length).toBe(2), { timeout: 15_000 });
-      await waitFor(() => expect(button).toBeEnabled());
+      // the cited source opens the real article, and comes back to the page
+      await user.click(within(pane).getByRole("button", { name: /Digest Source/ }));
+      await waitFor(() =>
+        expect(within(reader()).getByText("Back to Briefing")).toBeInTheDocument(),
+      );
+      await user.click(within(reader()).getByRole("button", { name: /Back to Briefing/ }));
+      await waitFor(() =>
+        expect(within(reader()).getByText("A first story explained")).toBeInTheDocument(),
+      );
     } finally {
       spy.restore();
     }
   }, 20_000);
+
+  it("gives a regenerated day a new revision and keeps the old one readable", async () => {
+    localStorage.setItem("firefly.feeds.v1", JSON.stringify(BRIEFING_PREFS));
+    await seedBriefingStories();
+    const spy = briefingSpy();
+
+    try {
+      const { user } = await mount();
+      await openBriefing(user);
+      await user.click(
+        within(briefing()).getByRole("button", { name: /Generate today's briefing/ }),
+      );
+      await waitFor(
+        () => expect(within(reader()).getByText("A first story explained")).toBeInTheDocument(),
+        { timeout: 15_000 },
+      );
+
+      await user.click(within(briefing()).getByRole("button", { name: /Regenerate/ }));
+      await waitFor(() => expect(within(reader()).getByText(/revision 2/)).toBeInTheDocument(), {
+        timeout: 15_000,
+      });
+      // Regenerate never overwrites: the earlier edition is one click away
+      await user.click(within(briefing()).getByRole("button", { name: /r1/ }));
+      await waitFor(() =>
+        expect(within(reader()).getByText("A first story explained")).toBeInTheDocument(),
+      );
+      expect(within(reader()).queryByText(/revision 2/)).not.toBeInTheDocument();
+    } finally {
+      spy.restore();
+    }
+  }, 30_000);
+
+  it("sends nothing and explains itself when no model is configured", async () => {
+    await seedBriefingStories();
+    const spy = briefingSpy();
+
+    try {
+      const { user } = await mount();
+      await openBriefing(user);
+      expect(within(briefing()).getByText(/model of your own choosing/)).toBeInTheDocument();
+      expect(
+        within(briefing()).getByRole("button", { name: /Set up a model/ }),
+      ).toBeInTheDocument();
+      expect(spy.seen).toHaveLength(0);
+    } finally {
+      spy.restore();
+    }
+  });
 });

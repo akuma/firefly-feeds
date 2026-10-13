@@ -76,7 +76,7 @@ bun run test -- -t "<name>"
 - Persisted data is a compatibility surface. Storage names, keys, and record-shape changes require migration handling.
 - Browser code must not fetch publisher feeds directly; keep feed network access server-side.
 - Do not render publisher HTML with `dangerouslySetInnerHTML`; use the existing article representation.
-- Full text is fetched only when the reader opens a story whose feed body was a summary — never as a background crawl — and never to defeat a paywall, login, or challenge.
+- Full text is fetched only when the reader opens a story whose feed body was a summary — never as a background crawl — and never to defeat a paywall, login, or challenge. One bounded exception: when the reader presses Generate on the daily briefing, at most ten selected stories may be fetched for evidence (`BRIEFING_LIMITS.maxNewExtracts`).
 - Never fabricate authors, publications, URLs, or artwork for real articles.
 - Follow the existing design system rather than introducing a new visual language casually.
 

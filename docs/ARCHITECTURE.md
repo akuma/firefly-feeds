@@ -426,7 +426,49 @@ transport the reader chose — nowhere at all when that is a local Ollama, and t
 hosted service that bills per story otherwise. No reading history, no
 subscription list, no full text, no Firefly account.
 
-## Today's briefing
+## The daily briefing (v1)
+
+The briefing is an AI-edited daily edition — `The Big Picture`, `Top Stories`,
+`Worth Reading` — written from the reader's own subscriptions on request, in two
+model calls and a bounded amount of fetching. The full contract lives in
+[docs/specs/ai-daily-briefing.md](specs/ai-daily-briefing.md); the code is
+`lib/briefing/` (`candidates → prompts → materials → validate → pipeline`) plus
+one server entry, `POST /api/briefing/generate`.
+
+The invariants the implementation is built around:
+
+- **Deterministic first.** `prepareCandidates` decides what the day offers
+  without a model: exact dedupe, two time windows, and a first-round share per
+  source before any source gets seconds, so a high-volume publisher cannot
+  consume the prompt. The same records produce the same candidate set in every
+  run.
+- **Inputs frozen at the press.** A run records its candidate set, history and
+  focus topics before the first call; a later RSS refresh cannot change what an
+  edition was written from, and a resumed run continues on its own frozen input.
+- **Two calls, one repair, ever.** Shortlist → enrich → compose; a rejected
+  answer earns at most one corrective call per run, with the validator's own
+  field-level complaints attached. The model configuration is the application's
+  existing one (`lib/llm.ts`), unchanged.
+- **Bounded enrichment.** At most ten selected stories may have their bodies
+  fetched (`BRIEFING_LIMITS`), two at a time, through the shared
+  `ensureArticleContent` the reader uses — which also means the reader's retry
+  windows apply to the briefing. Never a background crawl.
+- **Evidence is verified, not trusted.** Every claim's excerpt must appear
+  verbatim (whitespace aside) in the material the model was given; unknown
+  article ids, invented URLs and unevidenced sections are refused, never
+  repaired into fiction. Publisher text is untrusted data in the prompt.
+- **Program-made metadata.** Publication names, headlines and links on the
+  published edition are computed from the frozen records — the model never
+  names a source.
+- **Editions are durable, runs are not.** Regenerate writes a new revision and
+  keeps the old one; a failed run keeps its checkpoints for resume and is the
+  only thing ever cleaned up (see [STORAGE.md](STORAGE.md)).
+
+## Today's briefing (superseded design)
+
+> The section below describes the earlier single-call digest. The briefing view
+> is now the v1 pipeline above; the digest code remains until its removal
+> (tracked as a follow-up), and its stores are kept for data safety.
 
 The briefing answers the one question folders and topics cannot: _which of
 today's stories are worth my time?_ It is opt-in and off by default, for the same
@@ -444,7 +486,24 @@ never on a feed's teaser alone, which is what a publisher says about a piece and
 not the piece: a gist written from a paraphrase is a paraphrase of a paraphrase.
 to the model chosen in Settings. Nothing is fetched to make the prompt better.
 The answer is up to five stories, each with one line on what it is and one on
-why it might be worth reading. There is only an edition where there is a
+why it might be worth reading, and never more than two from one publication.
+The prompt carries the publication with each story and groups the day's stories
+by it, because a rule about spread cannot be followed by a model that cannot
+tell which stories are whose — and `parseDigest` refuses a third from one
+publication, so the spread is a guarantee rather than a hope. An answer that
+still draws on one publication where the day offered several is refused
+outright: one publisher's column is not an edition, half an edition is worse
+than none, and retrying is one click. Where the day itself offers only one
+publication there is no spread to keep, and its best five make the edition.
+When an answer cannot make an edition, or stops short of the five the day holds,
+the reader's press earns a second call with the reason attached — the over-used
+publication named, or how few of how many the last answer carried — because the
+calls are paced apart and nothing is spent before they ask. The longer of the
+two answers is the edition. A second refusal is shown as a failure that says how
+many stories and which publication, and the reason is remembered so the next
+press carries it too. The correction's every word is ours: the wire carries a
+kind, a name and a number, never text.
+There is only an edition where there is a
 choice to make: ten unread stories at least. Five of eight is barely a
 choosing and five of three is a list, and a reader can read a list. What is
 counted is what can be chosen from — today's unread — so a busy day read to
@@ -454,6 +513,14 @@ rewrites it. There is no ceiling on how often: it is the reader's key and
 their money, and what stands between them and a stray click is that one
 edition writes at a time and calls are paced apart. A daily allowance was
 tried and only ever got in the way of somebody improving the thing.
+
+**An edition outlives the cache.** The article cache is disposable and a feed
+rotation deletes what the feed no longer offers (see [STORAGE.md](STORAGE.md)),
+but a dated edition is finished work. So the record keeps what its rows print:
+each pick's headline, publication and link are written down beside its gist and
+reason. A pick whose article has since been dropped is still shown, dimmed and
+unopenable, with the link out to the original. Rows never quietly vanish — the
+number at the top of the page and the rows below it always agree.
 
 **The briefing is a page, not a banner.** It is a view of its own — a row under
 "Edition" in the navigation, and a tab on mobile — because it answers a
@@ -521,10 +588,11 @@ key, so there is nothing to keep off the page — and everything else goes throu
 this app's own endpoint.
 
 Privacy: while a briefing is on, the only thing that leaves the device is the
-title and summary of the day's unread stories, up to fifty at a time, once a day
-and on the reader's own request. It goes to this app's own endpoint, and then to
-the service the reader chose — nowhere at all when that is a local Ollama. No
-reading history, no subscription list, no full text, no Firefly account.
+title, the publication, and the summary of the day's unread stories, up to
+fifty at a time, once a day and on the reader's own request. It goes to this
+app's own endpoint, and then to the service the reader chose — nowhere at all
+when that is a local Ollama. No reading history, no subscription list beyond
+the names of the day's own publications, no full text, no Firefly account.
 
 **The briefing speaks the reader's language; the application keeps its own.** A
 "Written in" setting in Settings decides the language of the gists and reasons

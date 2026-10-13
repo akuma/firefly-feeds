@@ -30,6 +30,7 @@ import {
 import { localZone } from "@/lib/edition";
 import { DIGEST_LANGUAGES, type DigestLanguageId } from "@/lib/languages";
 import { DIGEST_INTERESTS_LIMIT } from "@/lib/digest";
+import { BriefingSettings } from "./briefing/briefing-settings";
 import { useReader } from "@/lib/store";
 
 /**
@@ -699,6 +700,9 @@ export function Settings() {
               </div>
             )}
           </div>
+
+          {/* ---------------------------------------------------- briefing */}
+          <BriefingSettings />
 
           {/* ------------------------------------------------------- topics */}
           <div className="mt-9 flex items-center justify-between gap-4 border-t border-rule pt-6">

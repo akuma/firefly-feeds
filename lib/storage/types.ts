@@ -160,6 +160,23 @@ export type ArticleClassification = {
  * suggestion: this is a record of what happened, and the words are metadata
  * about ids that are the real content.
  */
+/**
+ * What a picked story's row prints, kept beside the edition that picked it.
+ *
+ * The article lives in the disposable cache (see STORAGE.md) and a feed
+ * rotation may delete it tomorrow, while an edition is dated, finished work.
+ * So the record keeps its own copy: the headline and the publication are what
+ * the row shows, the link is where the reader still goes when the story itself
+ * is gone.
+ */
+export type DigestSnapshot = {
+  title: string;
+  /** The publication's name, as the kicker prints it. */
+  source: string;
+  /** Canonical URL, when the story had one. */
+  link?: string;
+};
+
 export type DigestRecord = {
   /** `YYYY-MM-DD` in the reader's own day. One edition per day. */
   day: string;
@@ -169,6 +186,12 @@ export type DigestRecord = {
   gists: Record<string, string>;
   /** Why each one was picked, keyed by story id. */
   reasons: Record<string, string>;
+  /**
+   * What each pick's row printed, keyed by story id. Optional because records
+   * predate it: one written before shows its rows only while the cached
+   * stories survive, and a new one outlives the cache entirely.
+   */
+  snapshots?: Record<string, DigestSnapshot>;
   /**
    * The stories it was written from. A candidate that is not here arrived
    * afterwards, which is the only case where rewriting could add anything —
@@ -200,3 +223,17 @@ export type StorageUsage = {
   usage: number;
   quota: number;
 } | null;
+
+/**
+ * The briefing's durable editions and disposable runs live in their own stores
+ * and own module (see ../briefing/types). They are re-exported here so `db.ts`
+ * and `repository.ts` read as one storage contract.
+ */
+export type {
+  BriefingEdition,
+  BriefingHistoryDigest,
+  BriefingRun,
+  BriefingSourceSnapshot,
+  BriefingStats,
+  RunStatus,
+} from "../briefing/types";

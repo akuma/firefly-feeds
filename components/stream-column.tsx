@@ -16,7 +16,6 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clsx } from "./clsx";
 import { IconButton } from "./brand";
-import { Briefing } from "./briefing";
 import { editionFor } from "@/lib/edition";
 import { Firefly, Media, hasArt } from "./plate";
 import { agoLabel } from "@/lib/reading";
@@ -664,9 +663,6 @@ export function StreamColumn() {
           <div className="flex flex-col items-center gap-4 px-8 py-24">
             <span className="label text-ink4">Opening the edition</span>
           </div>
-        ) : r.view === "briefing" ? (
-          /* A page of its own, with its own states — not rows among rows. */
-          <Briefing />
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center px-8 py-24 text-center">
             <div className="label text-ink3">Nothing here</div>

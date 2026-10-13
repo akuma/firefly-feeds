@@ -15,6 +15,8 @@ import { clsx } from "./clsx";
 import type { Edition } from "@/lib/edition";
 import { AddSource } from "./add-source";
 import { ArticlePane } from "./article-pane";
+import { BriefingColumn } from "./briefing/briefing-column";
+import { BriefingReader } from "./briefing/briefing-reader";
 import { EditSource } from "./edit-source";
 import { IconButton, Wordmark } from "./brand";
 import { NavRail } from "./nav-rail";
@@ -24,6 +26,7 @@ import { Shortcuts } from "./shortcuts";
 import { StreamColumn } from "./stream-column";
 import { editionFor } from "@/lib/edition";
 import { ReaderContext, useKeyboardShortcuts, useReader, useReaderState } from "@/lib/store";
+import { useBriefing } from "@/lib/briefing/useBriefing";
 
 /* ------------------------------------------------------------ mobile */
 
@@ -49,19 +52,15 @@ function MobileTopBar() {
 function MobileTabBar() {
   const r = useReader();
   const items = [
-    // The edition only gets a tab once there is one to read — the same rule
-    // the navigation follows, so the two never disagree.
-    ...(r.digestEnabled
-      ? [
-          {
-            key: "briefing",
-            label: "Briefing",
-            icon: Newspaper,
-            active: r.view === "briefing",
-            on: () => r.setView("briefing"),
-          },
-        ]
-      : []),
+    // The briefing is a first-class destination: an edition of the reader's
+    // own day, one tap away.
+    {
+      key: "briefing",
+      label: "Briefing",
+      icon: Newspaper,
+      active: r.view === "briefing",
+      on: () => r.setView("briefing"),
+    },
     {
       key: "stream",
       label: "Stream",
@@ -82,13 +81,6 @@ function MobileTabBar() {
       icon: ClockIcon,
       active: r.view === "later",
       on: () => r.setView("later"),
-    },
-    {
-      key: "search",
-      label: "Search",
-      icon: Search,
-      active: false,
-      on: () => r.setSearchOpen(true),
     },
   ];
 
@@ -119,6 +111,9 @@ function MobileTabBar() {
 export function Shell({ edition }: { edition?: Edition }) {
   const r = useReaderState(edition ?? editionFor(new Date()));
   useKeyboardShortcuts(r);
+  // The briefing keeps its own state: a run is an expensive, cancellable
+  // sequence, not a picture of what is on screen.
+  const briefing = useBriefing(r.llmConfig, r.briefingFocus);
 
   const readerClasses = clsx(
     "min-h-0 flex-col bg-reader",
@@ -149,14 +144,14 @@ export function Shell({ edition }: { edition?: Edition }) {
           >
             <MobileTopBar />
             <div className="min-h-0 flex-1">
-              <StreamColumn />
+              {r.view === "briefing" ? <BriefingColumn briefing={briefing} /> : <StreamColumn />}
             </div>
             <MobileTabBar />
           </div>
         )}
 
         <div data-col="reader" className={readerClasses}>
-          <ArticlePane />
+          {r.view === "briefing" ? <BriefingReader briefing={briefing} /> : <ArticlePane />}
         </div>
       </div>
 

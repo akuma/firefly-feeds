@@ -3,9 +3,11 @@ import {
   DIGEST_INTERESTS_LIMIT,
   DIGEST_OFFER_LIMIT,
   DIGEST_EXCERPT_LIMIT,
+  DIGEST_PICKS,
   DIGEST_TIMEOUT_MS,
   DIGEST_TITLE_LIMIT,
   type DigestCandidate,
+  type DigestReminder,
 } from "@/lib/digest";
 import {
   findService,
@@ -26,6 +28,9 @@ const UNKNOWN_SERVICE = "Choose a model in Settings.";
 
 /** The most text one story can carry into the prompt. */
 const MAX_ID = 200;
+
+/** The most text a publication's name may carry into the prompt. */
+const MAX_SOURCE = 120;
 
 /**
  * Today's briefing, written by the reader's own model.
@@ -68,7 +73,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         ok: false,
-        error: `Send between 1 and ${DIGEST_OFFER_LIMIT} stories, each with an id, a title and an excerpt.`,
+        error: `Send between 1 and ${DIGEST_OFFER_LIMIT} stories, each with an id, a title, a publication and an excerpt.`,
       },
       { status: 400 },
     );
@@ -87,6 +92,31 @@ export async function POST(request: Request) {
     typeof bodyRecord.interests === "string"
       ? bodyRecord.interests.trim().slice(0, DIGEST_INTERESTS_LIMIT)
       : "";
+  // A reminder is a kind and a name, never text: the correction's every word is
+  // written in `lib/digest.ts`, so a request still cannot carry its own
+  // instructions. The name must be one of the publications this request
+  // actually offered — a caller cannot write into our sentence.
+  const kind =
+    bodyRecord.reminder === "spread" ||
+    bodyRecord.reminder === "tighten" ||
+    bodyRecord.reminder === "few"
+      ? bodyRecord.reminder
+      : undefined;
+  const names = new Set(candidates.map((candidate) => candidate.source));
+  const named = typeof bodyRecord.reminderSource === "string" ? bodyRecord.reminderSource : "";
+  const counted = bodyRecord.reminderCount;
+  const reminder: DigestReminder | undefined =
+    kind === "spread" && names.has(named)
+      ? { kind: "spread", source: named }
+      : kind === "few" &&
+          typeof counted === "number" &&
+          Number.isInteger(counted) &&
+          counted >= 1 &&
+          counted < DIGEST_PICKS
+        ? { kind: "few", picked: counted }
+        : kind === "tighten"
+          ? { kind: "tighten" }
+          : undefined;
   const service = findService(config.service);
   if (!service) {
     return Response.json({ ok: false, error: UNKNOWN_SERVICE }, { status: 400 });
@@ -101,7 +131,7 @@ export async function POST(request: Request) {
     );
   }
 
-  return callService(service, config, candidates, language, interests);
+  return callService(service, config, candidates, language, interests, reminder);
 }
 
 /* --------------------------------------------------------------- upstream */
@@ -117,8 +147,9 @@ async function callService(
   candidates: readonly DigestCandidate[],
   language: DigestLanguageId,
   interests: string,
+  reminder?: DigestReminder,
 ): Promise<Response> {
-  const call = service.call(config, buildDigestMessages(candidates, language, interests));
+  const call = service.call(config, buildDigestMessages(candidates, language, interests, reminder));
   try {
     const res = await fetch(call.url, {
       method: "POST",
@@ -171,10 +202,11 @@ function readCandidates(body: unknown): DigestCandidate[] | null {
     const id = typeof item.id === "string" ? item.id.trim().slice(0, MAX_ID) : "";
     const title =
       typeof item.title === "string" ? item.title.trim().slice(0, DIGEST_TITLE_LIMIT) : "";
+    const source = typeof item.source === "string" ? item.source.trim().slice(0, MAX_SOURCE) : "";
     const excerpt =
       typeof item.excerpt === "string" ? item.excerpt.trim().slice(0, DIGEST_EXCERPT_LIMIT) : "";
-    if (!id || !title) return null;
-    candidates.push({ id, title, excerpt });
+    if (!id || !title || !source) return null;
+    candidates.push({ id, title, source, excerpt });
   }
   return candidates;
 }
