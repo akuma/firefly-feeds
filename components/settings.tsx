@@ -27,9 +27,6 @@ import {
   type LlmField,
   type LlmServiceId,
 } from "@/lib/llm";
-import { localZone } from "@/lib/edition";
-import { DIGEST_LANGUAGES, type DigestLanguageId } from "@/lib/languages";
-import { DIGEST_INTERESTS_LIMIT } from "@/lib/digest";
 import { BriefingSettings } from "./briefing/briefing-settings";
 import { useReader } from "@/lib/store";
 
@@ -519,82 +516,6 @@ export function Settings() {
                   the service itself. A model of your own bills per edition, so a local one is the
                   cheaper default.
                 </p>
-
-                <div className="mt-6">
-                  <label htmlFor="llm-language" className="label block text-ink4">
-                    Written in
-                  </label>
-                  <div className="relative mt-2 border-b border-rulestrong pr-6 pb-2">
-                    <select
-                      id="llm-language"
-                      value={r.digestLanguage}
-                      onChange={(e) => r.setDigestLanguage(e.target.value as DigestLanguageId)}
-                      className="mono w-full appearance-none bg-transparent text-[13px] text-ink2 outline-none"
-                    >
-                      {DIGEST_LANGUAGES.map((language) => (
-                        <option key={language.id} value={language.id}>
-                          {language.label}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown
-                      size={12}
-                      strokeWidth={1.6}
-                      aria-hidden
-                      className="pointer-events-none absolute right-0 bottom-3 text-ink4"
-                    />
-                  </div>
-                  <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
-                    The language the gists and reasons are written in. With the story&apos;s own
-                    language chosen, each one follows its story and the page around them stays in
-                    English.
-                  </p>
-                </div>
-
-                <div className="mt-6">
-                  <label htmlFor="llm-dayzone" className="label block text-ink4">
-                    Time zone
-                  </label>
-                  <input
-                    id="llm-dayzone"
-                    value={r.dayZone}
-                    onChange={(e) => r.setDayZone(e.target.value)}
-                    spellCheck={false}
-                    autoComplete="off"
-                    placeholder={localZone()}
-                    className="mono w-full border-b border-rulestrong bg-transparent pb-2 text-[13px] text-ink2 outline-none placeholder:text-ink4"
-                  />
-                  <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
-                    Where your day begins. Yours, not your device&apos;s: a device that follows
-                    local time moves its midnight when you travel, and a story could end up in two
-                    editions or in none. An IANA name, filled in from the device to start with.
-                  </p>
-                </div>
-
-                <div className="mt-6">
-                  <label htmlFor="llm-interests" className="label block text-ink4">
-                    Reading taste
-                  </label>
-                  <textarea
-                    id="llm-interests"
-                    value={r.digestInterests}
-                    onChange={(e) =>
-                      r.setDigestInterests(e.target.value.slice(0, DIGEST_INTERESTS_LIMIT))
-                    }
-                    rows={3}
-                    spellCheck={false}
-                    placeholder="What you like, what you skip — and the kind of detail you want"
-                    className="mono min-h-[64px] w-full resize-y border-b border-rulestrong bg-transparent py-2 text-[13px] leading-[1.5] text-ink2 outline-none placeholder:text-ink4"
-                  />
-                  <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
-                    Write it as taste, not as a list of topics: what makes a piece worth your time —
-                    evidence, process, numbers — and what wastes it, such as predictions, funding
-                    news or press releases. What you skip is the strongest line here: it rules a
-                    story out however big it is. Subjects are welcome too, but taste travels further
-                    — it applies to tomorrow&apos;s stories even when they are about nothing you
-                    named. Empty, and the edition is chosen for a reader nobody has met.
-                  </p>
-                </div>
 
                 {/* Whatever the chosen service asks for, rendered from its own
                     entry in the table — so a new one needs no change here. */}
