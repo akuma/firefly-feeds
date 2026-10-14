@@ -82,7 +82,18 @@ function MobileTabBar() {
       active: r.view === "later",
       on: () => r.setView("later"),
     },
-  ];
+    ...(!r.digestEnabled
+      ? [
+          {
+            key: "search",
+            label: "Search",
+            icon: Search,
+            active: false,
+            on: () => r.setSearchOpen(true),
+          },
+        ]
+      : []),
+  ].filter((item) => item.key !== "briefing" || r.digestEnabled);
 
   return (
     <nav className="flex min-h-[58px] shrink-0 items-stretch border-t border-rule bg-canvas pb-[env(safe-area-inset-bottom)] lg:hidden">
@@ -113,7 +124,13 @@ export function Shell({ edition }: { edition?: Edition }) {
   useKeyboardShortcuts(r);
   // The briefing keeps its own state: a run is an expensive, cancellable
   // sequence, not a picture of what is on screen.
-  const briefing = useBriefing(r.llmConfig, r.briefingFocus);
+  const briefing = useBriefing(
+    r.llmConfig,
+    r.briefingFocus,
+    r.refresh,
+    r.ready && r.digestEnabled,
+    r.digestLanguage,
+  );
 
   const readerClasses = clsx(
     "min-h-0 flex-col bg-reader",
@@ -121,7 +138,11 @@ export function Shell({ edition }: { edition?: Edition }) {
       ? "fixed inset-0 z-40 flex"
       : clsx(
           "lg:flex lg:min-w-0 lg:flex-1",
-          r.mobileReading ? "fixed inset-0 z-50 flex lg:static lg:z-auto" : "hidden",
+          r.mobileReading
+            ? "fixed inset-0 z-50 flex lg:static lg:z-auto"
+            : r.view === "briefing"
+              ? "flex min-w-0 flex-1"
+              : "hidden",
         ),
   );
 
@@ -140,19 +161,22 @@ export function Shell({ edition }: { edition?: Edition }) {
         {!r.immersive && (
           <div
             data-col="stream"
-            className="flex min-h-0 min-w-0 flex-1 flex-col lg:w-[468px] lg:flex-none lg:border-r lg:border-rule xl:w-[500px]"
+            className={clsx(
+              "flex min-h-0 min-w-0 flex-col lg:w-[468px] lg:flex-none lg:border-r lg:border-rule xl:w-[500px]",
+              r.view === "briefing" ? "shrink-0 lg:flex-1" : "flex-1",
+            )}
           >
             <MobileTopBar />
             <div className="min-h-0 flex-1">
               {r.view === "briefing" ? <BriefingColumn briefing={briefing} /> : <StreamColumn />}
             </div>
-            <MobileTabBar />
           </div>
         )}
 
         <div data-col="reader" className={readerClasses}>
           {r.view === "briefing" ? <BriefingReader briefing={briefing} /> : <ArticlePane />}
         </div>
+        {!r.mobileReading && <MobileTabBar />}
       </div>
 
       {/* ------------------------------------------- mobile feed drawer */}

@@ -1,3 +1,5 @@
+import type { DigestLanguageId } from "../languages";
+import type { ArticleRecord, SourceRecord } from "../storage/types";
 import { BRIEFING_SCHEMA_VERSION } from "./constants";
 
 /**
@@ -25,17 +27,24 @@ export type BriefingCandidate = {
 };
 
 export type BriefingHistoryDigest = {
+  kind?: "news" | "insight";
   editionDate: string;
   headline: string;
   sourceArticleIds: string[];
 };
 
-export type ShortlistInput = {
+/** Optional on older frozen runs, which retain their original broad selection. */
+export type BriefingFocusContext = {
+  focusTopics?: Array<{ id: string; label: string }>;
+  focusOnly?: boolean;
+};
+
+export type ShortlistInput = BriefingFocusContext & {
   schemaVersion: SchemaVersion;
   editionDate: string;
   cutoffAt: number;
   timezone: string;
-  outputLanguage: "en";
+  outputLanguage: DigestLanguageId;
   focusTopicIds: string[];
   candidates: BriefingCandidate[];
   previousStories: BriefingHistoryDigest[];
@@ -78,12 +87,12 @@ export type ArticleMaterial = {
   blockIndices?: number[];
 };
 
-export type ComposeInput = {
+export type ComposeInput = BriefingFocusContext & {
   schemaVersion: SchemaVersion;
   editionDate: string;
   timezone: string;
   cutoffAt: number;
-  outputLanguage: "en";
+  outputLanguage: DigestLanguageId;
   shortlist: ShortlistOutput;
   materials: ArticleMaterial[];
   limits: {
@@ -120,6 +129,7 @@ export type ComposedDeepRead = {
 };
 
 export type ComposeOutput = {
+  reassessedGroups?: Array<{ groupId: string; value: number; novelty: number; evidence: number }>;
   schemaVersion: SchemaVersion;
   bigPicture: SupportedText | null;
   topStories: ComposedStory[];
@@ -137,6 +147,7 @@ export type CandidateSet = {
     sample: number;
     empty: number;
     capped: number;
+    offFocus?: number;
   };
   /** Per-source counts in the final candidate list, for the coverage line. */
   sourceCoverage: Record<string, number>;
@@ -162,6 +173,8 @@ export type BriefingStats = {
   sourcesConsidered: number;
   fullTextsFetched: number;
   fullTextsFailed: number;
+  /** Whole proposed items omitted for editorial score or section/group mismatch. */
+  omittedWeakItems?: number;
   llmRequests: number;
   inputTokens?: number;
   outputTokens?: number;
@@ -178,6 +191,8 @@ export type BriefingEdition = {
   revision: number;
   cutoffAt: number;
   generatedAt: number;
+  /** Missing on editions created before language selection was restored: English. */
+  outputLanguage?: DigestLanguageId;
   schemaVersion: SchemaVersion;
   promptVersion: string;
   model: { provider: string; model: string };
@@ -192,6 +207,7 @@ export type BriefingEdition = {
   >;
   worthReading: ComposedDeepRead[];
   stats: BriefingStats;
+  coverageIncomplete?: boolean;
   updatedAt: number;
 };
 
@@ -223,6 +239,16 @@ export type BriefingRun = {
   /** Every model call this run has spent, including repairs. */
   callsUsed: number;
   /** Frozen inputs and stage checkpoints. Never an API key. */
+  frozenArticles?: ArticleRecord[];
+  frozenSources?: SourceRecord[];
+  enrichmentComplete?: boolean;
+  extractAttempts?: string[];
+  cancelledExtracts?: string[];
+  stats?: Partial<BriefingStats>;
+  repairUsed?: boolean;
+  /** Remember compact-output requirements across cancellation and Resume. */
+  truncatedPhases?: GeneratePhase[];
+  coverageIncomplete?: boolean;
   prepared?: ShortlistInput;
   shortlist?: ShortlistOutput;
   materials?: ArticleMaterial[];
@@ -239,6 +265,7 @@ export type GeneratePhase = "shortlist" | "compose";
 export type GenerateFailureCode =
   | "INVALID_INPUT"
   | "INVALID_OUTPUT"
+  | "INSUFFICIENT_CONTENT"
   | "PROVIDER_ERROR"
   | "PROVIDER_UNAVAILABLE"
   | "RATE_LIMITED"
@@ -248,6 +275,8 @@ export type GenerateFailureCode =
 
 export type GenerateSuccess = {
   ok: true;
+  /** Whole proposed items omitted for editorial score or section/group mismatch. */
+  omittedWeakItems?: number;
   phase: GeneratePhase;
   result: ShortlistOutput | ComposeOutput;
   usage?: { inputTokens?: number; outputTokens?: number };

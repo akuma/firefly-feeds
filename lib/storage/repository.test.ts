@@ -383,3 +383,49 @@ describe("upgrading an existing database", () => {
     expect((await repo.loadAll()).topics.map((t) => t.id)).toEqual(["news"]);
   });
 });
+
+describe("briefing database upgrades", () => {
+  it.each([2, 3])("preserves existing records when upgrading version %s to 4", async (version) => {
+    await freshRepository();
+    await previous!.close();
+    await deleteDB("firefly-feeds");
+    const { openDB } = await import("idb");
+    const legacy = await openDB("firefly-feeds", version, {
+      upgrade(database) {
+        for (const [name, keyPath] of [
+          ["sources", "id"],
+          ["articles", "id"],
+          ["reading", "id"],
+          ["topics", "id"],
+          ["classifications", "itemId"],
+          ["meta", "key"],
+        ])
+          database.createObjectStore(name, { keyPath });
+        if (version >= 3)
+          database
+            .createObjectStore("digests", { keyPath: "day" })
+            .createIndex("by-updated", "updatedAt");
+      },
+    });
+    const records = {
+      sources: source("legacy"),
+      articles: article("legacy~a", "legacy"),
+      reading: { id: "legacy~a", read: true, saved: true, later: true, updatedAt: 1 },
+      topics: { id: "legacy-topic", label: "Legacy", updatedAt: 1 },
+      classifications: { itemId: "legacy~a", topicIds: ["legacy-topic"], updatedAt: 1 },
+    };
+    await Promise.all(Object.entries(records).map(([store, record]) => legacy.put(store, record)));
+    legacy.close();
+    const database = await previous!.db();
+    expect(database.version).toBe(4);
+    await Promise.all(
+      Object.entries(records).map(async ([store, record]) => {
+        expect(
+          await database.get(store as "sources", "itemId" in record ? record.itemId : record.id),
+        ).toEqual(record);
+      }),
+    );
+    expect(database.objectStoreNames.contains("briefings")).toBe(true);
+    expect(database.objectStoreNames.contains("briefingRuns")).toBe(true);
+  });
+});

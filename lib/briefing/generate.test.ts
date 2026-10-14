@@ -114,3 +114,75 @@ describe("an answer that ran out of room", () => {
     }
   });
 });
+
+describe("bounded editorial output", () => {
+  it("uses JSON mode for a briefing call instead of relying on prose instructions", async () => {
+    const spy = stubFetch(() => ollamaReply("{}"));
+    try {
+      await generatePhase({ phase: "shortlist", payload: shortlistInput, llm: OLLAMA });
+      expect(spy.bodies[0].format).toBe("json");
+    } finally {
+      spy.restore();
+    }
+  });
+});
+
+it("calls an explicitly configured local Anthropic-compatible API from the browser", async () => {
+  const original = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    urls.push(String(url));
+    expect(((init?.headers ?? {}) as Record<string, string>)["x-api-key"]).toBe("local-key");
+    const body = JSON.parse(String(init?.body));
+    expect(body.system).toContain("selection editor");
+    return Response.json({
+      content: [{ type: "text", text: '{"schemaVersion":1,"groups":[],"extractArticleIds":[]}' }],
+      stop_reason: "end_turn",
+    });
+  }) as typeof fetch;
+  try {
+    const result = await generatePhase({
+      phase: "shortlist",
+      payload: shortlistInput,
+      llm: {
+        service: "custom",
+        wire: "anthropic",
+        baseUrl: "http://localhost:1234/v1",
+        models: { custom: "m" },
+        keys: { custom: "local-key" },
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(urls).toEqual(["http://localhost:1234/v1/messages"]);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+it("refuses a redirect from a custom local API instead of forwarding its credential", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    expect(init?.redirect).toBe("manual");
+    return new Response(null, { status: 302, headers: { location: "https://elsewhere.example" } });
+  }) as typeof fetch;
+  try {
+    const result = await generatePhase({
+      phase: "shortlist",
+      payload: shortlistInput,
+      llm: {
+        service: "custom",
+        wire: "openai",
+        baseUrl: "http://localhost:1234/v1",
+        models: { custom: "m" },
+        keys: { custom: "local-key" },
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("PROVIDER_ERROR");
+      expect(result.retryable).toBe(false);
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});

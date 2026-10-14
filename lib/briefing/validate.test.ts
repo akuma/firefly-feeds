@@ -108,7 +108,7 @@ const shortlistInput = (over: Partial<ShortlistInput> = {}): ShortlistInput => (
   ...over,
 });
 
-const goodShortlist = {
+const goodShortlist: ComposeInput["shortlist"] = {
   schemaVersion: 1,
   groups: [
     {
@@ -306,4 +306,218 @@ describe("the composition contract", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(citedArticleIds(result.value)).toEqual(["A1"]);
   });
+});
+
+describe("material integrity", () => {
+  it("never calls a feed summary or truncated original full", () => {
+    for (const contentState of ["summary", "truncated"] as const) {
+      const result = createArticleMaterial({
+        article: {
+          id: "a",
+          title: "A",
+          publishedAt: 0,
+          summary: "Summary",
+          body: [{ kind: "p", text: "Short body" }],
+          contentState,
+        },
+        sourceName: "A",
+      });
+      expect(result.materialQuality).toBe(
+        contentState === "summary" ? "feed-summary" : "excerpted",
+      );
+    }
+  });
+  it("budgets paragraph separators and keeps parts of a single oversized paragraph", () => {
+    const result = createArticleMaterial({
+      article: {
+        id: "a",
+        title: "A",
+        publishedAt: 0,
+        summary: "Summary",
+        body: [{ kind: "p", text: "Opening " + "middle ".repeat(1200) + "Conclusion" }],
+        contentState: "full",
+      },
+      sourceName: "A",
+    });
+    expect(result.text).toContain("Opening");
+    expect(result.text).toContain("Conclusion");
+    expect(result.text.length).toBeLessThanOrEqual(6000);
+  });
+});
+
+it("keeps a Unicode-heavy composition within the byte budget while retaining endings", async () => {
+  const { fitComposeInput } = await import("./materials");
+  const input = composeInput({
+    materials: Array.from({ length: 60 }, (_, i) =>
+      material({ articleId: String(i), text: "开头" + "中文正文".repeat(1498) + "结尾" }),
+    ),
+  });
+  const fitted = fitComposeInput(input);
+  expect(new TextEncoder().encode(JSON.stringify(fitted)).byteLength).toBeLessThan(
+    512 * 1024 - 2048,
+  );
+  expect(fitted.materials.every((m) => m.text.startsWith("开头") && m.text.endsWith("结尾"))).toBe(
+    true,
+  );
+  expect(fitted.materials.every((m) => m.materialQuality === "excerpted")).toBe(true);
+});
+
+it("omits a whole low-scoring topic while retaining other evidenced news", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const input = composeInput({
+    shortlist: {
+      ...goodShortlist,
+      groups: [
+        goodShortlist.groups[0],
+        {
+          ...goodShortlist.groups[0],
+          groupId: "weak",
+          articleIds: ["B1"],
+          value: 1,
+          novelty: 1,
+          evidence: 1,
+        },
+      ],
+    },
+    materials: [material(), material({ articleId: "B1" })],
+  });
+  const weak = goodStory({
+    headline: "A weak topic",
+    whatHappened: {
+      text: "The project released version 2 on Tuesday.",
+      evidence: [{ articleId: "B1", excerpt: "The project released version 2 on Tuesday." }],
+    },
+    whyItMatters: null,
+  });
+  // Remove B1 from the stronger group, so its own score cannot qualify the weak topic.
+  input.shortlist.groups[0] = { ...input.shortlist.groups[0], articleIds: ["A1"] };
+  const trimmed = pruneWeakComposition({ ...goodCompose, topStories: [goodStory(), weak] }, input);
+  expect(trimmed.omitted).toBe(1);
+  const result = validateComposition(trimmed.output, input);
+  expect(result.ok).toBe(true);
+  if (result.ok)
+    expect(result.value.topStories.map((s) => s.headline)).toEqual([goodStory().headline]);
+});
+
+it("does not hide an invalid citation while dropping a low-scoring topic", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const input = composeInput({
+    shortlist: {
+      ...goodShortlist,
+      groups: [{ ...goodShortlist.groups[0], value: 0, novelty: 0, evidence: 0 }],
+    },
+  });
+  const invalid = structuredClone(goodCompose);
+  invalid.topStories[0].whatHappened.evidence[0].excerpt = "A fabricated quote.";
+  const result = pruneWeakComposition(invalid, input);
+  expect(result.omitted).toBe(0);
+  expect(validateComposition(result.output, input).ok).toBe(false);
+});
+
+it("omits misplaced selections without losing the valid stories in a thirteen-article edition", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const input = composeInput({
+    materials: [material(), material({ articleId: "C1" }), material({ articleId: "B1" })],
+  });
+  for (let i = 0; i < 10; i++) input.materials.push(material({ articleId: `extra-${i}` }));
+  const misplaced = goodStory({
+    headline: "An essay placed in the news section",
+    whatHappened: {
+      text: "The release limits memory to 4GB.",
+      evidence: [{ articleId: "C1", excerpt: "The release limits memory to 4GB." }],
+    },
+    whyItMatters: null,
+  });
+  const raw = {
+    ...goodCompose,
+    bigPicture: misplaced.whatHappened,
+    topStories: [goodStory(), misplaced],
+    worthReading: [{ articleId: "B1", whyRead: goodStory().whatHappened }],
+  };
+  // This reproduces both placement errors, with valid, self-referencing evidence.
+  raw.worthReading[0].whyRead = {
+    text: "The project released version 2 on Tuesday.",
+    evidence: [{ articleId: "B1", excerpt: "The project released version 2 on Tuesday." }],
+  };
+  expect(input.materials).toHaveLength(13);
+  expect(validateComposition(raw, input).ok).toBe(false);
+  const result = pruneWeakComposition(raw, input);
+  expect(result.omitted).toBe(2);
+  const checked = validateComposition(result.output, input);
+  expect(checked.ok).toBe(true);
+  if (checked.ok) {
+    expect(checked.value.topStories).toEqual([goodStory()]);
+    expect(checked.value.worthReading).toEqual([]);
+    expect(checked.value.bigPicture).toBeNull();
+  }
+});
+
+it("refuses invented evidence even when its whole item is in the wrong section", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const input = composeInput({ materials: [material(), material({ articleId: "C1" })] });
+  const raw = {
+    ...goodCompose,
+    worthReading: [
+      {
+        articleId: "A1",
+        whyRead: {
+          text: "An invented claim.",
+          evidence: [{ articleId: "A1", excerpt: "An invented quote." }],
+        },
+      },
+    ],
+  };
+  expect(pruneWeakComposition(raw, input).omitted).toBe(0);
+  expect(validateComposition(pruneWeakComposition(raw, input).output, input).ok).toBe(false);
+});
+
+it("does not publish an edition when every item was misplaced", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const input = composeInput();
+  const raw = {
+    ...goodCompose,
+    topStories: [],
+    worthReading: [
+      {
+        articleId: "A1",
+        whyRead: goodStory().whatHappened,
+      },
+    ],
+  };
+  const result = pruneWeakComposition(raw, input);
+  expect(result.omitted).toBe(1);
+  const checked = validateComposition(result.output, input);
+  expect(checked.ok).toBe(false);
+  if (!checked.ok)
+    expect(checked.errors).toContain("INSUFFICIENT_CONTENT: nothing evidenced to publish");
+});
+
+it("discards the model's extra whatHappenedNote without publishing it or weakening evidence checks", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const raw = {
+    ...goodCompose,
+    topStories: [{ ...goodStory(), whatHappenedNote: "An internal editorial note." }],
+  };
+  const result = pruneWeakComposition(raw, composeInput());
+  expect(validateComposition(result.output, composeInput()).ok).toBe(true);
+  expect(JSON.stringify(result.output)).not.toContain("whatHappenedNote");
+  expect(result.omitted).toBe(0);
+  raw.topStories[0].whatHappened.evidence[0].excerpt = "An invented quote.";
+  expect(
+    validateComposition(pruneWeakComposition(raw, composeInput()).output, composeInput()).ok,
+  ).toBe(false);
+});
+
+it("does not silently accept other fields or structured values masquerading as notes", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  for (const extra of [
+    { whatHappenedNote: { text: "Unexpected object" } },
+    { publisherUrl: "https://invented.example" },
+  ]) {
+    const result = pruneWeakComposition(
+      { ...goodCompose, topStories: [{ ...goodStory(), ...extra }] },
+      composeInput(),
+    );
+    expect(validateComposition(result.output, composeInput()).ok).toBe(false);
+  }
 });

@@ -956,7 +956,8 @@ describe("subscribing", () => {
     const { user } = await mount();
 
     await user.click(within(nav()).getByLabelText("Settings"));
-    const panel = await screen.findByRole("dialog", { name: "Settings" });
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    const panel = within(dialog).getByRole("region", { name: "Article classification" });
 
     // a local model is the default, and it asks for a model before an address
     const picker = within(panel).getByLabelText("Classifier") as HTMLSelectElement;
@@ -1013,7 +1014,8 @@ describe("subscribing", () => {
     try {
       const { user } = await mount();
       await user.click(within(nav()).getByLabelText("Settings"));
-      const panel = await screen.findByRole("dialog", { name: "Settings" });
+      const dialog = await screen.findByRole("dialog", { name: "Settings" });
+      const panel = within(dialog).getByRole("region", { name: "Article classification" });
 
       // whatever the machine reports becomes the picker's options, verbatim —
       // and a model that cannot answer a decision is not offered at all
@@ -2799,7 +2801,8 @@ describe("article classification", () => {
     try {
       const { user } = await mount();
       await user.click(within(nav()).getByLabelText("Settings"));
-      const panel = await screen.findByRole("dialog", { name: "Settings" });
+      const dialog = await screen.findByRole("dialog", { name: "Settings" });
+      const panel = within(dialog).getByRole("region", { name: "Article classification" });
 
       // still asked directly, not through our own endpoint
       await waitFor(() => expect(asked.some((url) => url.includes("11434/api/tags"))).toBe(true));
@@ -3035,7 +3038,8 @@ describe("turning classification on", () => {
  * are the real thing. The fixtures follow docs/specs/ai-daily-briefing.md §11.
  */
 
-const BRIEFING_PREFS = {
+const BRIEFING_PREFS: { digest: boolean; llmConfig: import("@/lib/llm").LlmConfig } = {
+  digest: true,
   llmConfig: {
     service: "ollama",
     wire: "openai",
@@ -3045,7 +3049,7 @@ const BRIEFING_PREFS = {
   },
 };
 
-const shortlistReply = {
+const shortlistReply: import("@/lib/briefing/types").ShortlistOutput = {
   schemaVersion: 1,
   groups: [
     {
@@ -3063,7 +3067,7 @@ const shortlistReply = {
   extractArticleIds: ["sdig~one"],
 };
 
-const composeReply = {
+const composeReply: import("@/lib/briefing/types").ComposeOutput = {
   schemaVersion: 1,
   bigPicture: null,
   topStories: [
@@ -3136,14 +3140,14 @@ async function seedBriefingStories() {
 }
 
 /** The model, one call at a time: the shortlist first, then the composition. */
-function briefingSpy() {
+function briefingSpy(composed = composeReply) {
   const seen: string[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes("/api/chat") || url.includes("/api/briefing")) {
       seen.push(String(init?.body ?? ""));
-      const answer = seen.length % 2 === 1 ? shortlistReply : composeReply;
+      const answer = seen.length % 2 === 1 ? shortlistReply : composed;
       return new Response(
         JSON.stringify({
           message: { role: "assistant", content: JSON.stringify(answer) },
@@ -3162,6 +3166,12 @@ function briefingSpy() {
 
 /** The briefing is a page of its own, reached from the navigation. */
 async function openBriefing(user: ReturnType<typeof userEvent.setup>) {
+  if (!within(nav()).queryByRole("button", { name: "Briefing" })) {
+    await user.click(within(nav()).getByLabelText("Settings"));
+    const panel = await screen.findByRole("dialog", { name: "Settings" });
+    await user.click(within(panel).getByRole("switch", { name: "AI Briefing" }));
+    await user.click(within(panel).getByRole("button", { name: /Esc/ }));
+  }
   await user.click(within(nav()).getByRole("button", { name: /Briefing/ }));
   await waitFor(() =>
     expect(stream().querySelector("[data-t='briefing-column']")).toBeInTheDocument(),
@@ -3202,15 +3212,35 @@ describe("the daily briefing", () => {
       // the whole day was considered, and the run spent its two model calls
       expect(within(briefing()).getByText(/3 stories considered/)).toBeInTheDocument();
 
+      expect(reader().className).not.toMatch(/(^| )hidden( |$)/);
+      const repo = await import("@/lib/storage/repository");
+      const reading = (await repo.loadAll()).reading;
+      expect(reading.find((item) => item.id === "sdig~one")?.read ?? false).toBe(false);
+      pane.scrollTop = 173;
+
       // the cited source opens the real article, and comes back to the page
       await user.click(within(pane).getByRole("button", { name: /Digest Source/ }));
       await waitFor(() =>
         expect(within(reader()).getByText("Back to Briefing")).toBeInTheDocument(),
       );
-      await user.click(within(reader()).getByRole("button", { name: /Back to Briefing/ }));
+      await user.click(reader().querySelector<HTMLElement>("[data-t=briefing-back]")!);
       await waitFor(() =>
         expect(within(reader()).getByText("A first story explained")).toBeInTheDocument(),
       );
+      await waitFor(() =>
+        expect(reader().querySelector("[data-t='briefing-reader']")?.scrollTop).toBe(173),
+      );
+      await user.click(within(nav()).getByLabelText("Settings"));
+      const settings = await screen.findByRole("dialog", { name: "Settings" });
+      await user.click(within(settings).getByRole("switch", { name: "AI Briefing" }));
+      expect(await repo.getBriefings()).toHaveLength(1);
+      await user.click(within(settings).getByRole("switch", { name: "AI Briefing" }));
+      await user.click(within(settings).getByRole("button", { name: /Esc/ }));
+      await openBriefing(user);
+      await waitFor(() =>
+        expect(within(reader()).getByText("A first story explained")).toBeInTheDocument(),
+      );
+      expect(spy.seen).toHaveLength(2);
     } finally {
       spy.restore();
     }
@@ -3263,4 +3293,392 @@ describe("the daily briefing", () => {
       spy.restore();
     }
   });
+});
+
+describe("AI Briefing enable switch", () => {
+  it("defaults off, toggles navigation and settings, and preserves saved configuration", async () => {
+    localStorage.setItem("firefly.feeds.v1", JSON.stringify({ ...BRIEFING_PREFS, digest: false }));
+    const { user } = await mount();
+    expect(within(nav()).queryByRole("button", { name: "Briefing" })).not.toBeInTheDocument();
+    await user.click(within(nav()).getByLabelText("Settings"));
+    let panel = await screen.findByRole("dialog", { name: "Settings" });
+    const toggle = within(panel).getByRole("switch", { name: "AI Briefing" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(within(panel).queryByLabelText("Model provider")).not.toBeInTheDocument();
+    await user.click(toggle);
+    expect(within(panel).getByLabelText("Model provider")).toBeInTheDocument();
+    const provider = within(panel).getByLabelText("Model provider");
+    expect(within(provider).getByRole("option", { name: "Gemini" })).toBeInTheDocument();
+    expect(within(provider).getByRole("option", { name: "Custom API" })).toBeInTheDocument();
+    expect(
+      within(provider).queryByRole("option", { name: /Qwen|Kimi|GLM/ }),
+    ).not.toBeInTheDocument();
+    await user.selectOptions(provider, "custom");
+    await user.selectOptions(within(panel).getByLabelText("Format"), "anthropic");
+    expect(within(panel).getByLabelText("Base URL")).toBeInTheDocument();
+    await user.click(within(panel).getByRole("button", { name: /Esc/ }));
+    await user.click(within(nav()).getByRole("button", { name: "Briefing" }));
+    await user.click(within(nav()).getByLabelText("Settings"));
+    panel = await screen.findByRole("dialog", { name: "Settings" });
+    await user.click(within(panel).getByRole("switch", { name: "AI Briefing" }));
+    expect(within(nav()).queryByRole("button", { name: "Briefing" })).not.toBeInTheDocument();
+    expect(stream().querySelector("[data-t=briefing-column]")).not.toBeInTheDocument();
+    expect(within(panel).queryByLabelText("Model provider")).not.toBeInTheDocument();
+    await waitFor(() => {
+      const prefs = JSON.parse(localStorage.getItem("firefly.feeds.v1")!);
+      expect(prefs.digest).toBe(false);
+      expect(prefs.llmConfig.models.ollama).toBe("llama3.2");
+      expect(prefs.llmConfig.service).toBe("custom");
+    });
+  });
+
+  it("does not restore a remembered briefing view while the feature is disabled", async () => {
+    localStorage.setItem("firefly.feeds.v1", JSON.stringify({ digest: false, view: "briefing" }));
+    await mount();
+    expect(stream().querySelector("[data-t=briefing-column]")).not.toBeInTheDocument();
+    expect(within(nav()).queryByRole("button", { name: "Briefing" })).not.toBeInTheDocument();
+  });
+});
+
+it("cancels a briefing already selecting when its enable switch is turned off", async () => {
+  localStorage.setItem("firefly.feeds.v1", JSON.stringify(BRIEFING_PREFS));
+  await seedBriefingStories();
+  const original = globalThis.fetch;
+  let activeSignal: AbortSignal | undefined;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes("/api/chat")) {
+      activeSignal = init?.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        activeSignal!.addEventListener(
+          "abort",
+          () => reject(new DOMException("Stopped", "AbortError")),
+          { once: true },
+        );
+      });
+    }
+    return Response.json({ ok: false, error: "fixture" });
+  }) as typeof fetch;
+  try {
+    const { user } = await mount();
+    await openBriefing(user);
+    await user.click(within(briefing()).getByRole("button", { name: /Generate today's briefing/ }));
+    await waitFor(() => expect(activeSignal).toBeDefined());
+    await user.click(within(nav()).getByLabelText("Settings"));
+    const panel = await screen.findByRole("dialog", { name: "Settings" });
+    await user.click(within(panel).getByRole("switch", { name: "AI Briefing" }));
+    expect(activeSignal?.aborted).toBe(true);
+    const repo = await import("@/lib/storage/repository");
+    await waitFor(async () => expect((await repo.listBriefingRuns())[0]?.status).toBe("cancelled"));
+    expect(await repo.getBriefings()).toHaveLength(0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+it("cancels an active connection test when AI Briefing is switched off", async () => {
+  localStorage.setItem("firefly.feeds.v1", JSON.stringify(BRIEFING_PREFS));
+  const original = globalThis.fetch;
+  let signal: AbortSignal | undefined;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes("/api/chat")) {
+      signal = init?.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) =>
+        signal!.addEventListener("abort", () => reject(new DOMException("Stopped", "AbortError")), {
+          once: true,
+        }),
+      );
+    }
+    return Response.json({ models: [] });
+  }) as typeof fetch;
+  try {
+    const { user } = await mount();
+    await user.click(within(nav()).getByLabelText("Settings"));
+    const panel = await screen.findByRole("dialog", { name: "Settings" });
+    await user.click(within(panel).getByRole("button", { name: "Test connection" }));
+    await waitFor(() => expect(signal).toBeDefined());
+    await user.click(within(panel).getByRole("switch", { name: "AI Briefing" }));
+    expect(signal?.aborted).toBe(true);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+it("restores the saved briefing language, persists a change and sends it to both model phases", async () => {
+  localStorage.setItem(
+    "firefly.feeds.v1",
+    JSON.stringify({ ...BRIEFING_PREFS, digestLanguage: "zh-Hant" }),
+  );
+  await seedBriefingStories();
+  const chinese = structuredClone(composeReply);
+  chinese.topStories[0].headline = "Feldman对家用AI设备...";
+  chinese.topStories[0].whatHappened.text = "科技爱好者周刊每周分享值得阅读的科技内容".repeat(60);
+  const spy = briefingSpy(chinese);
+  try {
+    const { user } = await mount();
+    await user.click(within(nav()).getByLabelText("Settings"));
+    const panel = await screen.findByRole("dialog", { name: "Settings" });
+    const picker = within(panel).getByLabelText("Written in");
+    expect(picker).toHaveValue("zh-Hant");
+    await user.selectOptions(picker, "zh-Hans");
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem("firefly.feeds.v1")!).digestLanguage).toBe("zh-Hans"),
+    );
+    expect(spy.seen).toHaveLength(0);
+    await user.click(within(panel).getByRole("button", { name: /Esc/ }));
+    await openBriefing(user);
+    await user.click(within(briefing()).getByRole("button", { name: /Generate today's briefing/ }));
+    await waitFor(() => expect(spy.seen).toHaveLength(2));
+    for (const call of spy.seen) expect(call).toContain('\\"outputLanguage\\":\\"zh-Hans\\"');
+    await waitFor(() => expect(within(reader()).getByText(/3 min read/)).toBeInTheDocument());
+    expect(within(reader()).getByText("Feldman 对家用 AI 设备...")).toBeInTheDocument();
+    expect(reader().querySelector("article")).toHaveAttribute("lang", "zh-Hans");
+    const repo = await import("@/lib/storage/repository");
+    await waitFor(async () =>
+      expect((await repo.getBriefings())[0]?.outputLanguage).toBe("zh-Hans"),
+    );
+    const saved = (await repo.getBriefings())[0];
+    expect(saved.topStories[0].headline).toBe("Feldman对家用AI设备...");
+    expect(saved.topStories[0].whatHappened.evidence).toEqual(
+      chinese.topStories[0].whatHappened.evidence,
+    );
+    expect(
+      within(briefing()).getByRole("button", { name: "Feldman 对家用 AI 设备..." }),
+    ).toBeInTheDocument();
+  } finally {
+    spy.restore();
+  }
+});
+
+it("keeps perspective-only source links visible when an older edition has an incomplete sourceArticleIds cache", async () => {
+  localStorage.setItem("firefly.feeds.v1", JSON.stringify(BRIEFING_PREFS));
+  const repo = await import("@/lib/storage/repository");
+  const now = Date.now();
+  const editionKey = "2026-10-13@UTC";
+  const snapshots = [
+    {
+      articleId: "sdig~one",
+      sourceId: "sdig",
+      sourceName: "Digest Source",
+      title: "A first story",
+      url: "https://dig.example/one",
+      publishedAt: now,
+    },
+    {
+      articleId: "archived-perspective",
+      sourceId: "old-source",
+      sourceName: "Perspective Journal",
+      title: "Another viewpoint",
+      url: "https://perspective.example/story",
+      publishedAt: now,
+    },
+  ];
+  const run: import("@/lib/briefing/types").BriefingRun = {
+    runId: `${editionKey}#r1`,
+    editionKey,
+    revision: 1,
+    status: "validating",
+    createdAt: now,
+    updatedAt: now,
+    cutoffAt: now,
+    snapshotHash: "legacy-fixture",
+    sourceSnapshots: snapshots,
+    promptVersion: "legacy",
+    providerId: "stub",
+    modelId: "stub",
+    callsUsed: 2,
+    lease: { ownerId: "qa-owner", expiresAt: now + 120000 },
+  };
+  expect(await repo.claimBriefingRun(run, "qa-owner", now, 120000)).toBe(true);
+  await repo.publishBriefing(
+    {
+      id: run.runId,
+      editionKey,
+      editionDate: "2026-10-13",
+      timezone: "UTC",
+      revision: 1,
+      cutoffAt: now,
+      generatedAt: now,
+      schemaVersion: 1,
+      promptVersion: "legacy",
+      model: { provider: "stub", model: "stub" },
+      sourceSnapshots: snapshots,
+      bigPicture: null,
+      topStories: [
+        {
+          ...composeReply.topStories[0],
+          id: "s1",
+          sourceArticleIds: ["sdig~one"],
+          perspectives: [
+            {
+              text: "Another viewpoint from the archived material.",
+              evidence: [{ articleId: "archived-perspective", excerpt: "Another viewpoint" }],
+            },
+          ],
+        },
+      ],
+      worthReading: [],
+      stats: {
+        candidates: 2,
+        sourcesConsidered: 2,
+        fullTextsFetched: 0,
+        fullTextsFailed: 0,
+        llmRequests: 2,
+        durationMs: 0,
+      },
+      updatedAt: now,
+    },
+    { ...run, status: "ready" },
+  );
+  const { user } = await mount();
+  await openBriefing(user);
+  await waitFor(() =>
+    expect(
+      within(reader()).getByRole("button", { name: /Perspective Journal/ }),
+    ).toBeInTheDocument(),
+  );
+});
+
+async function seedBriefingRecoveryState(attempts: ("saved" | "interrupted")[]) {
+  await seedBriefingStories();
+  const repo = await import("@/lib/storage/repository");
+  const pipeline = await import("@/lib/briefing/pipeline");
+  const snapshot = await repo.loadAll();
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const now = Date.now();
+  const editionKey = `${pipeline.localDate(now, timezone)}@${timezone}`;
+  await repo.putBriefingRun({
+    runId: `${editionKey}#r15`,
+    editionKey,
+    revision: 15,
+    status: "cancelled",
+    createdAt: now,
+    updatedAt: now,
+    cutoffAt: now,
+    snapshotHash: "fixture",
+    sourceSnapshots: [],
+    promptVersion: "fixture",
+    providerId: "stub",
+    modelId: "stub",
+    callsUsed: 0,
+  });
+  const create = (state: "saved" | "interrupted") =>
+    pipeline.runBriefing({
+      articles: snapshot.articles,
+      sources: snapshot.sources,
+      classifications: [],
+      history: [],
+      focusTopicIds: [],
+      timezone,
+      llm: BRIEFING_PREFS.llmConfig,
+      generate: async ({ phase }) =>
+        phase === "shortlist"
+          ? { ok: true, phase, result: shortlistReply, provider: "stub", model: "stub" }
+          : state === "saved"
+            ? { ok: true, phase, result: composeReply, provider: "stub", model: "stub" }
+            : {
+                ok: false,
+                code: "PROVIDER_ERROR",
+                message: "Interrupted fixture",
+                retryable: false,
+              },
+      fetchContent: async ({ article }) => ({ article, availability: "full", fetched: false }),
+    });
+  await attempts.reduce(async (previous, state) => {
+    await previous;
+    await create(state);
+  }, Promise.resolve());
+  return { create };
+}
+
+it("hides an older Resume after a newer edition has completed", async () => {
+  localStorage.setItem("firefly.feeds.v1", JSON.stringify(BRIEFING_PREFS));
+  await seedBriefingRecoveryState(["interrupted", "saved"]);
+  const { user } = await mount();
+  await openBriefing(user);
+  await waitFor(() =>
+    expect(within(reader()).getByText("A first story explained")).toBeInTheDocument(),
+  );
+  expect(briefing().querySelector('[data-t="briefing-resume"]')).toBeNull();
+  expect(within(briefing()).getByRole("button", { name: "Regenerate" })).toBeInTheDocument();
+});
+
+it("identifies the saved edition and the newer interrupted task by revision and stage", async () => {
+  localStorage.setItem("firefly.feeds.v1", JSON.stringify(BRIEFING_PREFS));
+  await seedBriefingRecoveryState(["saved", "interrupted"]);
+  const { user } = await mount();
+  await openBriefing(user);
+  await waitFor(() =>
+    expect(within(briefing()).getByRole("button", { name: "Resume r17" })).toBeInTheDocument(),
+  );
+  expect(within(briefing()).getByText(/Showing r16/)).toBeInTheDocument();
+  expect(within(briefing()).getByText(/r17 interrupted · Writing/)).toBeInTheDocument();
+  expect(within(reader()).getByText("A first story explained")).toBeInTheDocument();
+});
+
+it("offers Resume and Start over when no completed edition exists", async () => {
+  localStorage.setItem("firefly.feeds.v1", JSON.stringify(BRIEFING_PREFS));
+  await seedBriefingRecoveryState(["interrupted"]);
+  const { user } = await mount();
+  await openBriefing(user);
+  await waitFor(() =>
+    expect(within(briefing()).getByRole("button", { name: "Resume r16" })).toBeInTheDocument(),
+  );
+  expect(within(briefing()).getByRole("button", { name: "Start over" })).toBeInTheDocument();
+  expect(within(briefing()).getByText(/No completed edition yet/)).toBeInTheDocument();
+});
+
+it("rechecks a stale Resume against newer saved editions before calling the model", async () => {
+  localStorage.setItem("firefly.feeds.v1", JSON.stringify(BRIEFING_PREFS));
+  const state = await seedBriefingRecoveryState(["saved", "interrupted"]);
+  const spy = briefingSpy();
+  try {
+    const { user } = await mount();
+    await openBriefing(user);
+    const resume = await within(briefing()).findByRole("button", { name: "Resume r17" });
+    await state.create("saved");
+    await user.click(resume);
+    await waitFor(() => expect(briefing().querySelector('[data-t="briefing-resume"]')).toBeNull());
+    expect(spy.seen).toHaveLength(0);
+  } finally {
+    spy.restore();
+  }
+});
+
+it("clears a selected briefing focus when its topic is deleted", async () => {
+  const repo = await import("@/lib/storage/repository");
+  await repo.putTopics([
+    { id: "custom-design", slug: "custom-design", label: "Design", updatedAt: Date.now() },
+  ]);
+  localStorage.setItem(
+    "firefly.feeds.v1",
+    JSON.stringify({ ...BRIEFING_PREFS, briefingFocus: ["custom-design"] }),
+  );
+  const { user } = await mount();
+  await user.click(within(nav()).getByLabelText("Settings"));
+  const panel = await screen.findByRole("dialog", { name: "Settings" });
+  expect(within(panel).getByRole("button", { name: /^Design$/ })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await user.click(within(panel).getByLabelText("Remove Design"));
+  await waitFor(() =>
+    expect(JSON.parse(localStorage.getItem("firefly.feeds.v1")!).briefingFocus).toEqual([]),
+  );
+});
+
+it("removes hidden deleted briefing focus IDs when restoring preferences", async () => {
+  const repo = await import("@/lib/storage/repository");
+  await repo.putTopics([
+    { id: "custom-design", slug: "custom-design", label: "Design", updatedAt: Date.now() },
+  ]);
+  localStorage.setItem(
+    "firefly.feeds.v1",
+    JSON.stringify({ ...BRIEFING_PREFS, briefingFocus: ["deleted-ai", "custom-design"] }),
+  );
+  await mount();
+  await waitFor(() =>
+    expect(JSON.parse(localStorage.getItem("firefly.feeds.v1")!).briefingFocus).toEqual([
+      "custom-design",
+    ]),
+  );
 });

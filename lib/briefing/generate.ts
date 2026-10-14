@@ -6,9 +6,14 @@ import {
   serviceReady,
   type LlmConfig,
 } from "../llm";
-import { BRIEFING_LLM_TIMEOUT_MS, BRIEFING_MAX_TOKENS } from "./constants";
+import { BRIEFING_LLM_TIMEOUT_MS, briefingMaxTokens } from "./constants";
 import { buildComposeMessages, buildShortlistMessages } from "./prompts";
-import { parseJsonObject, validateComposition, validateShortlist } from "./validate";
+import {
+  parseJsonObject,
+  pruneWeakComposition,
+  validateComposition,
+  validateShortlist,
+} from "./validate";
 import type {
   ComposeInput,
   GenerateFailure,
@@ -73,15 +78,29 @@ export async function generatePhase(input: {
   let provider: string = service.id;
   let model = modelFor(llm);
   let truncated = false;
+  let omittedWeakItems = 0;
+  let usage: { inputTokens?: number; outputTokens?: number } | undefined;
   try {
     if (service.direct?.(llm)) {
-      const call = service.call(llm, messages, { maxTokens: BRIEFING_MAX_TOKENS[phase] });
+      const call = service.call(llm, messages, {
+        maxTokens: briefingMaxTokens(phase, service.id),
+        jsonOutput: true,
+      });
       const res = await fetch(call.url, {
         method: "POST",
+        redirect: "manual",
         headers: call.headers,
         body: JSON.stringify(call.body),
         signal: withTimeout(input.signal),
       });
+      if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) {
+        await res.body?.cancel();
+        return failure(
+          "PROVIDER_ERROR",
+          "The local API redirected the request. No credentials were forwarded.",
+          false,
+        );
+      }
       const reply = await readLlmReply(res, service, llm);
       if (!reply.ok) {
         return failure(
@@ -90,17 +109,27 @@ export async function generatePhase(input: {
           reply.status === 429 || reply.status >= 500,
         );
       }
+      usage = reply.usage;
       truncated = reply.truncated;
       parsed = parseJsonObject(reply.text);
     } else {
       const res = await fetch("/api/briefing/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ phase, input: payload, retryFeedback, ...llm }),
+        body: JSON.stringify({
+          phase,
+          input: payload,
+          retryFeedback,
+          ...llm,
+          models: { [llm.service]: modelFor(llm) },
+          keys: { [llm.service]: llm.keys[llm.service] ?? "" },
+        }),
         signal: withTimeout(input.signal),
       });
       const data = (await res.json()) as GenerateResult;
       if (!data.ok) return data;
+      usage = data.usage;
+      omittedWeakItems = data.omittedWeakItems ?? 0;
       provider = data.provider;
       model = data.model;
       parsed = data.result;
@@ -132,11 +161,22 @@ export async function generatePhase(input: {
           "output: expected one JSON object",
         ]);
   }
+  const trimmed =
+    phase === "compose"
+      ? pruneWeakComposition(parsed, payload as ComposeInput)
+      : { output: parsed, omitted: 0 };
+  omittedWeakItems += trimmed.omitted;
   const validated =
     phase === "shortlist"
-      ? validateShortlist(parsed, payload as ShortlistInput)
-      : validateComposition(parsed, payload as ComposeInput);
+      ? validateShortlist(trimmed.output, payload as ShortlistInput)
+      : validateComposition(trimmed.output, payload as ComposeInput);
   if (!validated.ok) {
+    if (validated.errors.every((e) => e.startsWith("INSUFFICIENT_CONTENT")))
+      return failure(
+        "INSUFFICIENT_CONTENT",
+        "No proposed topic meets the editorial and evidence requirements yet. There is no minimum article count.",
+        false,
+      );
     return failure(
       "INVALID_OUTPUT",
       "The model's answer did not match the phase schema.",
@@ -144,5 +184,13 @@ export async function generatePhase(input: {
       validated.errors,
     );
   }
-  return { ok: true, phase, result: validated.value, provider, model };
+  return {
+    ok: true,
+    phase,
+    result: validated.value,
+    provider,
+    model,
+    ...(usage ? { usage } : {}),
+    ...(omittedWeakItems ? { omittedWeakItems } : {}),
+  };
 }

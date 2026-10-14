@@ -30,18 +30,28 @@ _The built-in sample edition, shown on first launch._
 - **Local-first storage** — IndexedDB, no account, no sync service
 - **Open the original** in a new tab, from the stream or the reader
 - **A sample edition** on first run, so there is something to look at
-- **AI Daily Briefing** — an AI-edited edition of your own day (`The Big
+- **AI Daily Briefing** — off by default, enabled with a Settings switch; an AI-edited edition of your own day (`The Big
 Picture`, `Top Stories`, `Worth Reading`), written on request by the model you
-  configure, with every claim traced to a quoted excerpt of a real story
+  configure, with supporting article references and verified quoted excerpts;
+  editions, revisions and resumable progress remain in this browser
 
 ### What leaves the device
 
 Nothing, until you ask. Feed fetching and article extraction happen server-side
 on your behalf; reading state never leaves the browser. Two features send data
-elsewhere, both only when you turn them on: classification and the daily
-briefing each send the selected stories' titles and summaries (the briefing may
-also send at most ten stories' text) to the AI provider you chose. Your API key
-is stored in this browser and sent only to that provider.
+elsewhere: classification when enabled, and the daily briefing only when you
+press Generate. They send the selected stories' titles and summaries (the briefing may
+also extract at most ten selected stories and send bounded excerpts of selected text) to the AI provider you chose. Your API key
+is stored in this browser; hosted requests pass through this app’s stateless server
+to the selected provider. Choose Ollama, OpenAI, Anthropic, DeepSeek, Gemini,
+or a Custom API speaking OpenAI-compatible/Anthropic-compatible format. Custom
+hosted APIs require a public HTTPS base URL; local Ollama and custom local APIs
+are called directly by the browser and need the API’s CORS permission. Reading
+a briefing does not mark cited stories read. Disabling cancels work and keeps
+your saved editions and model settings. There is no minimum article count. Generation is manual, normally two
+model calls with at most one repair. Test connection makes a small explicit call
+that may be billed. Evidence checks verify references and quoted text, not every
+AI interpretation. See [implementation audit](docs/specs/ai-daily-briefing-audit.md).
 
 ## Why it is not like the others
 

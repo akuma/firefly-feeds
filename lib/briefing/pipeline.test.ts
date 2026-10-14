@@ -1,5 +1,5 @@
 import { deleteDB } from "idb";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArticleContentResult } from "../article-content";
 import type { LlmConfig } from "../llm";
 import type { ArticleRecord, SourceRecord } from "../storage/types";
@@ -37,7 +37,10 @@ async function freshModules() {
 
 beforeEach(() => {
   localStorage.clear();
+  vi.spyOn(Date, "now").mockReturnValue(T0);
 });
+
+afterEach(() => vi.restoreAllMocks());
 
 const T0 = new Date("2026-10-13T08:00:00Z").getTime();
 const HOURS = 60 * 60_000;
@@ -447,5 +450,570 @@ describe("the briefing pipeline", () => {
       retryable: false,
     });
     await foreign;
+  });
+  it("resumes unfinished enrichment on frozen articles without repeating completed work", async () => {
+    const { pipeline } = await freshModules();
+    const controller = new AbortController();
+    const first = await pipeline.runBriefing({
+      ...FIXTURE,
+      focusTopicIds: [],
+      timezone: "UTC",
+      outputLanguage: "zh-Hans",
+      llm: LLM,
+      ...stubGenerate({}),
+      signal: controller.signal,
+      fetchContent: async ({ article: target }) => {
+        if (target.id === "C~C1") {
+          controller.abort();
+          return { article: target, availability: "summary", fetched: false, error: "cancelled" };
+        }
+        return { article: target, availability: "full", fetched: true };
+      },
+    });
+    expect(first.run.status).toBe("cancelled");
+    const fetched: string[] = [];
+    const second = await pipeline.runBriefing({
+      ...FIXTURE,
+      articles: FIXTURE.articles.map((a) => ({ ...a, summary: "CHANGED", body: [] })),
+      focusTopicIds: [],
+      timezone: "Asia/Shanghai",
+      outputLanguage: "ja",
+      llm: LLM,
+      resume: first.run,
+      ...stubGenerate({}),
+      fetchContent: async ({ article: target }) => {
+        fetched.push(target.id);
+        expect(target.summary).not.toBe("CHANGED");
+        return { article: target, availability: "summary", fetched: false };
+      },
+    });
+    expect(second.error).toBeUndefined();
+    expect(fetched).toEqual(["C~C1"]);
+    expect(second.edition?.timezone).toBe("UTC");
+    expect(second.run.prepared?.outputLanguage).toBe("zh-Hans");
+    expect(second.edition?.outputLanguage).toBe("zh-Hans");
+    expect(second.edition?.stats.fullTextsFetched).toBe(1);
+  });
+
+  it("does not publish or repair an answer after cancellation during a model call", async () => {
+    const { pipeline, repo } = await freshModules();
+    const controller = new AbortController();
+    const { generate, calls } = stubGenerate({});
+    const result = await pipeline.runBriefing({
+      ...FIXTURE,
+      focusTopicIds: [],
+      timezone: "UTC",
+      llm: LLM,
+      signal: controller.signal,
+      generate: async (call) => {
+        controller.abort();
+        return generate(call);
+      },
+    });
+    expect(result.run.status).toBe("cancelled");
+    expect(calls).toHaveLength(1);
+    expect(await repo.getBriefings()).toEqual([]);
+  });
+
+  it("never resets the paid-call ceiling when a failed run is resumed", async () => {
+    const { pipeline } = await freshModules();
+    const stub = stubGenerate({
+      shortlist: () => ({
+        ok: false,
+        code: "PROVIDER_ERROR",
+        message: "offline",
+        retryable: true,
+      }),
+    });
+    const args = { ...FIXTURE, focusTopicIds: [], timezone: "UTC", llm: LLM, ...stub };
+    const first = await pipeline.runBriefing(args);
+    const second = await pipeline.runBriefing({ ...args, resume: first.run });
+    await pipeline.runBriefing({ ...args, resume: second.run });
+    expect(stub.calls.length).toBeLessThanOrEqual(3);
+  });
+
+  it("locks different edition slots globally and preserves a newer owner's checkpoint", async () => {
+    const { pipeline, repo } = await freshModules();
+    const args = {
+      ...FIXTURE,
+      focusTopicIds: [],
+      timezone: "UTC",
+      llm: LLM,
+      ...stubGenerate({}),
+      fetchContent: async ({ article: a }: { article: ArticleRecord }) => ({
+        article: a,
+        availability: "summary" as const,
+        fetched: false,
+      }),
+    };
+    const first = await pipeline.runBriefing(args);
+    const old = {
+      ...first.run,
+      runId: "other-slot",
+      editionKey: "other-issue@UTC",
+      status: "shortlisting" as const,
+    };
+    expect(await repo.claimBriefingRun(old, "foreign", Date.now(), 120000)).toBe(true);
+    const second = await pipeline.runBriefing(args);
+    expect(second.error?.code).toBe("IN_USE");
+    const stolen = { ...old, lease: { ownerId: "old", expiresAt: Date.now() + 120000 } };
+    await expect(repo.putBriefingRun(stolen)).rejects.toThrow(/lease/i);
+    expect((await repo.getBriefingRun(old.runId))?.lease?.ownerId).toBe("foreign");
+  });
+  it("counts cancelled extraction attempts against the run's total network budget", async () => {
+    const { pipeline } = await freshModules();
+    let resume: import("./types").BriefingRun | undefined;
+    let attempts = 0;
+    for (let i = 0; i < 12; i++) {
+      const controller = new AbortController();
+      /* oxlint-disable-next-line no-await-in-loop */
+      const result = await pipeline.runBriefing({
+        ...FIXTURE,
+        focusTopicIds: [],
+        timezone: "UTC",
+        llm: LLM,
+        ...stubGenerate({}),
+        resume,
+        signal: controller.signal,
+        fetchContent: async ({ article: a }) => {
+          attempts++;
+          controller.abort();
+          return { article: a, availability: "summary", fetched: false, error: "cancelled" };
+        },
+      });
+      resume = result.run;
+      if (result.edition) break;
+    }
+    expect(attempts).toBeLessThanOrEqual(10);
+  });
+  it("preserves safe field-level validation details in the visible phase error", async () => {
+    const { pipeline } = await freshModules();
+    const result = await pipeline.runBriefing({
+      ...FIXTURE,
+      focusTopicIds: [],
+      timezone: "UTC",
+      llm: LLM,
+      ...stubGenerate({
+        shortlist: () => ({
+          ok: false,
+          code: "INVALID_OUTPUT",
+          message: "The model's answer did not match the phase schema.",
+          retryable: false,
+          errors: ["groups[0].missingInformation: missing"],
+        }),
+      }),
+    });
+    expect(result.error?.message).toContain("groups[0].missingInformation: missing");
+  });
+  it.each([1, 6])(
+    "can publish from just %s input articles without a minimum-ten rule",
+    async (count) => {
+      const { pipeline } = await freshModules();
+      const items = Array.from({ length: count }, (_, i) =>
+        article(
+          `A~small${i}`,
+          "A",
+          Date.now() - 1000 - i,
+          `Distinct release ${i}`,
+          "The project released version 2 with limits on memory.",
+        ),
+      );
+      const shortlist: ShortlistOutput = {
+        schemaVersion: 1,
+        groups: [{ ...shortlistAnswer.groups[0], articleIds: [items[0].id] }],
+        extractArticleIds: [],
+      };
+      const composed: ComposeOutput = {
+        ...composeAnswer,
+        topStories: [
+          {
+            ...composeAnswer.topStories[0],
+            context: null,
+            whatHappened: {
+              ...composeAnswer.topStories[0].whatHappened,
+              evidence: [
+                { articleId: items[0].id, excerpt: "released version 2 with limits on memory." },
+              ],
+            },
+          },
+        ],
+      };
+      const result = await pipeline.runBriefing({
+        ...FIXTURE,
+        articles: items,
+        focusTopicIds: [],
+        timezone: "UTC",
+        llm: LLM,
+        ...stubGenerate({
+          shortlist: () => ({
+            ok: true,
+            phase: "shortlist",
+            result: shortlist,
+            provider: "stub",
+            model: "stub",
+          }),
+          compose: () => ({
+            ok: true,
+            phase: "compose",
+            result: composed,
+            provider: "stub",
+            model: "stub",
+          }),
+        }),
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.edition?.topStories).toHaveLength(1);
+      expect(result.edition?.stats.candidates).toBe(count);
+    },
+  );
+
+  it.each(["low score", "wrong section"] as const)(
+    "publishes qualifying topics without a paid repair for one item with %s",
+    async (problem) => {
+      const { pipeline } = await freshModules();
+      const shortlist: ShortlistOutput = {
+        ...shortlistAnswer,
+        groups: [
+          ...shortlistAnswer.groups,
+          {
+            ...shortlistAnswer.groups[0],
+            groupId: "weak",
+            articleIds: ["A~A2"],
+            kind: problem === "wrong section" ? "insight" : "news",
+            value: problem === "wrong section" ? 3 : 1,
+            novelty: 1,
+            evidence: 2,
+          },
+        ],
+      };
+      const composed: ComposeOutput = {
+        ...composeAnswer,
+        topStories: [
+          ...composeAnswer.topStories,
+          {
+            headline: "A chip maker announces a new part",
+            whatHappened: {
+              text: "A chip maker announced a new part.",
+              evidence: [{ articleId: "A~A2", excerpt: "A chip maker announced a new part." }],
+            },
+            context: null,
+            whyItMatters: null,
+            perspectives: [],
+          },
+        ],
+      };
+      const model = stubGenerate({
+        shortlist: () => ({
+          ok: true,
+          phase: "shortlist",
+          result: shortlist,
+          provider: "stub",
+          model: "stub",
+        }),
+        compose: () => ({
+          ok: true,
+          phase: "compose",
+          result: composed,
+          provider: "stub",
+          model: "stub",
+        }),
+      });
+      const result = await pipeline.runBriefing({
+        ...FIXTURE,
+        focusTopicIds: [],
+        timezone: "UTC",
+        llm: LLM,
+        ...model,
+        fetchContent: async ({ article: a }) => ({
+          article: a,
+          availability: "summary",
+          fetched: false,
+        }),
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.edition?.topStories).toHaveLength(1);
+      expect(result.edition?.stats.omittedWeakItems).toBe(1);
+      expect(model.calls).toHaveLength(2);
+    },
+  );
+});
+
+it("carries a truncation requirement into Resume on an older checkpoint without spending a new shortlist call", async () => {
+  const { pipeline } = await freshModules();
+  const first = await pipeline.runBriefing({
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    ...stubGenerate({
+      compose: () => ({
+        ok: false,
+        code: "OUTPUT_TRUNCATED",
+        message: "cut off",
+        retryable: false,
+      }),
+    }),
+    fetchContent: async ({ article: target }) => ({
+      article: target,
+      availability: "summary",
+      fetched: false,
+    }),
+  });
+  expect(first.run.callsUsed).toBe(2);
+  const oldCheckpoint = { ...first.run, truncatedPhases: undefined };
+  const { generate, calls } = stubGenerate({});
+  const resumed = await pipeline.runBriefing({
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    resume: oldCheckpoint,
+    generate,
+  });
+  expect(resumed.error).toBeUndefined();
+  expect(calls).toHaveLength(1);
+  expect(calls[0].phase).toBe("compose");
+  expect(calls[0].feedback).toContain("OUTPUT_TRUNCATED");
+  expect(resumed.edition?.stats.llmRequests).toBe(3);
+});
+
+it("asks for compact writing when selection already used the one repair call", async () => {
+  const { pipeline } = await freshModules();
+  let shortlistCalls = 0;
+  const model = stubGenerate({
+    shortlist: () => {
+      shortlistCalls++;
+      return shortlistCalls === 1
+        ? { ok: false, code: "INVALID_OUTPUT", message: "bad shape", retryable: true }
+        : {
+            ok: true,
+            phase: "shortlist",
+            result: shortlistAnswer,
+            provider: "stub",
+            model: "stub",
+          };
+    },
+  });
+  const result = await pipeline.runBriefing({
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    ...model,
+    fetchContent: async ({ article: target }) => ({
+      article: target,
+      availability: "summary",
+      fetched: false,
+    }),
+  });
+  expect(result.error).toBeUndefined();
+  expect(model.calls[2].feedback).toContain("COMPACT_OUTPUT");
+  expect(model.calls).toHaveLength(3);
+});
+
+it.each(["shortlist", "compose"] as const)(
+  "retains the compact requirement when cancellation lands on a truncated %s reply",
+  async (phase) => {
+    const { pipeline } = await freshModules();
+    const controller = new AbortController();
+    const first = await pipeline.runBriefing({
+      ...FIXTURE,
+      focusTopicIds: [],
+      timezone: "UTC",
+      llm: LLM,
+      signal: controller.signal,
+      ...stubGenerate({
+        [phase]: () => {
+          controller.abort();
+          return { ok: false, code: "OUTPUT_TRUNCATED", message: "cut off", retryable: true };
+        },
+      }),
+      fetchContent: async ({ article: target }) => ({
+        article: target,
+        availability: "summary",
+        fetched: false,
+      }),
+    });
+    expect(first.run.status).toBe("cancelled");
+    expect(first.run.truncatedPhases).toEqual([phase]);
+    const model = stubGenerate({});
+    const resumed = await pipeline.runBriefing({
+      ...FIXTURE,
+      focusTopicIds: [],
+      timezone: "UTC",
+      llm: LLM,
+      resume: first.run,
+      ...model,
+    });
+    expect(resumed.error).toBeUndefined();
+    expect(model.calls).toHaveLength(phase === "shortlist" ? 2 : 1);
+    expect(model.calls[0].feedback).toContain("OUTPUT_TRUNCATED");
+    if (phase === "shortlist") expect(model.calls[1].feedback).toContain("COMPACT_OUTPUT");
+  },
+);
+
+it.each(["OUTPUT_TRUNCATED", "INVALID_OUTPUT"] as const)(
+  "repairs a %s compose reply only once on frozen material",
+  async (code) => {
+    const { pipeline } = await freshModules();
+    let writingCalls = 0;
+    const model = stubGenerate({
+      compose: () => {
+        writingCalls++;
+        return writingCalls === 1
+          ? {
+              ok: false,
+              code,
+              message: "cut off",
+              retryable: true,
+              errors: [
+                code === "OUTPUT_TRUNCATED"
+                  ? "output: cut off at the token limit"
+                  : "topStories[0].whatHappened: missing",
+              ],
+            }
+          : { ok: true, phase: "compose", result: composeAnswer, provider: "stub", model: "stub" };
+      },
+    });
+    const result = await pipeline.runBriefing({
+      ...FIXTURE,
+      focusTopicIds: [],
+      timezone: "UTC",
+      llm: LLM,
+      ...model,
+      fetchContent: async ({ article: target }) => ({
+        article: target,
+        availability: "summary",
+        fetched: false,
+      }),
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.run.truncatedPhases).toEqual(
+      code === "OUTPUT_TRUNCATED" ? ["compose"] : undefined,
+    );
+    expect(model.calls.map((c) => c.phase)).toEqual(["shortlist", "compose", "compose"]);
+    if (code === "OUTPUT_TRUNCATED")
+      expect(model.calls[2].feedback).toEqual(["output: cut off at the token limit"]);
+    else
+      expect(model.calls[2].feedback).toEqual([
+        "topStories[0].whatHappened: missing",
+        "COMPACT_OUTPUT",
+      ]);
+  },
+);
+
+function failWritingForResume() {
+  return stubGenerate({
+    compose: () => ({
+      ok: false,
+      code: "PROVIDER_ERROR",
+      message: "interrupted",
+      retryable: false,
+    }),
+  });
+}
+
+it("hides an older incomplete run after a newer edition is saved without deleting its checkpoint", async () => {
+  const { pipeline, repo } = await freshModules();
+  const args = {
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    fetchContent: async ({ article: target }: { article: ArticleRecord }) => ({
+      article: target,
+      availability: "summary" as const,
+      fetched: false,
+    }),
+  };
+  const old = await pipeline.runBriefing({ ...args, ...failWritingForResume() });
+  const saved = await pipeline.runBriefing({ ...args, ...stubGenerate({}) });
+  expect(saved.edition).toBeDefined();
+  await repo.putBriefingRun({ ...old.run, updatedAt: T0 + 10000 });
+  expect(await pipeline.loadResumableRun(old.run.editionKey)).toBeUndefined();
+  expect(await repo.getBriefingRun(old.run.runId)).toBeDefined();
+  // The saved version can arrive after the UI's eligibility check but before claim.
+  expect(await repo.claimBriefingRun(old.run, "late-tab", T0, 120000)).toBe(false);
+  await repo.deleteBriefingRun(saved.run.runId);
+  expect(await repo.claimBriefingRun(old.run, "late-tab", T0, 120000)).toBe(false);
+});
+
+it("does not offer a different date or timezone's unfinished run", async () => {
+  const { pipeline } = await freshModules();
+  const failed = await pipeline.runBriefing({
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    ...failWritingForResume(),
+    fetchContent: async ({ article: target }) => ({
+      article: target,
+      availability: "summary",
+      fetched: false,
+    }),
+  });
+  expect(await pipeline.loadResumableRun(failed.run.editionKey)).toBeDefined();
+  expect(await pipeline.loadResumableRun("2026-10-14@UTC")).toBeUndefined();
+  expect(await pipeline.loadResumableRun("2026-10-13@Asia/Shanghai")).toBeUndefined();
+});
+
+it("does not fall back to an older failed run when the newest attempt has exhausted its budget", async () => {
+  const { pipeline } = await freshModules();
+  const args = {
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    fetchContent: async ({ article: target }: { article: ArticleRecord }) => ({
+      article: target,
+      availability: "summary" as const,
+      fetched: false,
+    }),
+  };
+  const old = await pipeline.runBriefing({ ...args, ...failWritingForResume() });
+  const latest = await pipeline.runBriefing({
+    ...args,
+    ...stubGenerate({
+      compose: () => ({ ok: false, code: "OUTPUT_TRUNCATED", message: "cut off", retryable: true }),
+    }),
+  });
+  expect(latest.run.callsUsed).toBe(3);
+  expect(await pipeline.loadResumableRun(old.run.editionKey)).toBeUndefined();
+});
+
+it("freezes readable focus scope and retains it in Writing after preferences change on Resume", async () => {
+  const { pipeline } = await freshModules();
+  const first = await pipeline.runBriefing({
+    ...FIXTURE,
+    focusTopicIds: ["custom-123"],
+    topics: [{ id: "custom-123", label: "Design" }],
+    timezone: "UTC",
+    llm: LLM,
+    ...failWritingForResume(),
+    fetchContent: async ({ article: target }) => ({
+      article: target,
+      availability: "summary",
+      fetched: false,
+    }),
+  });
+  const phases: Array<ShortlistInput | ComposeInput> = [];
+  const model = stubGenerate({});
+  const resumed = await pipeline.runBriefing({
+    ...FIXTURE,
+    focusTopicIds: ["politics"],
+    topics: [{ id: "politics", label: "Politics" }],
+    timezone: "UTC",
+    llm: LLM,
+    resume: first.run,
+    generate: async (call) => {
+      phases.push(call.payload);
+      return model.generate(call);
+    },
+  });
+  expect(resumed.edition).toBeDefined();
+  expect(phases).toHaveLength(1);
+  expect(phases[0]).toMatchObject({
+    focusOnly: true,
+    focusTopics: [{ id: "custom-123", label: "Design" }],
   });
 });

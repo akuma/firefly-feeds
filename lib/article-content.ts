@@ -1,4 +1,4 @@
-import { EXTRACTOR_VERSION, needsArticleRefresh } from "./refreshing";
+import { ARTICLE_STALE_MS, EXTRACTOR_VERSION, needsArticleRefresh } from "./refreshing";
 import * as repo from "./storage/repository";
 import type { ArticleRecord, SourceRecord } from "./storage/types";
 
@@ -79,6 +79,8 @@ async function fetchContent(
       etag?: string;
       lastModified?: string;
     };
+    if (!Array.isArray(body?.blocks) || body.blocks.length === 0)
+      throw new Error("The source returned no usable body.");
     const next: ArticleRecord = {
       ...article,
       title: body.title || article.title,
@@ -140,6 +142,13 @@ export function ensureArticleContent(input: {
   } satisfies ArticleContentResult;
 
   if (!article.link) return Promise.resolve(current);
+  if (
+    purpose === "briefing" &&
+    article.contentState === "full" &&
+    article.contentFetchedAt === undefined &&
+    Date.now() - article.fetchedAt < ARTICLE_STALE_MS
+  )
+    return Promise.resolve(current);
   // Fresh enough means no network at all — for the briefing as much as for the
   // reader: extraction is an on-demand act, never a background crawl.
   if (!needsArticleRefresh(article, Date.now())) return Promise.resolve(current);

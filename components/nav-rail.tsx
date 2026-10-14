@@ -388,9 +388,11 @@ export function NavRail({
          * section, ahead of Today.
          */}
         <Section title="Reading" first>
-          <Row active={r.view === "briefing"} onClick={() => go("briefing")}>
-            Briefing
-          </Row>
+          {r.digestEnabled && (
+            <Row active={r.view === "briefing"} onClick={() => go("briefing")}>
+              Briefing
+            </Row>
+          )}
           {views.map((v) => (
             <Row key={v.id} active={r.view === v.id} onClick={() => go(v.id)} count={v.count}>
               {v.name}

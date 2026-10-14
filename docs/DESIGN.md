@@ -131,9 +131,9 @@ story links to.
 ![Firefly Feeds on a phone](preview-mobile.webp)
 
 Mobile is not the desktop stack squashed. Below 1024px the structure changes:
-a compact masthead, the stream at full width, a tab bar — four items, and a
-fifth for the briefing once the reader has switched it on, because a tab that
-leads to "turn me on in Settings" is a dead end — and **the article as a
+a compact masthead, the stream at full width, a four-item tab bar — Briefing,
+Stream, Saved and Later when AI Briefing is enabled; otherwise Stream, Saved,
+Later and Search. Search remains available in the masthead — and **the article as a
 full-screen sheet** with its own toolbar and a four-action bar at the bottom.
 Navigation moves into a drawer.
 
@@ -206,3 +206,78 @@ navigation steps aside automatically — unless the reader has chosen a nav widt
 themselves, which is never overridden.
 
 `app/globals.css` is the source of truth for all of the above.
+
+### Briefing reading details
+
+On phones the briefing is a continuous reading surface below its compact controls,
+with four navigation tabs and an edition selector when history exists. There is one
+rendered briefing reader, not duplicate desktop/mobile bodies. Desktop keeps the
+contents/history column. Story headlines anchor the contents links. Narrative fields
+flow as ordinary paragraphs, with a consolidated source line at the end of each
+story; Big Picture retains its section kicker. Body size follows the reader preference.
+
+Each edition retains its session scroll position when a citation is opened and on
+return. The article toolbar's mobile back action returns to the briefing, and Escape
+also restores it. Archive editions are labelled as archives rather than today's issue.
+The masthead includes actual generation time/timezone and a measured reading estimate.
+Errors use an alert, progress a live status; cancellation says a sent request may
+already have been billed. No prose claims that substring validation guarantees truth.
+
+AI Briefing uses the same On/Off switch style as Article classification. It is
+off by default. Model controls and navigation appear only after opt-in; disabling
+returns to Stream while retaining editions and model setup. The provider picker
+uses English labels throughout, including Gemini and Custom API. Custom API's
+Format selector distinguishes OpenAI-compatible from Anthropic-compatible.
+
+AI Briefing's Written in selector reuses the existing language labels and underline
+select style. It appears with the enabled model controls and changes only subsequent
+editions. Reader prose follows this preference, with named-language editions marked
+using HTML lang; navigation, provider labels and other application controls stay English.
+
+Briefing prose sections establish their own positioning context. Their visually
+hidden accessible headings must stay inside the reading pane's scroll area;
+otherwise opening Briefing from the mobile tab can expand document scroll height
+and leave a large blank area below the viewport.
+
+The briefing's active Cancel action uses the existing spark warning accent for both
+its X icon and label, keeping the same compact button style in light and dark themes.
+
+Briefing editions use magazine hierarchy within the existing paper, serif and
+hairline system: a larger issue masthead, an opening Big Picture, serif section
+headings and stronger section rules. The first news item in the editor's supplied
+order gets the lead headline size; subsequent news stays quieter. Worth Reading
+uses compact numbered entries, recommendation copy and a source link without
+repeating the article title. The page stays single-column on mobile, preserves
+reader font size/citation return positions and keeps accessible headings inside
+positioned sections. These styles also apply to saved editions without regeneration.
+
+Consolidated news citations also merge every paragraph's evidence IDs at display
+time, so older editions with incomplete cached source lists retain their links.
+
+Briefing Chinese headlines and prose insert a single space at Han–Latin and
+Han–Arabic-number boundaries, including contents links and recommendation text.
+Display formatting also improves saved editions without rewriting their records.
+URLs, email addresses, code spans, source identifiers and evidence excerpts remain
+verbatim. Explicit Japanese/Korean editions and text containing their scripts are
+left unchanged. New model prompts request the same Chinese spacing convention.
+
+Briefing controls distinguish the saved edition from unfinished work. A newer
+incomplete task displays its revision and next stage, with Resume rN as the
+primary action. With no saved edition, the secondary action is Start over;
+otherwise the existing Regenerate/Generate action stays available. A saved
+edition is explicitly marked Saved. Older attempts disappear from these controls
+once a newer edition succeeds; dates/timezones distinguish a selected archive
+from today's unfinished work. Errors and live generation progress stay separate.
+
+The desktop briefing contents begin with a roman serif Big Picture entry,
+followed by separate mono-labelled Top Stories and Worth Reading groups, without
+a redundant contents title. Numbered rows
+and hairline separators distinguish adjacent headlines, with wrapped text aligned
+under the headline rather than its number. Archive rows always reserve the same
+left border and padding; selection changes the rule and ink without shifting text.
+
+Focus topics now describe the briefing's content scope: selected topics restrict
+new editions to directly relevant material, while an empty selection produces a
+general briefing. The settings helper makes this explicit; fewer stories are
+preferred to unrelated filler. Existing editions and frozen old runs keep their
+original content.

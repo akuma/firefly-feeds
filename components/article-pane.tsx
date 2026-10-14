@@ -425,7 +425,7 @@ function BodySkeleton() {
 
 /* ---------------------------------------------------------------- pane */
 
-export function ArticlePane() {
+export function ArticlePane({ onBack }: { onBack?: () => void } = {}) {
   const r = useReader();
   const s = r.story(r.selectedId);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -634,10 +634,10 @@ export function ArticlePane() {
         <div className="flex h-12 shrink-0 items-center gap-1 border-b border-rule px-1.5 lg:hidden">
           <IconButton
             icon={ArrowLeft}
-            label="Back to stream"
+            label={onBack ? "Back to Briefing" : "Back to stream"}
             size={32}
             iconSize={17}
-            onClick={() => r.setMobileReading(false)}
+            onClick={onBack ?? (() => r.setMobileReading(false))}
           />
           <div className="min-w-0 flex-1">
             <div className="mono truncate text-[9.5px] tracking-[0.16em] text-ink3 uppercase">

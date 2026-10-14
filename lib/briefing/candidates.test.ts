@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { articleFingerprint, classifyInputFor } from "../classify";
 import { canonicalUrl, prepareCandidates } from "./candidates";
 import { editorialScore, interestBoost, rankGroups, selectForEdition } from "./score";
 import type { ArticleClassification, ArticleRecord, SourceRecord } from "../storage/types";
@@ -205,4 +206,96 @@ describe("the shortlist arithmetic", () => {
     // g3 is clearly best; the second slot goes to the unused source, not s1 again
     expect(picked.map((p) => p.groupId)).toEqual(["g3", "g2"]);
   });
+});
+
+describe("focused candidate scope", () => {
+  it("excludes known off-topic articles before sampling but keeps unclassified candidates", () => {
+    const classification = (itemId: string, topicIds: string[]): ArticleClassification => ({
+      itemId,
+      topicIds,
+      confidence: 1,
+      status: "confirmed",
+      provider: "jev",
+      contentFingerprint: "fixture",
+      updatedAt: T0,
+    });
+    const set = run({
+      articles: [
+        article("a~ai", "a", T0 - HOUR),
+        article("a~politics", "a", T0 - HOUR),
+        article("a~unknown", "a", T0 - HOUR),
+      ],
+      classifications: [classification("a~ai", ["ai"]), classification("a~politics", ["politics"])],
+      focusTopicIds: ["ai"],
+    });
+    expect(set.candidates.map((c) => c.articleId)).toEqual(["a~ai", "a~unknown"]);
+  });
+});
+
+it("reserves the candidate budget for focused material before source sampling", () => {
+  const politics = Array.from({ length: 70 }, (_, i) => article(`a~p${i}`, "a", T0 - i - 1));
+  const classifications: ArticleClassification[] = politics.map((target) => ({
+    itemId: target.id,
+    topicIds: ["politics"],
+    confidence: 1,
+    status: "auto",
+    provider: "jev",
+    contentFingerprint: articleFingerprint(
+      classifyInputFor(target).title,
+      classifyInputFor(target).summary,
+    ),
+    updatedAt: T0,
+  }));
+  const articles = [...politics, article("a~design", "a", T0 - HOUR)];
+  const general = run({ articles, classifications });
+  expect(general.candidates).toHaveLength(60);
+  const focused = run({ articles, classifications, focusTopicIds: ["design"] });
+  expect(focused.candidates.map((candidate) => candidate.articleId)).toEqual(["a~design"]);
+  expect(focused.skippedStats.offFocus).toBe(70);
+});
+
+it("does not exclude material on the basis of a rejected or unreviewed classification", () => {
+  const articles = [article("a~rejected", "a", T0 - HOUR), article("a~review", "a", T0 - HOUR)];
+  const classifications: ArticleClassification[] = articles.map(({ id }, index) => ({
+    itemId: id,
+    topicIds: ["politics"],
+    confidence: 0.3,
+    status: index === 0 ? "rejected" : "needs_review",
+    provider: "jev",
+    contentFingerprint: "fixture",
+    updatedAt: T0,
+  }));
+  const focused = run({ articles, classifications, focusTopicIds: ["design"] });
+  expect(focused.candidates).toHaveLength(2);
+  expect(focused.candidates.every((candidate) => candidate.topicIds.length === 0)).toBe(true);
+});
+
+it("treats a stale automatic classification as unknown after the article text changes", () => {
+  const changed = article("a~changed", "a", T0 - HOUR, {
+    title: "An AI design tool ships",
+    summary: "New interface design tools.",
+  });
+  const stale: ArticleClassification = {
+    itemId: changed.id,
+    topicIds: ["politics"],
+    confidence: 1,
+    status: "auto",
+    provider: "jev",
+    contentFingerprint: "old-political-text",
+    updatedAt: T0 - HOUR,
+  };
+  expect(
+    run({
+      articles: [changed],
+      classifications: [stale],
+      focusTopicIds: ["design"],
+    }).candidates.map((candidate) => candidate.articleId),
+  ).toEqual([changed.id]);
+  expect(
+    run({
+      articles: [changed],
+      classifications: [{ ...stale, status: "confirmed" }],
+      focusTopicIds: ["design"],
+    }).candidates,
+  ).toEqual([]);
 });

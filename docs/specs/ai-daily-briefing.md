@@ -1,7 +1,9 @@
 # Firefly Feeds — AI Daily Briefing Design Spec
 
-- **状态**：Ready for implementation
-- **版本**：1.0（2026-10-13）
+- **状态**：工程实现完成，待真实模型编辑质量验收
+- **版本**：1.1（2026-10-14）
+
+实现核对与验证边界见 [ai-daily-briefing-audit.md](ai-daily-briefing-audit.md)。
 
 ## 0. 给 Coding Agent 的执行指令
 
@@ -25,10 +27,10 @@ Briefing 必须**独立可读**（用户 3–5 分钟掌握已订阅内容中的
 
 ### 1.2 v1 交付范围（MUST）
 
-- Daily Briefing 一级入口；基于用户已订阅的真实 RSS，用户主动生成、每天默认展示最新一期。
+- AI Briefing 默认关闭，由 Settings 开关启用后显示 Daily Briefing 一级入口；基于用户已订阅的真实 RSS，用户主动生成、每天默认展示最新一期。
 - 解释型编辑内容：`The Big Picture`、`Top Stories`、`Worth Reading`；最多 5 个重要话题、最多 2 篇深读推荐，允许少于上限，禁止凑数。
 - 先确定性预筛，再由 LLM 语义选题；最多对 10 篇有价值且未缓存全文的文章补充抓取；第二轮 AI 重新评估并成稿。
-- 显式兴趣偏好（从现有文章 Topic 中最多选 3 个）；编辑价值优先，兴趣只做小幅加权。
+- 显式兴趣范围（从现有文章 Topic 中最多选 3 个）；选择后仅编排与其直接相关的内容，宁缺毋滥；不选时生成综合简报。
 - 保存简报快照、引用元信息、生成版本及本地处理检查点；同日回访不自动再次生成；手动 `Regenerate` 可创建新 revision，旧版仍可查看。
 - 每条核心事实可追溯到有效的源文章；代码严格验证返回结构、引用 ID 与证据片段；失败不应伪装成成功。
 - 桌面和移动端一致可用；进入原文后能回到简报的原阅读位置；**阅读简报不会将引用文章标记为已读**。
@@ -40,7 +42,7 @@ Briefing 必须**独立可读**（用户 3–5 分钟掌握已订阅内容中的
 - 自动定时、Push、邮件、跨设备云同步、账户、服务端持久队列。
 - 用户长期行为画像、阅读时长追踪、向量库、RAG/知识图谱、跨天事件时间线。
 - 自动向所有站点获取全文、为素材做站外搜索、调用通用联网搜索结果充数。
-- Chat UI、动态对话追问、全文翻译、多语言配置面板、分享/导出、音频简报。
+- Chat UI、动态对话追问、全文翻译、应用界面多语言化、分享/导出、音频简报。
 - 直接复用 `CLASSIFY_PROVIDERS` 的 System One/Decision 闭集选择接口生成长篇简报。
 - 为了填满版面虚构结论、观点、数据、出处或封面图。
 
@@ -61,7 +63,7 @@ Briefing 必须**独立可读**（用户 3–5 分钟掌握已订阅内容中的
 - 多家媒体转载同一个原始公告，不应宣传为“多个独立证据来源”。
 - 带有具体数据、日期、人名、因果关系的陈述必须能找到输入材料中的支持证据。
 - 原文内容仅作为**不可信数据**，其中类似“忽略上面指令”的文本必须被忽略。
-- 生成用户配置的语言内容，默认英文。
+- 生成用户配置的语言内容，沿用既有 `digestLanguage` 偏好与语言列表（缺省 `source`，随原文语言）。应用控件仍为英文；证据摘录始终保留原文。
 
 ---
 
@@ -72,7 +74,7 @@ Briefing 必须**独立可读**（用户 3–5 分钟掌握已订阅内容中的
 | 现有代码                                        | 当前作用                                                   | 本功能要求                                                              |
 | ----------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `lib/storage/types.ts`                          | `ArticleRecord`、`SourceRecord`、`ReadingRecord`、分类类型 | 重用类型；增加独立 Briefing 类型，不把简报伪装成 RSS Article            |
-| `lib/storage/db.ts`                             | IndexedDB `DB_VERSION = 2`                                 | **升级为 3**，增量创建 `briefings` / `briefingRuns`；兼容旧数据         |
+| `lib/storage/db.ts`                             | IndexedDB（v2 分类、v3 旧摘要）                            | **增量升级为 4**，增量创建 `briefings` / `briefingRuns`；兼容旧数据     |
 | `lib/storage/repository.ts`                     | 所有浏览器存储操作的抽象层                                 | 提供新记录的读写与清理；`clearAll()` 更新；避免组件直接操作 `idb`       |
 | `lib/storage/prefs.ts`                          | Local preferences，包括已有分类器配置                      | 在现有键下扩展少量 Briefing 配置，禁止改键；密钥仅本地留存              |
 | `lib/store.tsx`                                 | 当前全局阅读状态、文章抓取 UI 驱动                         | 复用共享文章获取 helper；避免将整个 pipeline 塞进现有巨大 store         |
@@ -107,6 +109,7 @@ Briefing 必须**独立可读**（用户 3–5 分钟掌握已订阅内容中的
 ```ts
 export const BRIEFING_LIMITS = {
   maxCandidates: 60,
+  maxShortlistGroups: 12,
   recentWindowHours: 24,
   insightWindowDays: 7,
   recentQuota: 42,
@@ -130,7 +133,7 @@ export const BRIEFING_LIMITS = {
 2. **分桶**：`recent`（[cutoffAt−24h, cutoffAt]）、`older`（(cutoffAt−7d, cutoffAt−24h)）。排序优先按有效时间倒序，tie-break by stable ID，保证同输入稳定。
 3. **来源公平抽样**：每桶先轮转覆盖各源、单源初轮最多 5 篇；再轮转补齐剩余名额。不让单一高频源消耗全部配额；空配额跨桶回填，总量最多 60。
 4. **历史线索**：附最近 7 天已报道事件的标题、`sourceArticleIds`、发布日期；精确重复深读文章默认不再推荐。同一事件可能有新进展，**不按历史相似标题做硬删除**，由模型判断 `material update`。
-5. **分类与兴趣**：为候选附现有 Topics 和用户明确勾选的 focus Topics。缺分类时仍可以参选，不自动触发新的 Classification Sweep。
+5. **分类与兴趣**：为候选附现有 Topics，并将 focus Topics 的 ID 与可读名称冻结后传给两阶段。已自动分类或人工确认且与所有 focus Topics 不匹配的文章，在采样前排除；待审核、已拒绝或缺分类文章仍可参选，由选稿与写作阶段根据正文判断直接相关性，不自动触发新的 Classification Sweep。
 
 建议纯函数：
 
@@ -184,7 +187,7 @@ type ShortlistInput = {
   editionDate: string;
   cutoffAt: number;
   timezone: string;
-  outputLanguage: "en";
+  outputLanguage: DigestLanguageId;
   focusTopicIds: string[];
   candidates: BriefingCandidate[];
   previousStories: BriefingHistoryDigest[];
@@ -215,7 +218,8 @@ type ShortlistOutput = {
 
 - 模型返回三个**独立的编辑维度**（News 与 Insights 的细则分别写在 Prompt 中）；程序计算 `editorial = value + novelty + evidence`，满分 10。
 - `editorial < 6` 的候选不能被最终入选，但允许第一轮通过低分且 `missingInformation` 明确的候选参与有预算的探索（其全文结果必须在第二轮重新评分；不得直接刊登）。
-- `interestBoost = 1` 当其任一 `topicId` 命中 focus Topics，否则 0；最多加 1，不累加多项 Topic。兴趣仅能影响排序，**不能绕过编辑分门槛**。
+- 已选择 focus Topics 时仅编排直接相关内容；纯综合政治/体育新闻不能为凑数进入简报，跨领域新闻仅在其核心进展与所选领域直接相关时入选。未选择时保持综合编排。
+- `interestBoost = 1` 当其任一 `topicId` 命中 focus Topics，否则 0；最多加 1，不累加多项 Topic。该加分在相关内容范围内细化排序，**不能绕过编辑分门槛**。
 - 排序时保留来源覆盖、话题多样性作为**软约束**：当价值接近时优先减少重复、覆盖不同来源。不能为凑多样性而选较差素材。
 - Top Stories 和 Worth Reading 的最终名额独立：News 0–5，Insights 0–2。不把两者评分理解为同一标准。
 - 已被报道过的旧事件仅在具有可指明的实质新进展时再次入选。深读推荐已出现过的原文默认不重复。
@@ -320,7 +324,7 @@ type ComposeInput = {
   editionDate: string;
   timezone: string;
   cutoffAt: number;
-  outputLanguage: "en";
+  outputLanguage: DigestLanguageId;
   shortlist: ShortlistOutput;
   materials: ArticleMaterial[];
   limits: {
@@ -459,13 +463,13 @@ type GenerateFailure = {
 };
 ```
 
-`ProviderConfig` 仅含 `provider`, `model`, `apiKey`；**不允许用户自定义上游 URL**。实际服务端须做输入上限、字段校验、密钥不得回显、超时和错误规范化，不能信任 TypeScript 类型提示。成功响应使用判别字段 `phase` 和与之对应的 `result` schema，避免把两个阶段结果混成一个宽泛对象。
+`ProviderConfig` 仅含 `provider`, `model`, `apiKey`；**Custom API 允许用户设置公开 HTTPS 上游 URL；本地兼容 API 由浏览器直连，服务器拒绝内网/元数据地址**。实际服务端须做输入上限、字段校验、密钥不得回显、超时和错误规范化，不能信任 TypeScript 类型提示。成功响应使用判别字段 `phase` 和与之对应的 `result` schema，避免把两个阶段结果混成一个宽泛对象。
 
 ### 7.3 请求安全与预算
 
 - `POST` 必须遵守已有 `fromAnotherSite()` 与独立 `BRIEFING_LLM` rate limit；新增单独的 Cloudflare Rate Limiting Binding。限流只能减轻滥用，**不等同于严格消费配额**；本功能 BYOK，用户自己承担 Provider 计费。
 - 拒绝不受支持的 HTTP 方法、不可信 provider、空密钥、未知阶段、无效模型 ID、过长字段、超限数组、超大 JSON 请求体。建议 shortlist payload ≤ **256 KiB**、compose payload ≤ **512 KiB**；服务端读取正文时实施上限，不得无限 `request.json()`。具体上限由 tests 固化。
-- 限定固定的上游 HTTPS API 地址；不跟随到未经允许的 host 的重定向，不把 Key 发往非预期目的地。上游错误只返回安全的摘要信息。
+- 内置 Provider 使用固定的上游 HTTPS 地址；Custom API 使用用户明确配置且通过公开目标校验的 HTTPS 地址；不跟随重定向，不把 Key 发往非预期目的地。上游错误只返回安全的摘要信息。
 - 每次阶段请求只执行 **一次上游 LLM 调用**；超时/失败时由客户端根据错误决定一次重试。缺省正常路径为 2 次 LLM；最多允许 1 次模型修复调用（总体 LLM 调用上限 3）。不得无限重试 429/5xx。
 - 客户端严格限制每次生成的全文提取次数、并发数、运行中的重复启动；服务端按请求限制 input/output token 预算。不要假设客户端限制足以抵御故意滥用。
 - 不把 API Key 存入 `briefingRuns`、`briefings`、错误日志、遥测；参考当前 local preferences 模式，但在 UI 明示“Key 存于此浏览器，本机 JavaScript 可读取”，不得声称硬件级安全。
@@ -667,7 +671,8 @@ type BriefingRun = {
 
 ### 10.3 Settings（最小配置）
 
-- `AI Briefing` 部分：Provider（OpenAI/DeepSeek）、Model ID、API Key（密码输入）、`Test connection`（轻量有效性检查，仅在用户点击时调用并提示可能计费），`Focus topics`（复用现有 Topic IDs，最多 3，默认不选）。
+- `AI Briefing` 开关默认关闭；开启才显示导航与配置，关闭中止生成及连接测试、回到 Stream，但保留模型设置和已保存简报。沿用现有 `prefs.digest`，不新增/改名存储键。
+- `AI Briefing` 部分：Provider（Ollama / OpenAI / Anthropic / DeepSeek / Gemini / Custom API）、Model ID、API Key（密码输入）、`Test connection`（轻量有效性检查，仅在用户点击时调用并提示可能计费），`Focus topics`（复用现有 Topic IDs，最多 3，默认不选）。
 - Briefing 不继承也不改变现有 Classification 的 Provider/开启状态。
 - 设置项说明：数据向所选第三方 Provider 发送、Key 存于当前浏览器、BYOK 可能产生费用。
 - 预设生成参数不暴露到用户界面：默认窗口、文章预算、段落字数都由 v1 的常量控制。
@@ -849,7 +854,7 @@ publishBriefing(runId, validOutput): Promise<BriefingEdition>
 - [ ] 一次主动生成完整经过 Prepare → Shortlist → Enrich → Compose → Validate → Publish，正常情况下仅 2 次 LLM 调用。
 - [ ] 每次最大候选 60、最大新增全文提取 10、并发 2、News/Insights 各自预算按配置执行。
 - [ ] 相同事件的跨来源文章可聚合；同 Topic 不同事件不盲目合并。
-- [ ] 编辑价值门槛先于兴趣加权；无兴趣偏好照常生成。
+- [ ] 编辑价值门槛保持有效；有兴趣范围时仅编排相关内容，无兴趣范围照常生成综合简报。
 - [ ] `Big Picture / Top Stories / Worth Reading` 可根据证据合理省略或缩短；不凑数字。
 - [ ] 无效 JSON、未知 Article ID、无法定位的原文 `excerpt` 不会进入 Published Briefing。
 - [ ] 抓取失败可降级；模型失败显示错误并可恢复；中断后输入快照一致。
@@ -859,10 +864,10 @@ publishBriefing(runId, validOutput): Promise<BriefingEdition>
 
 ### 14.2 兼容与安全
 
-- [ ] v2 → v3 数据库升级后，已有 source、article、reading、topic、classification 数据保持原样；新装数据库也可一次升级到 v3。
+- [ ] v2/v3 → v4 数据库升级后，已有 source、article、reading、topic、classification 数据保持原样；新装数据库也可一次升级到 v4。
 - [ ] `DB_NAME` 与 `PREFS_KEY` 未变，`clearAll()` 覆盖新 store；现有 sync 类型与接口无破坏性更改。
 - [ ] API Key 不在新 Run、Edition、日志、错误返回或测试快照中；外发内容仅来自本次用户同意的候选资料。
-- [ ] LLM endpoint 固定允许的 Provider host、超时与 body 限制，延续同源检查；无任意 URL 代理。
+- [ ] LLM endpoint 对内置 Provider 固定 host，对 Custom API 校验公开 HTTPS 目标，并限制协议、请求 schema、超时与 body；延续同源检查，不提供自由格式代理。
 - [ ] publisher 内容无法变成系统提示词；不渲染原始不可信 HTML，不伪造原文媒体/图片。
 - [ ] 普通阅读、RSS 刷新、文章分类和现有键盘操作通过回归测试。
 
@@ -884,7 +889,25 @@ publishBriefing(runId, validOutput): Promise<BriefingEdition>
 
 ---
 
-## 15. 实现时的明确取舍
+## 15. 实现核对后的契约补充（2026-10-14）
+
+- 恢复设置中的 `Written in`，复用既有 `Prefs.digestLanguage` 与封闭语言表，不新建偏好键。选题、写作和连接测试均传入所选语言；`source` 下各条正文跟随主来源，Big Picture 使用主要来源语言。二阶段 JSON Schema 使用相同语言枚举；生成提示要求名字和原文证据不翻译。Resume 继续使用 prepared 中冻结的语言。新简报记录可选 `outputLanguage`，旧记录按英文兼容；更改语言不改写已保存简报，也不会自动调用模型。
+- 部分模型会返回额外的 `topStories[].whatHappenedNote`。仅纯文本（最多 2000 字符）或 null 的该字段可在严格校验前删除，永不显示/持久化。其余未知字段、非文本备注及任何引用/证据错误仍拒绝；不增加输出预算或额外付费请求。
+- 保留现有数据库 v3 的 `digests`，新 stores 使用 v4；原数据库与 preference 名称不变。
+- 沿用独立生成模型配置表，保留 Ollama / OpenAI / Anthropic / DeepSeek，加入 Gemini 与 Custom API，移除 Qwen / Kimi / GLM 预设。Custom API 可选 OpenAI-compatible / Anthropic-compatible 协议；公开 HTTPS 地址经服务端校验，本地地址由浏览器直连，重定向不转发密钥。旧模型/密钥映射保留，与 Classification 配置分离。
+- `ShortlistOutput.groups` 最多 12 组，输入候选仍最多 60；shortlist 输出预算 6000 tokens，compose 默认 8000，DeepSeek compose 为 16000（不改变其他 API 的兼容上限）。OpenAI 格式启用 JSON Mode，Ollama 使用 `format: json`，两端仍执行严格校验。截断修复选题最多 4 组；写作使用紧凑目标 schema 和同步的 input limits：最多 2 条 Top Stories / 1 条 Worth Reading，Big Picture/context 为 null、perspectives 为空，每段仅 1 条最多 120 字符的证据，正文每字段最多 800 字符。不放松发布证据校验；若模型已返回完整且符合基础发布契约的较长输出，也可正常发布。
+- `ComposeOutput.reassessedGroups` 提供 `{ groupId, value, novelty, evidence }[]`，新提示词要求输出二轮分数。兼容此前检查点缺省该字段时使用原始分数；低于 6 分的探索组必须有达标的明确二轮评分，否则不得刊登。按已识别事件 group 去重。
+- 仅因明确二轮/原始评分低于 6、板块放错或主证据混用选题组而不合格的整条话题可确定性剔除，其余合法内容继续严格校验；不将新闻正文转换成推荐语，不移动条目。写作请求明确列出各板块可用的原始文章 ID。若存在结构、未知引用、坏证据等错误，仍拒绝整份输出。剔除后重算来源，移除引用已剔除内容的 Big Picture，并在页脚显示剔除数量。全被剔除时返回 INSUFFICIENT_CONTENT，不用补字数或强制付费修复。无最低文章篇数门槛，1 篇也可成刊。
+- 中文生成文案要求中英文、汉字与阿拉伯数字间留空格，例如 `Feldman 对家用 AI 设备`。显示层统一处理新旧刊的正文、新闻标题、推荐语及目录；不改写存储文案，也不改变 evidence、ID、URL、邮箱与代码。明确日语/韩语版及含相关文字的内容保留原排版。
+- 写作提示补全合法 JSON 示例，截断修复不再同时要求“缩短”和“其他不变”。当选题已使用唯一修复机会时，首次写作即采用紧凑目标。`truncatedPhases` 是 run 上的可选检查点字段；Resume 和取消后的恢复保留该要求，旧 run 则从 OUTPUT_TRUNCATED 错误回退识别。每个 run 仍最多 3 次调用，绝不发布截断 JSON。
+- 每段证据最多 3 条、观点最多 2 段；字数是整条 Top Story 的总量，不能每个字段各写 100–160 words。最终请求按 UTF-8 总字节再做确定性节选。
+- 准备阶段最多刷新 5 个 stale feeds，总等待上限 10 秒，复用阅读器刷新路径；未完成/失败会标记覆盖不足。冻结文章正文、源元信息和最近 7 天历史；历史精确去重后最多保留 200 条。
+- 每 40 秒续租，并在原子事务内检查 owner 后写检查点及发布。每次调用前持久化预算；网络结果不确定时不自动重发，用户 Resume 才继续。Generate 始终创建新 run slot，失败 slot 不会锁死当天生成。
+- 已保存材料逐篇恢复，取消不发布；检查点含有限的提取尝试与统计，不包含密钥。支持旧检查点缺少新增可选字段的回退。
+
+---
+
+## 16. 实现时的明确取舍
 
 1. **不要提前引入 embedding**：v1 的候选数和时间范围有限，标题/摘要交给一次 LLM 语义聚合已能验证核心价值；是否需要向量相似检索由实际测试决定。
 2. **不要提前做独立的“AI 抓取队列服务”**：现有原文提取 API 足够；浏览器端有界并发与 IndexedDB stage checkpoint 能满足主动生成模式。
@@ -897,7 +920,7 @@ publishBriefing(runId, validOutput): Promise<BriefingEdition>
 
 ---
 
-## 16. Agent 最终交付格式
+## 17. Agent 最终交付格式
 
 实现完成后，给出：
 
@@ -908,3 +931,13 @@ publishBriefing(runId, validOutput): Promise<BriefingEdition>
 5. **Follow-ups**：仅列出与 v1 缺陷或后续优化直接相关的事项；不要擅自扩为 Agent、推送、云同步等新产品。
 
 **最终成功标准**不是“能生成一篇英文摘要”，而是：使用用户真实 RSS 数据，能够稳定获得一份具有编辑判断、准确引用、可以独立阅读且会引导优质原文阅读的每日简报，并且不破坏 Firefly Feeds 的 local-first 阅读体验。
+
+### 2026-10-14 时间与兴趣范围修正
+
+当前 prompt 版本为 `shortlist-v4 / compose-v5`。两阶段 system prompt 明示冻结的
+`editionDate`、`timezone` 与 `cutoffAt`，要求区分报道发布时间、事件时间与历史背景；
+不得把回顾中的“赛事之前”写成今天“赛事临近”。无法从材料确定时间时省略该判断。
+引文存在性校验不等同于完整语义/时间事实核查，仍需真实样本的编辑质量验证。
+
+新任务冻结可选 `focusTopics: {id,label}[]` 和 `focusOnly`，写作阶段也接收这些字段。
+旧任务缺少这些字段时继续原有范围，已有成刊不重写；新偏好需要 Regenerate。

@@ -64,8 +64,15 @@ function isPublicIpv6(host: string): boolean {
   if (/^f[cd][0-9a-f]{2}:/.test(host)) return false; // fc00::/7 unique-local
   if (/^fe[89ab][0-9a-f]:/.test(host)) return false; // fe80::/10 link-local
   if (host.startsWith("::ffff:")) {
-    const v4 = parseIpv4(host.slice("::ffff:".length));
-    if (v4) return isPublicIpv4(v4);
+    const tail = host.slice("::ffff:".length);
+    const dotted = parseIpv4(tail);
+    if (dotted) return isPublicIpv4(dotted);
+    // WHATWG URL canonicalizes a dotted IPv4 suffix into two hexadecimal words.
+    const words = /^([a-f0-9]{1,4}):([a-f0-9]{1,4})$/.exec(tail);
+    if (!words) return false;
+    const high = Number.parseInt(words[1], 16);
+    const low = Number.parseInt(words[2], 16);
+    return isPublicIpv4([high >> 8, high & 255, low >> 8, low & 255]);
   }
   return true;
 }

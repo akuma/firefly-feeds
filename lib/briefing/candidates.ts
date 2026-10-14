@@ -1,3 +1,5 @@
+import { articleFingerprint, classifyInputFor } from "../classify";
+import { ARTICLE_STALE_MS, needsArticleRefresh } from "../refreshing";
 import { BRIEFING_LIMITS } from "./constants";
 import type { ArticleClassification, ArticleRecord, SourceRecord } from "../storage/types";
 import type { BriefingCandidate, CandidateSet } from "./types";
@@ -22,6 +24,8 @@ const TRACKING_PARAMS = new Set(["fbclid", "gclid"]);
 export function canonicalUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password)
+      return null;
     parsed.hash = "";
     const kept = [...parsed.searchParams.entries()]
       .filter(
@@ -88,8 +92,10 @@ export function prepareCandidates(input: {
   sources: readonly SourceRecord[];
   classifications: readonly ArticleClassification[];
   cutoffAt: number;
+  focusTopicIds?: readonly string[];
+  activeTopicIds?: readonly string[];
 }): CandidateSet {
-  const { articles, sources, classifications, cutoffAt } = input;
+  const { articles, sources, classifications, cutoffAt, focusTopicIds = [] } = input;
   const skippedStats = {
     duplicates: 0,
     outOfWindow: 0,
@@ -97,13 +103,29 @@ export function prepareCandidates(input: {
     sample: 0,
     empty: 0,
     capped: 0,
+    offFocus: 0,
   };
 
   const sourceById = new Map(sources.map((s) => [s.id, s]));
+  const articleById = new Map(articles.map((article) => [article.id, article]));
   const topicsByArticle = new Map<string, string[]>();
   for (const record of classifications) {
-    if (record.deletedAt) continue;
-    topicsByArticle.set(record.itemId, record.topicIds);
+    if (record.deletedAt || record.status === "rejected" || record.status === "needs_review")
+      continue;
+    const article = articleById.get(record.itemId);
+    if (!article) continue;
+    const classifiedInput = classifyInputFor(article);
+    // Automatic tags describe a particular text; a reader's confirmation outlives it.
+    if (
+      record.status === "auto" &&
+      record.contentFingerprint !==
+        articleFingerprint(classifiedInput.title, classifiedInput.summary)
+    )
+      continue;
+    topicsByArticle.set(
+      record.itemId,
+      record.topicIds.filter((id) => !input.activeTopicIds || input.activeTopicIds.includes(id)),
+    );
   }
 
   // Newest first, tie-broken by id: the same records must produce the same
@@ -125,6 +147,11 @@ export function prepareCandidates(input: {
     const source = sourceById.get(article.sourceId);
     if (!source || source.deletedAt) {
       skippedStats.noSource += 1;
+      continue;
+    }
+    const topics = topicsByArticle.get(article.id) ?? [];
+    if (focusTopicIds.length && topics.length && !topics.some((id) => focusTopicIds.includes(id))) {
+      skippedStats.offFocus += 1;
       continue;
     }
     const effectiveAt = article.publishedAt || article.fetchedAt;
@@ -164,7 +191,11 @@ export function prepareCandidates(input: {
       publishedAt: article.publishedAt || null,
       topicIds: topicsByArticle.get(article.id) ?? [],
       contentState: article.contentState,
-      fullBodyCached: typeof article.contentFetchedAt === "number",
+      fullBodyCached:
+        article.contentState === "full" &&
+        (article.contentFetchedAt === undefined
+          ? cutoffAt - article.fetchedAt < ARTICLE_STALE_MS
+          : !needsArticleRefresh(article, cutoffAt)),
     };
     const bucket = effectiveAt >= cutoffAt - recentWindowMs ? "recent" : "older";
     buckets[bucket].push({ candidate, bucket });

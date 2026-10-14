@@ -339,3 +339,50 @@ describe("the table itself", () => {
     }
   });
 });
+
+describe("briefing provider selection", () => {
+  it("offers Gemini and both custom protocols without Qwen, Kimi or GLM presets", () => {
+    expect(LLM_SERVICES.map((s) => s.id)).toEqual([
+      "ollama",
+      "openai",
+      "anthropic",
+      "deepseek",
+      "gemini",
+      "custom",
+    ]);
+    expect(
+      findService("custom")
+        ?.fields.find((f) => f.key === "wire")
+        ?.choices?.map((c) => c.value),
+    ).toEqual(["openai", "anthropic"]);
+  });
+  it("uses Google's official OpenAI-compatible endpoint and caller's key", () => {
+    const call = findService("gemini")!.call(
+      configFor("gemini", { models: { gemini: "gemini-2.5-flash" } }),
+      MESSAGES,
+      { jsonOutput: true },
+    );
+    expect(call.url).toBe(
+      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    );
+    expect(call.headers.authorization).toBe("Bearer some-key");
+    expect(call.body).toMatchObject({ model: "gemini-2.5-flash", messages: MESSAGES });
+  });
+  it("accepts an Anthropic-compatible /v1 base without duplicating the version path", () => {
+    const custom = configFor("custom", {
+      wire: "anthropic",
+      baseUrl: "https://gateway.example/v1/",
+    });
+    expect(endpointFor(findService("custom")!, custom)).toBe("https://gateway.example/v1/messages");
+  });
+  it("does not erase models or keys belonging to removed provider presets", () => {
+    const old = readLlmConfig({
+      service: "qwen",
+      models: { qwen: "qwen-plus" },
+      keys: { qwen: "retained-key" },
+    });
+    expect(old.service).toBe(DEFAULT_LLM_CONFIG.service);
+    expect(old.models.qwen).toBe("qwen-plus");
+    expect(old.keys.qwen).toBe("retained-key");
+  });
+});

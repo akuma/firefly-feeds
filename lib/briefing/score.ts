@@ -15,7 +15,7 @@ export function editorialScore(group: CandidateGroup): number {
 }
 
 /**
- * The only personalisation there is: one point for touching a focus topic, and
+ * Within the selected content scope, one point for touching a classified focus topic, and
  * never more than one. Interest orders the queue; it cannot walk past the
  * editorial floor, because a briefing that flatters is not worth reading.
  */

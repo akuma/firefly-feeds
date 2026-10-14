@@ -136,7 +136,7 @@ type Ctx = {
   ) => Promise<void>;
   /** Sources with a refresh in flight; per-row spinners key off this set. */
   refreshing: ReadonlySet<string>;
-  refresh: (id: string) => Promise<void>;
+  refresh: (id: string, signal?: AbortSignal) => Promise<void>;
   /** Refresh every stale source; force refreshes even recently fetched ones. */
   refreshAll: (options?: { force?: boolean }) => Promise<void>;
 
@@ -321,7 +321,7 @@ export function useReaderState(edition: Edition): Ctx {
   const [classifyProvider, setClassifyProvider] = useState<ClassifyProviderId | null>(null);
   const [classifyNonce, setClassifyNonce] = useState(0);
   const [digests, setDigests] = useState<DigestRecord[]>([]);
-  const [digestEnabled, setDigestEnabled] = useState(false);
+  const [digestEnabled, setDigestEnabledRaw] = useState(false);
   const [llmConfig, setLlmConfig] = useState(DEFAULT_LLM_CONFIG);
   // One field, or the service itself. A shallow merge is enough: the keys map
   // is replaced whole, and `withLlmField` in lib/llm.ts is what writes one.
@@ -384,7 +384,7 @@ export function useReaderState(edition: Edition): Ctx {
     if (typeof prefs.navOpen === "boolean") setNavOpen(prefs.navOpen);
     if (typeof prefs.classify === "boolean") setClassifyEnabled(prefs.classify);
     setClassifyConfig(readClassifyConfig(prefs));
-    if (typeof prefs.digest === "boolean") setDigestEnabled(prefs.digest);
+    if (typeof prefs.digest === "boolean") setDigestEnabledRaw(prefs.digest);
     setLlmConfig(readLlmConfigFromPrefs(prefs));
     setDigestLanguage(readDigestLanguage(prefs.digestLanguage));
     setDayZone(readDayZone(prefs));
@@ -407,8 +407,10 @@ export function useReaderState(edition: Edition): Ctx {
         classifications: [],
         digests: [],
       };
+      let loaded = false;
       try {
         snapshot = await repo.loadAll();
+        loaded = true;
       } catch (error) {
         // IndexedDB can be unavailable (private mode, disabled storage). The
         // edition still reads; it just will not remember anything.
@@ -419,6 +421,10 @@ export function useReaderState(edition: Edition): Ctx {
       setArticles(snapshot.articles);
       setReading(snapshot.reading);
       setTopics(snapshot.topics);
+      if (loaded)
+        setBriefingFocus((current) =>
+          current.filter((id) => snapshot.topics.some((topic) => topic.id === id)),
+        );
       setClassifications(snapshot.classifications);
       setDigests(snapshot.digests);
 
@@ -431,7 +437,7 @@ export function useReaderState(edition: Edition): Ctx {
           remembered === "today" ||
           remembered === "saved" ||
           remembered === "later" ||
-          remembered === "briefing" ||
+          (remembered === "briefing" && loadPrefs().digest === true) ||
           remembered.startsWith("folder:") ||
           (!!feedId &&
             (SAMPLE_FEEDS.some((f) => f.id === feedId) ||
@@ -674,14 +680,16 @@ export function useReaderState(edition: Edition): Ctx {
   });
 
   const refreshSource = useCallback(
-    async (id: string, override?: SourceRecord) => {
+    async (id: string, override?: SourceRecord, signal?: AbortSignal) => {
       if (refreshingIds.current.has(id)) return;
       const source = override ?? sourcesRef.current.find((s) => s.id === id);
       if (!source || source.deletedAt) return;
       refreshingIds.current.add(id);
       setRefreshing((current) => new Set(current).add(id));
       try {
-        const res = await fetch(`/api/feed?url=${encodeURIComponent(source.url)}&full=1`);
+        const res = await fetch(`/api/feed?url=${encodeURIComponent(source.url)}&full=1`, {
+          signal,
+        });
         const data = await res.json();
         if (!data?.ok) throw new Error(data?.error ?? "failed");
 
@@ -742,7 +750,10 @@ export function useReaderState(edition: Edition): Ctx {
     [reloadSource],
   );
 
-  const refresh = useCallback((id: string) => refreshSource(id), [refreshSource]);
+  const refresh = useCallback(
+    (id: string, signal?: AbortSignal) => refreshSource(id, undefined, signal),
+    [refreshSource],
+  );
 
   /*
    * Editing a source is mostly metadata, but a changed feed URL has to take
@@ -931,6 +942,7 @@ export function useReaderState(edition: Edition): Ctx {
 
   const deleteTopic = useCallback((id: string) => {
     setTopics((current) => current.filter((topic) => topic.id !== id));
+    setBriefingFocus((current) => current.filter((topicId) => topicId !== id));
     setTopicFilter((current) => (current === id ? null : current));
     void repo.removeTopic(id);
   }, []);
@@ -1445,6 +1457,18 @@ export function useReaderState(edition: Edition): Ctx {
     // something the reader goes looking for, not where the navigation lands.
     if (v === "briefing") setDigestDay(null);
   }, []);
+
+  const setDigestEnabled = useCallback(
+    (enabled: boolean) => {
+      setDigestEnabledRaw(enabled);
+      if (!enabled && view === "briefing") {
+        setView("today");
+        setMobileReading(false);
+        setImmersive(false);
+      }
+    },
+    [view, setView],
+  );
 
   /*
    * When the visible column changes underneath the reader — a new view, a

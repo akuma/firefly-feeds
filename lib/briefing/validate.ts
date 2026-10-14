@@ -1,3 +1,5 @@
+import { COMPOSE_SCHEMA, SHORTLIST_SCHEMA, schemaErrors } from "./schema";
+import { editorialScore, EDITORIAL_FLOOR } from "./score";
 import { BRIEFING_LIMITS } from "./constants";
 import type {
   ArticleMaterial,
@@ -137,7 +139,7 @@ export function validateShortlist(
   raw: unknown,
   input: ShortlistInput,
 ): ValidationResult<ShortlistOutput> {
-  const errors: Errors = [];
+  const errors: Errors = schemaErrors(raw, SHORTLIST_SCHEMA, "output");
   if (!isRecord(raw)) return { ok: false, errors: ["output: expected one JSON object"] };
   errors.push(...exactKeys(raw, ["schemaVersion", "groups", "extractArticleIds"], "output"));
   if (raw.schemaVersion !== 1) errors.push("output.schemaVersion: expected 1");
@@ -149,8 +151,8 @@ export function validateShortlist(
 
   if (!Array.isArray(raw.groups)) {
     errors.push("output.groups: expected an array");
-  } else if (raw.groups.length > BRIEFING_LIMITS.maxCandidates) {
-    errors.push(`output.groups: more than ${BRIEFING_LIMITS.maxCandidates}`);
+  } else if (raw.groups.length > BRIEFING_LIMITS.maxShortlistGroups) {
+    errors.push(`output.groups: more than ${BRIEFING_LIMITS.maxShortlistGroups}`);
   } else {
     raw.groups.forEach((entry, index) => {
       const at = `groups[${index}]`;
@@ -282,17 +284,52 @@ export function validateComposition(
   input: ComposeInput,
   previouslyRecommended: readonly string[] = [],
 ): ValidationResult<ComposeOutput> {
-  const errors: Errors = [];
+  const errors: Errors = schemaErrors(raw, COMPOSE_SCHEMA, "output");
   const materials = new Map(input.materials.map((m) => [m.articleId, m]));
   if (!isRecord(raw)) return { ok: false, errors: ["output: expected one JSON object"] };
   errors.push(
-    ...exactKeys(raw, ["schemaVersion", "bigPicture", "topStories", "worthReading"], "output"),
+    ...exactKeys(
+      raw,
+      [
+        "schemaVersion",
+        "bigPicture",
+        "topStories",
+        "worthReading",
+        ...("reassessedGroups" in raw ? ["reassessedGroups"] : []),
+      ],
+      "output",
+    ),
   );
   if (raw.schemaVersion !== 1) errors.push("output.schemaVersion: expected 1");
 
+  const reassessedGroups: NonNullable<ComposeOutput["reassessedGroups"]> = [];
+  const scores = new Map(input.shortlist.groups.map((g) => [g.groupId, editorialScore(g)]));
+  if (Array.isArray(raw.reassessedGroups)) {
+    const seen = new Set<string>();
+    for (const entry of raw.reassessedGroups) {
+      if (!isRecord(entry)) continue;
+      const groupId = reqString(entry, "groupId", "reassessedGroups", 120, errors);
+      const value = reqInt(entry, "value", "reassessedGroups", 0, 4, errors);
+      const novelty = reqInt(entry, "novelty", "reassessedGroups", 0, 3, errors);
+      const evidence = reqInt(entry, "evidence", "reassessedGroups", 0, 3, errors);
+      if (!scores.has(groupId) || seen.has(groupId))
+        errors.push("reassessedGroups: unknown or duplicate groupId");
+      seen.add(groupId);
+      scores.set(groupId, value + novelty + evidence);
+      reassessedGroups.push({ groupId, value, novelty, evidence });
+    }
+  }
+  const eligible = (ids: string[], kind: "news" | "insight") =>
+    input.shortlist.groups.find(
+      (g) =>
+        g.kind === kind &&
+        (scores.get(g.groupId) ?? 0) >= EDITORIAL_FLOOR &&
+        ids.every((id) => g.articleIds.includes(id)),
+    );
   const bigPicture = validateSupportedText(raw.bigPicture, "bigPicture", materials, errors);
 
   const topStories: ComposedStory[] = [];
+  const seenGroups = new Set<string>();
   const seenHeadlines = new Set<string>();
   const seenEvidenceSets = new Set<string>();
   if (!Array.isArray(raw.topStories)) {
@@ -320,6 +357,26 @@ export function validateComposition(
         materials,
         errors,
       );
+      if (!whatHappened) errors.push(`${at}.whatHappened: required supported text`);
+      if (whatHappened) {
+        const matched = eligible(
+          whatHappened.evidence.map((e) => e.articleId),
+          "news",
+        );
+        if (!matched) {
+          const ids = whatHappened.evidence.map((e) => e.articleId);
+          const sameGroup = input.shortlist.groups.some(
+            (g) => g.kind === "news" && ids.every((id) => g.articleIds.includes(id)),
+          );
+          errors.push(
+            sameGroup
+              ? `${at}: editorial score below 6`
+              : `${at}: main evidence does not belong to one shortlisted news group; keep insight groups in Worth Reading`,
+          );
+        } else if (seenGroups.has(matched.groupId))
+          errors.push(`${at}: same event group already covered`);
+        else seenGroups.add(matched.groupId);
+      }
       const context = validateSupportedText(entry.context, `${at}.context`, materials, errors);
       const whyItMatters = validateSupportedText(
         entry.whyItMatters,
@@ -387,6 +444,18 @@ export function validateComposition(
       if (whyRead && !whyRead.evidence.some((e) => e.articleId === articleId)) {
         errors.push(`${at}.whyRead: must cite "${articleId}"`);
       }
+      if (!eligible([articleId], "insight")) {
+        const sameGroup = input.shortlist.groups.some(
+          (g) => g.kind === "insight" && g.articleIds.includes(articleId),
+        );
+        errors.push(
+          sameGroup
+            ? `${at}: editorial score below 6`
+            : `${at}: article does not belong to a shortlisted insight group`,
+        );
+      }
+      if (worthReading.some((previous) => previous.articleId === articleId))
+        errors.push(`${at}.articleId: duplicate recommendation`);
       if (previouslyRecommended.includes(articleId)) {
         errors.push(`${at}.articleId: already recommended in an earlier edition`);
       }
@@ -403,11 +472,63 @@ export function validateComposition(
     ok: true,
     value: {
       schemaVersion: 1,
+      ...(reassessedGroups.length ? { reassessedGroups } : {}),
       bigPicture,
       topStories,
       worthReading,
     },
   };
+}
+
+/** A known provider annotation is never reader-facing content or evidence. */
+function withoutEditorialNotes(raw: unknown): unknown {
+  if (!isRecord(raw) || !Array.isArray(raw.topStories)) return raw;
+  return {
+    ...raw,
+    topStories: raw.topStories.map((story) => {
+      if (!isRecord(story) || !("whatHappenedNote" in story)) return story;
+      const note = story.whatHappenedNote;
+      if (note !== null && (typeof note !== "string" || note.length > TEXT_MAX)) return story;
+      const cleaned = { ...story };
+      delete cleaned.whatHappenedNote;
+      return cleaned;
+    }),
+  };
+}
+
+/**
+ * A weak or misplaced topic is an editorial omission. Drop whole items only
+ * when every failure is an editorial selection failure. Unknown references,
+ * invented excerpts and structural errors still refuse the entire answer.
+ * Revalidation remains the publishing gate; never move prose between sections.
+ */
+export function pruneWeakComposition(
+  answer: unknown,
+  input: ComposeInput,
+): { output: unknown; omitted: number } {
+  const raw = withoutEditorialNotes(answer);
+  const checked = validateComposition(raw, input);
+  if (checked.ok || schemaErrors(raw, COMPOSE_SCHEMA).length) return { output: raw, omitted: 0 };
+  const weak =
+    /^(topStories|worthReading)\[(\d+)\]: (?:editorial score below 6|main evidence does not belong to one shortlisted news group; keep insight groups in Worth Reading|article does not belong to a shortlisted insight group)$/;
+  if (!checked.errors.length || checked.errors.some((error) => !weak.test(error)))
+    return { output: raw, omitted: 0 };
+  const output = raw as ComposeOutput;
+  const news = new Set<number>();
+  const insights = new Set<number>();
+  for (const error of checked.errors) {
+    const match = weak.exec(error)!;
+    (match[1] === "topStories" ? news : insights).add(Number(match[2]));
+  }
+  const trimmed: ComposeOutput = {
+    ...output,
+    topStories: output.topStories.filter((_story, i) => !news.has(i)),
+    worthReading: output.worthReading.filter((_story, i) => !insights.has(i)),
+  };
+  const retained = new Set(citedArticleIds({ ...trimmed, bigPicture: null }));
+  if (trimmed.bigPicture?.evidence.some((e) => !retained.has(e.articleId)))
+    trimmed.bigPicture = null;
+  return { output: trimmed, omitted: news.size + insights.size };
 }
 
 /** Every article id the validated composition rests on, for the source list. */

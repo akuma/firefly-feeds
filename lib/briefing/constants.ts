@@ -10,6 +10,8 @@
 export const BRIEFING_LIMITS = {
   /** The most stories one run ever looks at, after sampling. */
   maxCandidates: 60,
+  /** Shortlist output is selective, never an annotation of the whole pool. */
+  maxShortlistGroups: 12,
   /** The recent window: the day itself, as the reader sees it. */
   recentWindowHours: 24,
   /** The insight window: how far back deep reading may reach. */
@@ -36,8 +38,8 @@ export const BRIEFING_LIMITS = {
 
 /** The fixed prompt versions, recorded on every published edition. */
 export const PROMPT_VERSIONS = {
-  shortlist: "shortlist-v1",
-  compose: "compose-v1",
+  shortlist: "shortlist-v4",
+  compose: "compose-v5",
 } as const;
 
 /** Runtime schema versions for the two model contracts. */
@@ -71,6 +73,11 @@ export const BRIEFING_LLM_TIMEOUT_MS = 120_000;
  * cut in half, which reads as a model that cannot follow instructions.
  */
 export const BRIEFING_MAX_TOKENS = {
-  shortlist: 4_000,
+  shortlist: 6_000,
   compose: 8_000,
 } as const;
+
+/** DeepSeek supports a larger answer; other APIs retain their compatible cap. */
+export function briefingMaxTokens(phase: "shortlist" | "compose", serviceId: string): number {
+  return phase === "compose" && serviceId === "deepseek" ? 16_000 : BRIEFING_MAX_TOKENS[phase];
+}

@@ -358,7 +358,18 @@ export async function getBriefingRun(runId: string): Promise<BriefingRun | undef
 
 export async function putBriefingRun(run: BriefingRun): Promise<void> {
   if (!available()) return;
-  await (await db()).put("briefingRuns", run);
+  const tx = (await db()).transaction("briefingRuns", "readwrite");
+  const existing = await tx.store.get(run.runId);
+  if (existing?.lease && existing.lease.ownerId !== run.lease?.ownerId) {
+    await tx.done;
+    throw new Error("The briefing lease belongs to another tab.");
+  }
+  const lease =
+    run.lease && existing?.lease
+      ? { ...run.lease, expiresAt: Math.max(run.lease.expiresAt, existing.lease.expiresAt) }
+      : run.lease;
+  await tx.store.put({ ...run, ...(lease ? { lease } : {}) });
+  await tx.done;
 }
 
 /**
@@ -375,16 +386,50 @@ export async function claimBriefingRun(
 ): Promise<boolean> {
   if (!available()) return false;
   const database = await db();
-  const tx = database.transaction("briefingRuns", "readwrite");
-  const existing = await tx.store.get(run.runId);
-  const held = existing?.lease;
-  if (held && held.ownerId !== owner && held.expiresAt > now) {
+  const tx = database.transaction(["briefingRuns", "briefings"], "readwrite");
+  const runStore = tx.objectStore("briefingRuns");
+  const [runs, editions] = await Promise.all([
+    runStore.getAll(),
+    tx.objectStore("briefings").getAll(),
+  ]);
+  const existing = runs.find((item) => item.runId === run.runId);
+  // A newer attempt may arrive after the UI checks eligibility in another tab.
+  if (
+    existing?.status === "ready" ||
+    runs.some((item) => item.editionKey === run.editionKey && item.revision > run.revision) ||
+    editions.some((item) => item.editionKey === run.editionKey && item.revision >= run.revision) ||
+    runs.some((item) => item.lease && item.lease.ownerId !== owner && item.lease.expiresAt > now)
+  ) {
     await tx.done;
     return false;
   }
-  await tx.store.put({ ...run, lease: { ownerId: owner, expiresAt: now + leaseMs } });
+  await runStore.put({ ...(existing ?? run), lease: { ownerId: owner, expiresAt: now + leaseMs } });
   await tx.done;
   return true;
+}
+
+/** Renews only the lease, never overwrites a newer stage checkpoint. */
+export async function renewBriefingLease(
+  runId: string,
+  owner: string,
+  expiresAt: number,
+): Promise<boolean> {
+  const tx = (await db()).transaction("briefingRuns", "readwrite");
+  const run = await tx.store.get(runId);
+  const owned = run?.lease?.ownerId === owner;
+  if (owned) await tx.store.put({ ...run, lease: { ownerId: owner, expiresAt } });
+  await tx.done;
+  return owned;
+}
+
+export async function releaseBriefingLease(runId: string, owner: string): Promise<void> {
+  const tx = (await db()).transaction("briefingRuns", "readwrite");
+  const run = await tx.store.get(runId);
+  if (run?.lease?.ownerId === owner) {
+    const { lease: _lease, ...released } = run;
+    await tx.store.put(released);
+  }
+  await tx.done;
 }
 
 /**
@@ -396,6 +441,11 @@ export async function publishBriefing(edition: BriefingEdition, run: BriefingRun
   if (!available()) return;
   const database = await db();
   const tx = database.transaction(["briefings", "briefingRuns"], "readwrite");
+  const current = await tx.objectStore("briefingRuns").get(run.runId);
+  if (!run.lease || current?.lease?.ownerId !== run.lease.ownerId) {
+    await tx.done;
+    throw new Error("The briefing lease was lost before publishing.");
+  }
   await Promise.all([
     tx.objectStore("briefings").put(edition),
     tx.objectStore("briefingRuns").put(run),
@@ -413,6 +463,15 @@ export async function cleanupBriefingRuns(olderThan: number): Promise<void> {
   if (!available()) return;
   const database = await db();
   const tx = database.transaction("briefingRuns", "readwrite");
-  const stale = await tx.store.index("by-updated").getAllKeys(IDBKeyRange.upperBound(olderThan));
-  await Promise.all([...stale.map((key) => tx.store.delete(key)), tx.done]);
+  const stale = await tx.store.index("by-updated").getAll(IDBKeyRange.upperBound(olderThan));
+  await Promise.all([
+    ...stale
+      .filter(
+        (run) =>
+          ["failed", "cancelled"].includes(run.status) &&
+          (!run.lease || run.lease.expiresAt <= Date.now()),
+      )
+      .map((run) => tx.store.delete(run.runId)),
+    tx.done,
+  ]);
 }

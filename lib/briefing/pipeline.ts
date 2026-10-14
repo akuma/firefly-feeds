@@ -1,17 +1,25 @@
 import { ensureArticleContent, type ArticleContentResult } from "../article-content";
+import type { DigestLanguageId } from "../languages";
 import { hashString } from "../hash";
 import type { LlmConfig } from "../llm";
 import * as repo from "../storage/repository";
 import type { ArticleClassification, ArticleRecord, SourceRecord } from "../storage/types";
-import { prepareCandidates } from "./candidates";
+import { canonicalUrl, prepareCandidates } from "./candidates";
 import {
   BRIEFING_LEASE_MS,
   BRIEFING_LIMITS,
   BRIEFING_RUN_TTL_MS,
   PROMPT_VERSIONS,
 } from "./constants";
-import { createArticleMaterial } from "./materials";
-import { citedArticleIds, validateComposition } from "./validate";
+import { isCompactReply } from "./prompts";
+import { createArticleMaterial, fitComposeInput } from "./materials";
+import { rankGroups } from "./score";
+import {
+  citedArticleIds,
+  pruneWeakComposition,
+  validateComposition,
+  validateShortlist,
+} from "./validate";
 import type {
   BriefingEdition,
   BriefingHistoryDigest,
@@ -72,7 +80,9 @@ export type RunBriefingInput = {
   /** What earlier editions already covered, for the no-repeat rules. */
   history: readonly BriefingHistoryDigest[];
   focusTopicIds: readonly string[];
+  topics?: Array<{ id: string; label: string }>;
   timezone: string;
+  outputLanguage?: DigestLanguageId;
   llm: LlmConfig;
   generate: GenerateFn;
   fetchContent?: FetchContentFn;
@@ -104,16 +114,23 @@ function editionIdFor(editionKey: string, revision: number): string {
 }
 
 async function nextRevision(editionKey: string): Promise<number> {
-  const editions = await repo.getBriefings();
-  const mine = editions.filter((edition) => edition.editionKey === editionKey);
-  return mine.reduce((n, edition) => Math.max(n, edition.revision), 0) + 1;
+  const [editions, runs] = await Promise.all([repo.getBriefings(), repo.listBriefingRuns()]);
+  return (
+    [...editions, ...runs]
+      .filter((record) => record.editionKey === editionKey)
+      .reduce((n, record) => Math.max(n, record.revision), 0) + 1
+  );
 }
 
 export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutcome> {
   const started = Date.now();
+  const focusTopicIds = [...new Set(input.focusTopicIds)]
+    .filter((id) => !input.topics || input.topics.some((topic) => topic.id === id))
+    .slice(0, BRIEFING_LIMITS.maxFocusTopics);
   const owner = input.owner ?? `tab:${hashString(`${started}:${Math.random()}`)}`;
-  const timezone = input.timezone;
+  const timezone = input.resume?.prepared?.timezone ?? input.timezone;
   const resume = input.resume;
+  const outputLanguage = resume?.prepared?.outputLanguage ?? input.outputLanguage ?? "en";
   const cutoffAt = resume?.cutoffAt ?? Date.now();
   const editionDate = resume ? resume.editionKey.slice(0, 10) : localDate(cutoffAt, timezone);
   const editionKey = resume?.editionKey ?? `${editionDate}@${timezone}`;
@@ -121,7 +138,7 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
   const promptVersion = `${PROMPT_VERSIONS.shortlist}/${PROMPT_VERSIONS.compose}`;
 
   // Failed and cancelled runs are working state; only they get cleaned up.
-  void repo.cleanupBriefingRuns(Date.now() - BRIEFING_RUN_TTL_MS);
+  await repo.cleanupBriefingRuns(Date.now() - BRIEFING_RUN_TTL_MS);
 
   let run: BriefingRun = resume ?? {
     // The id names the edition slot, not the attempt: two tabs reaching for
@@ -149,23 +166,44 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
       run,
       error: {
         code: "IN_USE",
-        message: "Another tab is already writing this edition.",
+        message: "This task is already saved, active elsewhere, or superseded by a newer attempt.",
         retryable: true,
       },
     };
   }
-  run = { ...run, lease: { ownerId: owner, expiresAt: Date.now() + BRIEFING_LEASE_MS } };
+  run = {
+    ...((await repo.getBriefingRun(run.runId)) ?? run),
+    lease: { ownerId: owner, expiresAt: Date.now() + BRIEFING_LEASE_MS },
+  };
 
   // Two normal calls, one repair call for the whole run — the reader's key is
   // theirs, and "no ceiling on how often" is about pressing the button, not
   // about one press looping at their expense.
-  let repairUsed = (resume?.callsUsed ?? 0) >= 2;
+  let repairUsed = run.repairUsed ?? (resume?.callsUsed ?? 0) >= 2;
   let modelRef: { provider: string; model: string } = {
     provider: run.providerId,
     model: run.modelId,
   };
-  let fullTextsFetched = 0;
-  let fullTextsFailed = 0;
+  let leaseLost = false;
+  const heartbeat = setInterval(() => {
+    void repo
+      .renewBriefingLease(run.runId, owner, Date.now() + BRIEFING_LEASE_MS)
+      .then((owned) => {
+        if (!owned) leaseLost = true;
+      })
+      .catch(() => {
+        leaseLost = true;
+      });
+  }, BRIEFING_LEASE_MS / 3);
+  const check = () => {
+    if (input.signal?.aborted) throw new Error("cancelled");
+    if (leaseLost) throw new Error("The briefing lease was lost. Resume in the active tab.");
+  };
+  const checkpoint = async () => {
+    check();
+    run = { ...run, lease: { ownerId: owner, expiresAt: Date.now() + BRIEFING_LEASE_MS } };
+    await repo.putBriefingRun(run);
+  };
 
   const emit = (status: RunStatus, detail?: string, error?: BriefingProgress["error"]) => {
     run = { ...run, status, updatedAt: Date.now(), ...(error ? { error } : {}) };
@@ -173,12 +211,19 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
   };
   const fail = async (code: string, message: string, retryable: boolean) => {
     const error = { code, message, retryable };
-    run = { ...run, status: "failed", error, updatedAt: Date.now() };
+    run = {
+      ...run,
+      stats: { ...run.stats, durationMs: (run.stats?.durationMs ?? 0) + Date.now() - started },
+      status: "failed",
+      error,
+      updatedAt: Date.now(),
+    };
     await repo.putBriefingRun(run);
     return { run, error } satisfies BriefingOutcome;
   };
 
   try {
+    check();
     /* ------------------------------------------------------------ prepare */
     let prepared = run.prepared;
     if (!prepared) {
@@ -187,12 +232,16 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         articles: input.articles,
         sources: input.sources,
         classifications: input.classifications,
+        focusTopicIds,
+        activeTopicIds: input.topics?.map((topic) => topic.id),
         cutoffAt,
       });
       if (set.candidates.length === 0) {
         return await fail(
           "INSUFFICIENT_CONTENT",
-          "There is not enough subscribed material to write a briefing yet.",
+          focusTopicIds.length
+            ? "No subscribed material matches the selected topics yet. Change your focus topics or try again when more articles arrive."
+            : "There is not enough subscribed material to write a briefing yet.",
           true,
         );
       }
@@ -201,36 +250,64 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         editionDate,
         cutoffAt,
         timezone,
-        outputLanguage: "en",
-        focusTopicIds: [...input.focusTopicIds].slice(0, BRIEFING_LIMITS.maxFocusTopics),
+        outputLanguage,
+        focusTopicIds,
+        focusOnly: focusTopicIds.length > 0,
+        focusTopics: focusTopicIds.map((id) => ({
+          id,
+          label: (input.topics?.find((topic) => topic.id === id)?.label ?? id).slice(0, 200),
+        })),
         candidates: set.candidates,
-        previousStories: [...input.history],
+        previousStories: [
+          ...new Map(
+            [...input.history]
+              .filter((entry) => entry.editionDate >= localDate(cutoffAt - 7 * 86400_000, timezone))
+              .map((entry) => [
+                `${entry.kind ?? "news"}:${[...entry.sourceArticleIds].toSorted().join(",")}`,
+                entry,
+              ]),
+          ).values(),
+        ]
+          .toSorted((a, b) => b.editionDate.localeCompare(a.editionDate))
+          .slice(0, 200),
       };
       run = {
         ...run,
         prepared,
+        coverageIncomplete: input.sources.some(
+          (source) => Boolean(source.error) || cutoffAt - source.fetchedAt >= 30 * 60_000,
+        ),
+        frozenArticles: structuredClone(
+          input.articles.filter((a) => set.candidates.some((c) => c.articleId === a.id)),
+        ),
+        frozenSources: structuredClone([...input.sources]),
         sourceSnapshots: set.candidates.map((candidate) => ({
           articleId: candidate.articleId,
           sourceId: candidate.sourceId,
           sourceName: candidate.sourceName,
           title: candidate.title,
-          url: null,
+          url: canonicalUrl(input.articles.find((a) => a.id === candidate.articleId)?.link ?? ""),
           publishedAt: candidate.publishedAt,
         })),
         // A consistency tag over the frozen inputs, not a security hash.
         snapshotHash: hashString(
           JSON.stringify([
-            set.candidates.map((c) => c.articleId),
+            set.candidates,
+            input.articles
+              .filter((a) => set.candidates.some((c) => c.articleId === a.id))
+              .map((a) => [a.id, a.body, a.summary]),
             prepared.focusTopicIds,
+            prepared.focusTopics,
+            prepared.focusOnly,
             promptVersion,
           ]),
         ).toString(36),
       };
-      await repo.putBriefingRun(run);
+      await checkpoint();
     }
     const frozenById = new Map(prepared.candidates.map((c) => [c.articleId, c]));
-    const articleById = new Map(input.articles.map((a) => [a.id, a]));
-    const sourceById = new Map(input.sources.map((s) => [s.id, s]));
+    const articleById = new Map((run.frozenArticles ?? input.articles).map((a) => [a.id, a]));
+    const sourceById = new Map((run.frozenSources ?? input.sources).map((s) => [s.id, s]));
 
     /* --------------------------------------------------------- shortlist */
     let shortlist: ShortlistOutput | undefined = run.shortlist;
@@ -238,91 +315,135 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
       emit("shortlisting");
       const answer = await callPhase(run, input, "shortlist", prepared, repairUsed);
       run = answer.run;
+      check();
       repairUsed = answer.repairUsed;
       if (!answer.result) {
         return await fail(
           answer.error?.code ?? "INVALID_OUTPUT",
-          answer.error?.message ?? "The model's answer could not be used.",
+          `Selecting: ${answer.error?.message ?? "The model's answer could not be used."}${answer.error?.errors?.length ? " " + answer.error.errors.slice(0, 3).join("; ") : ""}`,
           answer.error?.retryable ?? true,
         );
       }
       shortlist = answer.result as ShortlistOutput;
       modelRef = { provider: answer.provider, model: answer.model };
       run = { ...run, shortlist, updatedAt: Date.now() };
-      await repo.putBriefingRun(run);
+      await checkpoint();
     }
 
     /* ----------------------------------------------------------- enrich */
     const fetchContent = input.fetchContent ?? ensureArticleContent;
-    let materials = run.materials;
-    if (!materials) {
+    let materials = [...(run.materials ?? [])];
+    if (!run.enrichmentComplete) {
       const wanted = [...new Set(shortlist.groups.flatMap((group) => group.articleIds))];
-      const mayFetch = new Set(shortlist.extractArticleIds);
-      materials = [];
-      emit("enriching", `0 of ${wanted.length} articles checked`);
-      // The order is the model's priority order; concurrency is bounded and
-      // only the extraction list may ever touch the network — one batch at a
-      // time is the bound, not an accident.
+      const mayFetch = new Set(
+        shortlist.extractArticleIds.slice(0, BRIEFING_LIMITS.maxNewExtracts),
+      );
+      const completed = new Set(materials.map((m) => m.articleId));
+      const pending = wanted.filter((id) => !completed.has(id));
+      emit("enriching", `${completed.size} of ${wanted.length} articles checked`);
       /* oxlint-disable no-await-in-loop */
-      for (let i = 0; i < wanted.length; i += BRIEFING_LIMITS.extractConcurrency) {
-        const slice = wanted.slice(i, i + BRIEFING_LIMITS.extractConcurrency);
-        const done = await Promise.all(
-          slice.map(async (articleId) => {
+      for (let i = 0; i < pending.length; i += BRIEFING_LIMITS.extractConcurrency) {
+        check();
+        const done = await Promise.allSettled(
+          pending.slice(i, i + BRIEFING_LIMITS.extractConcurrency).map(async (articleId) => {
             const article = articleById.get(articleId);
             const source = article ? sourceById.get(article.sourceId) : undefined;
-            if (!article || !source) return null;
-            if (!mayFetch.has(articleId)) {
-              return createArticleMaterial({
+            if (!article || !source) return;
+            let material = createArticleMaterial({ article, sourceName: source.title });
+            const attempts = run.extractAttempts ?? [];
+            if (
+              mayFetch.has(articleId) &&
+              (!attempts.includes(articleId) || run.cancelledExtracts?.includes(articleId)) &&
+              attempts.length < BRIEFING_LIMITS.maxNewExtracts
+            ) {
+              // Reserve before sending, so a closed tab cannot spend this slot twice.
+              run = {
+                ...run,
+                extractAttempts: [...attempts, articleId],
+                cancelledExtracts: run.cancelledExtracts?.filter((id) => id !== articleId),
+              };
+              await checkpoint();
+              const result = await fetchContent({
                 article,
+                source,
+                purpose: "briefing",
+                signal: input.signal,
+              });
+              if (result.error === "cancelled") {
+                run = {
+                  ...run,
+                  cancelledExtracts: [...(run.cancelledExtracts ?? []), articleId],
+                };
+                throw new Error("cancelled");
+              }
+              const stats = run.stats ?? {};
+              run = {
+                ...run,
+                stats: {
+                  ...stats,
+                  fullTextsFetched:
+                    (stats.fullTextsFetched ?? 0) +
+                    (result.fetched && result.availability !== "summary" ? 1 : 0),
+                  fullTextsFailed:
+                    (stats.fullTextsFailed ?? 0) +
+                    (result.error || (result.fetched && result.availability === "summary") ? 1 : 0),
+                },
+              };
+              material = createArticleMaterial({
+                article: result.article,
                 sourceName: source.title,
               });
             }
-            const result = await fetchContent({
-              article,
-              source,
-              purpose: "briefing",
-              signal: input.signal,
-            });
-            if (result.error === "cancelled") throw new Error("cancelled");
-            if (result.fetched) fullTextsFetched += 1;
-            else if (result.error) fullTextsFailed += 1;
-            return createArticleMaterial({ article: result.article, sourceName: source.title });
+            materials.push(material);
+            run = { ...run, materials: [...materials], updatedAt: Date.now() };
+            // Preserve a sibling's completed work even if cancellation just arrived.
+            await repo.putBriefingRun(run);
+            emit("enriching", `${materials.length} of ${wanted.length} articles checked`);
           }),
         );
-        for (const material of done) if (material) materials.push(material);
-        run = { ...run, materials, updatedAt: Date.now() };
-        await repo.putBriefingRun(run);
-        const checked = Math.min(i + slice.length, wanted.length);
-        emit("enriching", `${checked} of ${wanted.length} articles checked`);
+        const rejected = done.find((result) => result.status === "rejected");
+        if (rejected?.status === "rejected") throw rejected.reason;
       }
       /* oxlint-enable no-await-in-loop */
-      // A group whose every article lost its material cannot be written up.
+      check();
       materials = materials.filter((m) => m.text.trim().length > 0);
       const kept = new Set(materials.map((m) => m.articleId));
       shortlist = {
         ...shortlist,
         groups: shortlist.groups
-          .map((group) => ({
-            ...group,
-            articleIds: group.articleIds.filter((id) => kept.has(id)),
-          }))
+          .map((group) => ({ ...group, articleIds: group.articleIds.filter((id) => kept.has(id)) }))
           .filter((group) => group.articleIds.length > 0),
         extractArticleIds: shortlist.extractArticleIds.filter((id) => kept.has(id)),
       };
-      run = { ...run, materials, shortlist, updatedAt: Date.now() };
-      await repo.putBriefingRun(run);
+      run = { ...run, materials, shortlist, enrichmentComplete: true, updatedAt: Date.now() };
+      await checkpoint();
     }
+
+    const topicsByGroup = new Map(
+      shortlist.groups.map((g) => [
+        g.groupId,
+        g.articleIds.flatMap((id) => frozenById.get(id)?.topicIds ?? []),
+      ]),
+    );
+    shortlist = {
+      ...shortlist,
+      groups: rankGroups(shortlist.groups, prepared.focusTopicIds, topicsByGroup).map(
+        (entry) => entry.group,
+      ),
+    };
 
     /* ---------------------------------------------------------- compose */
     let composed = run.composed;
     if (!composed) {
       emit("composing");
-      const payload: ComposeInput = {
+      const payload: ComposeInput = fitComposeInput({
         schemaVersion: 1,
         editionDate,
         timezone,
         cutoffAt,
-        outputLanguage: "en",
+        outputLanguage,
+        ...(prepared.focusTopics ? { focusTopics: prepared.focusTopics } : {}),
+        ...(prepared.focusOnly !== undefined ? { focusOnly: prepared.focusOnly } : {}),
         shortlist,
         materials,
         limits: {
@@ -330,14 +451,18 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
           maxDeepReads: BRIEFING_LIMITS.maxDeepReads,
           targetReadingMinutes: 4,
         },
-      };
+      });
+      materials = payload.materials;
+      run = { ...run, materials };
+      await checkpoint();
       const answer = await callPhase(run, input, "compose", payload, repairUsed);
       run = answer.run;
+      check();
       repairUsed = answer.repairUsed;
       if (!answer.result) {
         return await fail(
           answer.error?.code ?? "INVALID_OUTPUT",
-          answer.error?.message ?? "The model's answer could not be used.",
+          `Writing: ${answer.error?.message ?? "The model's answer could not be used."}${answer.error?.errors?.length ? " " + answer.error.errors.slice(0, 3).join("; ") : ""}`,
           answer.error?.retryable ?? true,
         );
       }
@@ -346,17 +471,43 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
 
       // The no-repeat rule needs the history the model was not given: a deep
       // read already recommended is refused here, deterministically.
-      const alreadyDeepRead = input.history.flatMap((entry) => entry.sourceArticleIds);
+      const alreadyDeepRead = prepared.previousStories
+        .filter((entry) => entry.kind !== "news")
+        .flatMap((entry) => entry.sourceArticleIds);
       const recheck = validateComposition(composed, payload, alreadyDeepRead);
       if (!recheck.ok) {
         return await fail("INVALID_OUTPUT", recheck.errors[0] ?? "Not publishable.", true);
       }
       run = { ...run, composed, updatedAt: Date.now() };
-      await repo.putBriefingRun(run);
+      await checkpoint();
     }
 
     /* ---------------------------------------------------------- publish */
+    check();
     emit("validating");
+    const verified = validateComposition(
+      composed,
+      {
+        schemaVersion: 1,
+        editionDate,
+        timezone,
+        cutoffAt,
+        outputLanguage,
+        ...(prepared.focusTopics ? { focusTopics: prepared.focusTopics } : {}),
+        ...(prepared.focusOnly !== undefined ? { focusOnly: prepared.focusOnly } : {}),
+        shortlist,
+        materials,
+        limits: {
+          maxStories: BRIEFING_LIMITS.maxStories,
+          maxDeepReads: BRIEFING_LIMITS.maxDeepReads,
+          targetReadingMinutes: 4,
+        },
+      },
+      prepared.previousStories
+        .filter((entry) => entry.kind !== "news")
+        .flatMap((entry) => entry.sourceArticleIds),
+    );
+    if (!verified.ok) return await fail("INVALID_OUTPUT", verified.errors[0], true);
     const cited = citedArticleIds(composed);
     const snapshotFor = (articleId: string): BriefingSourceSnapshot | null => {
       const candidate = frozenById.get(articleId);
@@ -367,7 +518,11 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         sourceId,
         sourceName: candidate?.sourceName ?? sourceById.get(sourceId)?.title ?? "",
         title: candidate?.title ?? article?.title ?? "",
-        url: article?.link ?? null,
+        url: canonicalUrl(
+          run.sourceSnapshots.find((snapshot) => snapshot.articleId === articleId)?.url ??
+            article?.link ??
+            "",
+        ),
         publishedAt: candidate?.publishedAt ?? article?.publishedAt ?? null,
       };
     };
@@ -380,9 +535,12 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
       revision,
       cutoffAt,
       generatedAt: now,
+      outputLanguage,
       schemaVersion: 1,
       promptVersion,
       model: modelRef,
+      coverageIncomplete:
+        run.coverageIncomplete ?? input.sources.some((source) => Boolean(source.error)),
       sourceSnapshots: cited
         .map(snapshotFor)
         .filter((s): s is BriefingSourceSnapshot => s !== null),
@@ -390,16 +548,24 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
       topStories: composed.topStories.map((story, index) => ({
         ...story,
         id: `s${index + 1}`,
-        sourceArticleIds: storyCited([story.whatHappened, story.context, story.whyItMatters]),
+        sourceArticleIds: storyCited([
+          story.whatHappened,
+          story.context,
+          story.whyItMatters,
+          ...story.perspectives,
+        ]),
       })),
       worthReading: composed.worthReading,
       stats: {
         candidates: prepared.candidates.length,
         sourcesConsidered: new Set(prepared.candidates.map((c) => c.sourceId)).size,
-        fullTextsFetched,
-        fullTextsFailed,
+        fullTextsFetched: run.stats?.fullTextsFetched ?? 0,
+        fullTextsFailed: run.stats?.fullTextsFailed ?? 0,
+        ...(run.stats?.inputTokens !== undefined ? { inputTokens: run.stats.inputTokens } : {}),
+        ...(run.stats?.outputTokens !== undefined ? { outputTokens: run.stats.outputTokens } : {}),
         llmRequests: run.callsUsed,
-        durationMs: now - started,
+        ...(run.stats?.omittedWeakItems ? { omittedWeakItems: run.stats.omittedWeakItems } : {}),
+        durationMs: (run.stats?.durationMs ?? 0) + now - started,
       },
       updatedAt: now,
     };
@@ -410,8 +576,20 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
     emit("ready");
     return { run, edition };
   } catch (error) {
+    const latest = await repo.getBriefingRun(run.runId);
+    run = {
+      ...run,
+      callsUsed: latest?.callsUsed ?? run.callsUsed,
+      repairUsed: latest?.repairUsed ?? run.repairUsed,
+      truncatedPhases: latest?.truncatedPhases ?? run.truncatedPhases,
+    };
     if (input.signal?.aborted || (error instanceof Error && error.message === "cancelled")) {
-      run = { ...run, status: "cancelled", updatedAt: Date.now() };
+      run = {
+        ...run,
+        stats: { ...run.stats, durationMs: (run.stats?.durationMs ?? 0) + Date.now() - started },
+        status: "cancelled",
+        updatedAt: Date.now(),
+      };
       await repo.putBriefingRun(run);
       return {
         run,
@@ -419,6 +597,10 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
       };
     }
     return await fail("PROVIDER_ERROR", error instanceof Error ? error.message : "failed", true);
+  } finally {
+    clearInterval(heartbeat);
+    await repo.releaseBriefingLease(run.runId, owner);
+    delete run.lease;
   }
 }
 
@@ -439,54 +621,128 @@ async function callPhase(
   repairUsed: boolean;
   provider: string;
   model: string;
-  error?: { code: string; message: string; retryable: boolean };
+  error?: { code: string; message: string; retryable: boolean; errors?: string[] };
 }> {
-  let calls = run.callsUsed;
-  const ask = (feedback?: string[]) =>
-    input.generate({ phase, payload, retryFeedback: feedback, signal: input.signal });
-
-  let answer = await ask();
-  calls += 1;
-  let nextRun = { ...run, callsUsed: calls, updatedAt: Date.now() };
-  if (answer.ok) {
-    return {
-      run: nextRun,
-      result: answer.result,
+  let nextRun = run;
+  const previouslyTruncated =
+    run.truncatedPhases?.includes(phase) ||
+    (run.error?.code === "OUTPUT_TRUNCATED" && phase === (run.shortlist ? "compose" : "shortlist"));
+  let feedback: string[] | undefined = previouslyTruncated
+    ? ["OUTPUT_TRUNCATED"]
+    : phase === "compose" && (repairUsed || run.callsUsed >= 2)
+      ? ["COMPACT_OUTPUT"]
+      : undefined;
+  /* oxlint-disable no-await-in-loop */
+  while (nextRun.callsUsed < (phase === "shortlist" ? 2 : 3)) {
+    if (phase === "compose" && nextRun.callsUsed >= 2 && !isCompactReply(feedback ?? []))
+      feedback = [...(feedback ?? []), "COMPACT_OUTPUT"];
+    if (input.signal?.aborted) throw new Error("cancelled");
+    nextRun = Object.assign({}, nextRun, {
+      callsUsed: nextRun.callsUsed + 1,
       repairUsed,
-      provider: answer.provider,
-      model: answer.model,
-    };
-  }
-
-  if (answer.retryable && !repairUsed && calls < 3) {
-    const feedback = answer.errors ?? [answer.code];
-    const retry = await ask(feedback);
-    calls += 1;
-    nextRun = { ...nextRun, callsUsed: calls };
-    if (retry.ok) {
+      updatedAt: Date.now(),
+    });
+    // Count before dispatch: even a lost reply may have been billed.
+    await repo.putBriefingRun(nextRun);
+    let answer = await input.generate({
+      phase,
+      payload,
+      retryFeedback: feedback,
+      signal: input.signal,
+    });
+    if (answer.ok) {
+      const trimmed =
+        phase === "compose"
+          ? pruneWeakComposition(answer.result, payload as ComposeInput)
+          : { output: answer.result, omitted: 0 };
+      const checked =
+        phase === "shortlist"
+          ? validateShortlist(trimmed.output, payload as ShortlistInput)
+          : validateComposition(
+              trimmed.output,
+              payload as ComposeInput,
+              (run.prepared?.previousStories ?? [])
+                .filter((entry) => entry.kind !== "news")
+                .flatMap((entry) => entry.sourceArticleIds),
+            );
+      if (answer.phase !== phase || !checked.ok)
+        answer = {
+          ok: false,
+          code:
+            !checked.ok && checked.errors.every((e) => e.startsWith("INSUFFICIENT_CONTENT"))
+              ? "INSUFFICIENT_CONTENT"
+              : "INVALID_OUTPUT",
+          message:
+            !checked.ok && checked.errors.every((e) => e.startsWith("INSUFFICIENT_CONTENT"))
+              ? "No proposed topic meets the editorial and evidence requirements yet. There is no minimum article count."
+              : "The model output failed publication checks.",
+          retryable:
+            checked.ok || !checked.errors.every((e) => e.startsWith("INSUFFICIENT_CONTENT")),
+          errors: checked.ok ? ["output.phase: wrong phase"] : checked.errors,
+        };
+      else if (checked.ok)
+        answer = {
+          ...answer,
+          result: checked.value,
+          omittedWeakItems: (answer.omittedWeakItems ?? 0) + trimmed.omitted,
+        };
+    }
+    if (!answer.ok && answer.code === "OUTPUT_TRUNCATED") {
+      nextRun = {
+        ...nextRun,
+        truncatedPhases: [...new Set([...(nextRun.truncatedPhases ?? []), phase])],
+      };
+      await repo.putBriefingRun(nextRun);
+    }
+    if (input.signal?.aborted) throw new Error("cancelled");
+    if (answer.ok) {
+      const stats = nextRun.stats ?? {};
+      /* oxlint-disable-next-line oxc/no-accumulating-spread */
+      nextRun = {
+        ...nextRun,
+        providerId: answer.provider,
+        modelId: answer.model,
+        stats: {
+          ...stats,
+          omittedWeakItems: (stats.omittedWeakItems ?? 0) + (answer.omittedWeakItems ?? 0),
+          ...(answer.usage?.inputTokens !== undefined
+            ? { inputTokens: (stats.inputTokens ?? 0) + answer.usage.inputTokens }
+            : {}),
+          ...(answer.usage?.outputTokens !== undefined
+            ? { outputTokens: (stats.outputTokens ?? 0) + answer.usage.outputTokens }
+            : {}),
+        },
+      };
       return {
         run: nextRun,
-        result: retry.result,
-        repairUsed: true,
-        provider: retry.provider,
-        model: retry.model,
+        result: answer.result,
+        repairUsed,
+        provider: answer.provider,
+        model: answer.model,
       };
     }
-    return {
-      run: nextRun,
-      repairUsed: true,
-      provider: "",
-      model: "",
-      error: { code: retry.code, message: retry.message, retryable: retry.retryable },
-    };
+    if (
+      !answer.retryable ||
+      !["INVALID_OUTPUT", "OUTPUT_TRUNCATED"].includes(answer.code) ||
+      repairUsed ||
+      nextRun.callsUsed >= 3
+    ) {
+      return { run: nextRun, repairUsed, provider: "", model: "", error: answer };
+    }
+    repairUsed = true;
+    feedback = answer.errors ?? [answer.code];
   }
-
+  /* oxlint-enable no-await-in-loop */
   return {
     run: nextRun,
     repairUsed,
     provider: "",
     model: "",
-    error: { code: answer.code, message: answer.message, retryable: answer.retryable },
+    error: {
+      code: "CALL_LIMIT",
+      message: "This run has used its three model calls. Generate a new edition to try again.",
+      retryable: false,
+    },
   };
 }
 
@@ -496,10 +752,33 @@ export async function loadBriefings(): Promise<BriefingEdition[]> {
   return editions.toSorted((a, b) => b.generatedAt - a.generatedAt);
 }
 
-/** A run worth resuming is one that stopped with its input frozen. */
-export async function loadResumableRun(): Promise<BriefingRun | undefined> {
-  const runs = await repo.listBriefingRuns();
-  return runs
-    .filter((run) => run.status !== "ready" && Boolean(run.prepared))
-    .toSorted((a, b) => b.updatedAt - a.updatedAt)[0];
+/** Only the newest attempt for an issue can be resumed; saved editions supersede older work. */
+export async function loadResumableRun(editionKey?: string): Promise<BriefingRun | undefined> {
+  const [runs, editions] = await Promise.all([repo.listBriefingRuns(), repo.getBriefings()]);
+  const published = new Map<string, number>();
+  for (const edition of editions)
+    published.set(
+      edition.editionKey,
+      Math.max(published.get(edition.editionKey) ?? 0, edition.revision),
+    );
+  const latest = new Map<string, BriefingRun>();
+  for (const run of runs) {
+    if (editionKey && run.editionKey !== editionKey) continue;
+    const previous = latest.get(run.editionKey);
+    if (
+      !previous ||
+      run.revision > previous.revision ||
+      (run.revision === previous.revision && run.updatedAt > previous.updatedAt)
+    )
+      latest.set(run.editionKey, run);
+  }
+  return [...latest.values()]
+    .filter(
+      (run) =>
+        run.status !== "ready" &&
+        run.revision > (published.get(run.editionKey) ?? 0) &&
+        Boolean(run.prepared) &&
+        (Boolean(run.composed) || run.callsUsed + (run.shortlist ? 1 : 2) <= 3),
+    )
+    .toSorted((a, b) => b.updatedAt - a.updatedAt || b.revision - a.revision)[0];
 }

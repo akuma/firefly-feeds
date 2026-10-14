@@ -740,8 +740,125 @@ lib/
 
 ## Layering rules
 
-- **`lib/store.tsx` is the only state container.** Components read it through
-  `useReader()`. No second context, no reducer, no store library.
+- **`lib/store.tsx` owns reading state.** Components read it through
+  `useReader()`. The briefing uses a focused `useBriefing` hook for its cancellable
+  pipeline and persisted checkpoints; it does not add another context or state library.
 - **Nothing above `lib/storage/` may import `idb` or mention IndexedDB.**
 - **`app/api/**` is the only place that talks to the network on the server.**
 - **Feed bodies are never injected as HTML.**
+
+## AI daily briefing
+
+`lib/briefing/pipeline.ts` runs Prepare → Shortlist → Enrich → Compose → Validate →
+Publish only after an explicit press. Preparation refreshes at most five stale feeds
+through the existing reader path, within ten seconds, then freezes articles, source
+metadata, interests and seven-day history. Deterministic sampling keeps at most 60
+candidates; the selection model returns at most 12 groups. Interest adds one point
+only for ordering; publication still requires an editorial score of at least six.
+Second-round reassessments can promote exploratory groups, and one event group
+cannot be published twice.
+
+Only the shortlist's extraction IDs may call the shared `lib/article-content.ts`:
+at most ten attempts, two at a time, with cached bodies and failure backoff preserved.
+Reader-visible bodies are not replaced mid-read. Material is labelled full, excerpted,
+or feed-summary; paragraphs, separators and total UTF-8 request bytes have budgets.
+The fixed versioned prompts include the same strict JSON schemas used at runtime;
+all references and evidence substrings are checked again before publication.
+
+Hosted calls use `app/api/briefing/generate/route.ts`, with bounded streaming input,
+fixed built-in provider addresses, same-origin and rate guards, cancellation and a timeout.
+Custom API accepts OpenAI-compatible or Anthropic-compatible requests to the user’s
+public HTTPS base URL, checked by the existing target guard (including IPv4-mapped
+IPv6 private addresses). URL credentials, queries and fragments are refused.
+Workers-compatible `redirect: "manual"` rejects redirects explicitly. Provider error
+bodies are not echoed. Local Ollama and explicitly configured custom local APIs
+stay in the browser; these direct calls also refuse redirects. Classification and prose
+generation retain separate configuration. A normal run makes two model calls;
+there is only one automatic repair for invalid/truncated output, and three calls
+maximum including explicit resumes. Uncertain network failures require Resume.
+Token counts are recorded only when supplied by the provider.
+
+The repository atomically leases one active run across edition slots, renews ownership
+every 40 seconds, and checks ownership when writing checkpoints and publishing.
+Per-article completion survives cancellation; Resume retains frozen input, while
+Generate creates a new run slot. Editions and ready markers publish in one transaction.
+No articles, editions or credentials are persisted on the server.
+
+The AI Briefing enable switch reuses `prefs.digest`, defaults off, and gates the
+navigation, model fields, Ollama chat-model discovery and briefing hook. Switching
+off aborts both a run and an in-flight connection test, returns an open briefing
+to Stream and retains all local records/configuration. Switching on does not
+start paid generation. Gemini uses Google’s official OpenAI-compatible endpoint;
+Qwen, Kimi and GLM presets are no longer offered. Stored per-provider model/key
+maps survive that table change, and a removed active provider falls back to Ollama.
+
+The numeric publication floor is distinct from schema/evidence errors. A pure
+`pruneWeakComposition` removes whole items only when _every_ validation error is
+an unambiguous score below six. The remainder is strictly revalidated; malformed
+output, bad excerpts, unknown references and mismatched groups are not hidden.
+The omission count is saved and displayed. If nothing qualifies, generation stops
+with INSUFFICIENT_CONTENT. No minimum candidate count is required: tests cover
+one and six input articles without inventing extra stories.
+
+Daily briefing language selection reuses `Prefs.digestLanguage` and the existing
+closed language list. Settings exposes Written in again; the hook carries it through
+both phases, and the API validates the same enum. Resume retains the prepared
+language. Published editions record optional `outputLanguage` (older records mean
+English); changing the preference neither rewrites history nor triggers generation.
+Headlines and editorial prose use the requested language, while evidence excerpts
+remain verbatim in the source language. With source selected, each item follows its
+main material and Big Picture follows the predominant source language. Application
+controls remain English.
+
+Before strict composition validation, a known extra `whatHappenedNote` may be
+removed only when it is plain text within 2000 characters or null. This annotation
+is never published. Other unknown fields, malformed content and invalid evidence
+still fail; this is schema drift, not output-token exhaustion.
+
+Truncated composition recovery uses a smaller target JSON schema and matching
+request limits, rather than a prose-only request to shorten the answer. Compose
+includes a complete JSON example. DeepSeek composition has a 16000-token cap;
+other services keep 8000. Each run still spends at most three calls. Optional
+`truncatedPhases` checkpoint metadata carries compact output requirements through
+cancellation and Resume; old checkpoints use their last OUTPUT_TRUNCATED error.
+If selection has already used the single repair, composition starts compact.
+All complete replies retain the base evidence/structure publishing checks, while
+incomplete JSON is never salvaged or published.
+
+Writing also requests compact output whenever only one paid call remains,
+including after an interrupted selection or a structural-output repair. Specific
+validator feedback is retained alongside the compact requirement.
+
+Resume selection is scoped to today's local date/timezone. Within each issue,
+only the highest revision attempt is considered; a newer saved edition supersedes
+older unfinished runs. Selection never falls back to an older run when the latest
+attempt lacks a checkpoint or has exhausted its call budget. Hidden checkpoints
+remain stored under the existing cleanup policy. The hook rechecks eligibility
+immediately before resuming so a stale button cannot restart superseded work.
+Resume with no eligible task performs no model request. The displayed saved edition
+is independent of the recoverable task and its inferred next stage.
+
+The run claim also checks newer attempts and saved editions in the same IndexedDB
+transaction as the lease, so another tab cannot resume a superseded task between
+the UI eligibility check and claiming ownership.
+
+New briefing runs with Focus topics exclude reliably classified off-topic articles
+before the 60-candidate sampling budget is spent. Unclassified, rejected and
+needs-review classifications remain eligible for model relevance assessment; no
+classification sweep or extra model call is triggered. Both editorial phases
+receive frozen topic IDs and readable labels and must omit unrelated groups
+rather than pad the issue. No selected topics means a general briefing. Older
+checkpoints without focus context retain the prior broad selection policy.
+
+Both system prompts explicitly anchor temporal narration to the frozen edition
+date, cutoff and timezone. Publication dates are not event dates; retrospective
+pre-event context must not be presented as a currently approaching event. If
+event timing is not supported by materials, the prose must omit that framing.
+Verbatim evidence validation does not certify semantic or temporal entailment.
+
+Automatic classification fingerprints are checked against the current classifier
+input before they can exclude candidates; stale classifications are treated as
+unknown. Confirmed user classifications retain precedence. Removed topic IDs no
+longer count as candidate classifications or new-run focus choices. Deleting a
+topic clears its selected focus, and successful startup hydration clears hidden
+stale choices; a storage read failure does not erase preferences.

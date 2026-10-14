@@ -181,3 +181,56 @@ and the last-write-wins and tie-break rules. Schema changes so far have been
 additive optional fields, which need no migration — `lib/refreshing.ts` treats a
 missing freshness field as “never checked”. A future change that moves or
 renames data belongs here, tested against a store that already holds it.
+
+## Briefing editions and resumable runs (schema v4)
+
+Version 3 is already occupied by the legacy `digests` store. Version 4 additively
+creates `briefings` (key `id`, indexes `by-editionKey` and `by-updated`) and
+`briefingRuns` (key `runId`, index `by-updated`). Upgrades from v2/v3 retain all
+existing records; database and preference names stay unchanged. `clearAll()` clears
+both stores. Published editions are durable local snapshots, excluded from sync.
+
+An edition preserves revision, timezone, cutoff, source metadata/HTTP links, supported
+prose and actual run statistics. Citation metadata survives article-cache eviction.
+Runs store frozen candidate articles/source metadata, history, phase outputs, completed
+materials, extraction-attempt IDs, usage counters and the lease. These additive optional
+fields remain readable for older checkpoints; no API keys are stored in either record.
+
+The 120-second lease is renewed every 40 seconds. A readwrite transaction checks
+ownership across all active run slots, and owner checks protect checkpoint writes and
+publication against a stale tab. Final edition + ready marker land in one transaction.
+Cancellation releases the lease immediately. Generate allocates beyond both existing
+editions and run revisions; Resume reuses a frozen slot. Only expired failed/cancelled
+runs older than seven days are cleaned up; published editions are retained.
+
+`repository.test.ts` now also exercises populated v2/v3 → v4 upgrades. Pipeline tests
+cover partial enrichment recovery, ownership conflicts, revision retention and call
+budgets. Local checkpoint text remains subject to browser storage availability.
+
+AI Briefing's enable switch reuses the existing `Prefs.digest` boolean, with an
+absent value treated as false. Disabling never deletes `briefings`, runs, interest
+choices or model/key maps. Restoring a stored `view: briefing` requires the flag
+to be enabled. Removed Qwen/Kimi/GLM preset selections fall back to Ollama while
+preserving their stored per-service values; database names/version stay unchanged.
+`BriefingStats.omittedWeakItems` is additive optional metadata for whole topics
+removed by editorial score or group/section checks; it is not a new store or migration.
+
+`Prefs.digestLanguage` continues to store the existing language IDs under the same
+preference key. New editions add optional `outputLanguage`; absent values on older
+editions mean English. Resumable runs already freeze this value in `prepared`.
+No database upgrade or rewriting of existing editions is required.
+
+`BriefingRun.truncatedPhases` is an optional array of phase names recording where
+compact output is required on Resume. Cancellation preserves this field alongside
+the paid-call ledger. Old failed runs can infer the requirement from their error;
+no schema upgrade or additional store is needed.
+
+Resume visibility is derived from existing issue keys, revisions, stage checkpoints
+and call counts. Suppressing superseded/other-issue tasks does not delete or migrate
+them. A newer saved edition is authoritative even if an older failed run was updated
+more recently; exhausted newer attempts do not expose earlier runs as a fallback.
+
+New prepared briefing snapshots optionally store `focusTopics` (IDs and display
+labels) and `focusOnly`. These are additive frozen-input fields, requiring no
+migration; old runs without them retain broad selection. The candidate diagnostic
+counts may include optional `offFocus`; stored editions remain unchanged.

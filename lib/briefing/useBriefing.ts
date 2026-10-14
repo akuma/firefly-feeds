@@ -1,8 +1,16 @@
+import { staleSourceIds } from "../refreshing";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { DigestLanguageId } from "../languages";
 import type { LlmConfig } from "../llm";
 import * as repo from "../storage/repository";
 import { generatePhase } from "./generate";
-import { loadBriefings, loadResumableRun, runBriefing, type BriefingProgress } from "./pipeline";
+import {
+  loadBriefings,
+  loadResumableRun,
+  localDate,
+  runBriefing,
+  type BriefingProgress,
+} from "./pipeline";
 import type { BriefingEdition, BriefingHistoryDigest, BriefingRun } from "./types";
 
 /**
@@ -14,7 +22,18 @@ import type { BriefingEdition, BriefingHistoryDigest, BriefingRun } from "./type
 
 export type BriefingError = { code: string; message: string; retryable: boolean };
 
-export function useBriefing(llm: LlmConfig, focusTopicIds: readonly string[]) {
+function todayEditionKey(): string {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return `${localDate(Date.now(), timezone)}@${timezone}`;
+}
+
+export function useBriefing(
+  llm: LlmConfig,
+  focusTopicIds: readonly string[],
+  refresh?: (id: string, signal?: AbortSignal) => Promise<void>,
+  enabled = true,
+  outputLanguage: DigestLanguageId = "en",
+) {
   const [editions, setEditions] = useState<BriefingEdition[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [progress, setProgress] = useState<BriefingProgress | null>(null);
@@ -24,53 +43,93 @@ export function useBriefing(llm: LlmConfig, focusTopicIds: readonly string[]) {
   const controller = useRef<AbortController | null>(null);
 
   const reload = useCallback(async () => {
-    const [list, resume] = await Promise.all([loadBriefings(), loadResumableRun()]);
+    const [list, resume] = await Promise.all([
+      loadBriefings(),
+      loadResumableRun(todayEditionKey()),
+    ]);
     setEditions(list);
     setResumable(resume);
     setCurrentId((id) => (id && list.some((e) => e.id === id) ? id : (list[0]?.id ?? null)));
   }, []);
 
   useEffect(() => {
+    if (!enabled) {
+      controller.current?.abort();
+      return;
+    }
     // Synchronizing with an external system (the database) is what effects are
     // for; the state lands when the read does.
     /* oxlint-disable-next-line react/set-state-in-effect */
-    void reload();
-  }, [reload]);
+    void reload().catch(() =>
+      setError({
+        code: "STORAGE_UNAVAILABLE",
+        message: "Browser storage is unavailable. Enable local storage to save a briefing.",
+        retryable: false,
+      }),
+    );
+  }, [reload, enabled]);
 
   /** Every earlier edition's coverage, so a story is not recommended twice. */
   const historyOf = useCallback(
     (list: readonly BriefingEdition[]): BriefingHistoryDigest[] =>
-      list.map((edition) => ({
-        editionDate: edition.editionDate,
-        headline: edition.topStories[0]?.headline ?? edition.bigPicture?.text.slice(0, 120) ?? "",
-        sourceArticleIds: [
-          ...new Set([
-            ...edition.topStories.flatMap((story) => story.sourceArticleIds),
-            ...edition.worthReading.map((deep) => deep.articleId),
-          ]),
-        ],
-      })),
+      list.flatMap((edition) => [
+        ...edition.topStories.map((story) => ({
+          editionDate: edition.editionDate,
+          headline: story.headline,
+          sourceArticleIds: story.sourceArticleIds,
+          kind: "news" as const,
+        })),
+        ...edition.worthReading.map((deep) => ({
+          editionDate: edition.editionDate,
+          headline:
+            edition.sourceSnapshots.find((s) => s.articleId === deep.articleId)?.title ?? "",
+          sourceArticleIds: [deep.articleId],
+          kind: "insight" as const,
+        })),
+      ]),
     [],
   );
 
   const start = useCallback(
     async (resume?: BriefingRun) => {
-      if (running.current) return;
+      if (!enabled || running.current) return;
       running.current = true;
       setError(null);
       setProgress({ runId: resume?.runId ?? "", status: "preparing" });
       const controllerNow = new AbortController();
       controller.current = controllerNow;
       try {
+        // Another tab may have completed a newer edition since this button rendered.
+        const target = resume ? await loadResumableRun(todayEditionKey()) : undefined;
+        if (resume && target?.runId !== resume.runId) {
+          await reload();
+          return;
+        }
         // The frozen snapshot is read at the press, not before: what the
         // edition is written from is exactly what the library held then.
-        const snapshot = await repo.loadAll();
+        let snapshot = await repo.loadAll();
+        if (!resume && refresh) {
+          const stale = staleSourceIds(snapshot.sources, Date.now());
+          const signal = AbortSignal.any([controllerNow.signal, AbortSignal.timeout(10_000)]);
+          // At most five stale feeds and ten seconds; use the reader's refresh path.
+          for (const id of stale.slice(0, 5)) {
+            if (signal.aborted) break;
+            /* oxlint-disable-next-line no-await-in-loop */
+            await refresh(id, signal);
+          }
+          snapshot = await repo.loadAll();
+        }
+        if (controllerNow.signal.aborted) return;
         const outcome = await runBriefing({
           articles: snapshot.articles,
           sources: snapshot.sources.filter((source) => !source.deletedAt),
           classifications: snapshot.classifications.filter((c) => !c.deletedAt),
-          history: historyOf(editions),
-          focusTopicIds: [...focusTopicIds],
+          history: historyOf(await loadBriefings()),
+          focusTopicIds: focusTopicIds.filter((id) =>
+            snapshot.topics.some((topic) => topic.id === id),
+          ),
+          topics: snapshot.topics.map(({ id, label }) => ({ id, label })),
+          outputLanguage,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           llm,
           generate: (call) =>
@@ -83,7 +142,7 @@ export function useBriefing(llm: LlmConfig, focusTopicIds: readonly string[]) {
             }),
           signal: controllerNow.signal,
           onProgress: setProgress,
-          resume,
+          resume: target,
         });
         if (outcome.error && outcome.error.code !== "CANCELLED") setError(outcome.error);
         if (outcome.edition) setCurrentId(outcome.edition.id);
@@ -100,8 +159,10 @@ export function useBriefing(llm: LlmConfig, focusTopicIds: readonly string[]) {
         setProgress(null);
       }
     },
-    [editions, focusTopicIds, historyOf, llm, reload],
+    [focusTopicIds, historyOf, llm, reload, refresh, enabled, outputLanguage],
   );
+
+  useEffect(() => () => controller.current?.abort(), []);
 
   const cancel = useCallback(() => {
     controller.current?.abort();
@@ -116,7 +177,7 @@ export function useBriefing(llm: LlmConfig, focusTopicIds: readonly string[]) {
     error,
     resumable,
     generate: () => start(),
-    resume: () => (resumable ? start(resumable) : start()),
+    resume: () => (resumable ? start(resumable) : Promise.resolve()),
     cancel,
     open: (id: string) => setCurrentId(id),
     reload,

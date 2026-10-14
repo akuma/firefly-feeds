@@ -22,7 +22,6 @@ import {
   missingFields as llmMissingFields,
   ollamaChatModelsUrl,
   readOllamaChatModels,
-  serviceLabel,
   withLlmField,
   type LlmField,
   type LlmServiceId,
@@ -55,7 +54,6 @@ export function Settings() {
 
   const chosenLlm = findService(r.llmConfig.service) ?? LLM_SERVICES[0];
   const llmReady = llmMissingFields(chosenLlm, r.llmConfig).length === 0;
-  const lastDigestService = serviceLabel(r.digestProvider);
   /** The chat models the local Ollama has, or null while asking. */
   const [ollamaChatModels, setOllamaChatModels] = useState<string[] | null>(null);
   const [ollamaChatUnreachable, setOllamaChatUnreachable] = useState(false);
@@ -126,7 +124,7 @@ export function Settings() {
   // chat with is a fact only it knows, so the list is asked for rather than
   // assumed. Debounced, because the address is a text field.
   useEffect(() => {
-    if (chosenLlm.id !== "ollama") return;
+    if (!r.digestEnabled || chosenLlm.id !== "ollama") return;
     const base = r.llmConfig.baseUrl;
     let cancelled = false;
     const timer = setTimeout(() => {
@@ -157,7 +155,7 @@ export function Settings() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [chosenLlm.id, r.llmConfig.baseUrl, ollamaChatDirect]);
+  }, [r.digestEnabled, chosenLlm.id, r.llmConfig.baseUrl, ollamaChatDirect]);
 
   const llmFields = chosenLlm.fields.map((field) =>
     field.key === "model" && chosenLlm.id === "ollama" && ollamaChatModels?.length
@@ -200,134 +198,166 @@ export function Settings() {
         </div>
 
         <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-6 pt-7 pb-7">
-          {/* ------------------------------------------------ classification */}
-          <h2 className="display text-[24px] leading-[1.12] font-medium tracking-[-0.016em] text-ink">
-            Article classification
-          </h2>
-          <p className="mt-2.5 max-w-[54ch] text-[14.5px] leading-[1.5] text-ink3">
-            Each story gets a topic from the classifier, chosen only from the list below. A
-            low-confidence answer is shown as a question, and you can always correct it.
-          </p>
+          <section aria-label="Article classification">
+            {/* ------------------------------------------------ classification */}
+            <h2 className="display text-[24px] leading-[1.12] font-medium tracking-[-0.016em] text-ink">
+              Article classification
+            </h2>
+            <p className="mt-2.5 max-w-[54ch] text-[14.5px] leading-[1.5] text-ink3">
+              Each story gets a topic from the classifier, chosen only from the list below. A
+              low-confidence answer is shown as a question, and you can always correct it.
+            </p>
 
-          <div className="mt-6 flex items-center justify-between gap-4 border-t border-rule pt-5">
-            <div className="min-w-0">
-              <div className="text-[15.5px] leading-[1.3] text-ink">Classify new stories</div>
-              <p className="mt-1 max-w-[42ch] text-[13px] leading-[1.45] text-ink4">
-                Sends a story&apos;s title and summary to the classifier through this app&apos;s own
-                endpoint. Off by default; nothing is sent while it is off.
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={r.classifyEnabled}
-              aria-label="Classify new stories"
-              onClick={() => r.setClassifyEnabled(!r.classifyEnabled)}
-              className={clsx(
-                "mono shrink-0 px-3 py-2 text-[9.5px] tracking-[0.14em] uppercase transition-colors",
-                r.classifyEnabled
-                  ? "bg-ink text-canvas"
-                  : "text-ink3 ring-1 ring-rule ring-inset hover:bg-hoverc hover:text-ink",
-              )}
-            >
-              {r.classifyEnabled ? "On" : "Off"}
-            </button>
-          </div>
-
-          {r.classifyEnabled && (
-            <div className="ff-fade mt-5">
-              <div className="mono flex flex-wrap items-center gap-x-2 gap-y-1 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
-                <span className="flex items-center gap-1.5">
-                  <Sparkles size={11} strokeWidth={1.6} />
-                  {ollamaTrouble
-                    ? `${chosen.label} unreachable`
-                    : ready
-                      ? `${chosen.label} ready`
-                      : `${chosen.label} needs setting up`}
-                </span>
-                {r.classifyWorking && (
-                  <>
-                    <span aria-hidden>·</span>
-                    <span className="text-spark">Classifying…</span>
-                  </>
-                )}
-                {r.pendingClassifications > 0 && (
-                  <>
-                    <span aria-hidden>·</span>
-                    <span>{r.pendingClassifications} waiting</span>
-                  </>
-                )}
-                {lastProvider && (
-                  <>
-                    <span aria-hidden>·</span>
-                    <span>Last via {lastProvider}</span>
-                  </>
-                )}
-              </div>
-
-              <div className="mt-6">
-                <label htmlFor="classifier" className="label block text-ink4">
-                  Classifier
-                </label>
-                <div className="relative mt-2 border-b border-rulestrong pr-6 pb-2">
-                  <select
-                    id="classifier"
-                    value={chosen.id}
-                    onChange={(e) =>
-                      r.updateClassifyConfig({
-                        provider: e.target.value as ClassifyProviderId,
-                      })
-                    }
-                    className="mono w-full appearance-none bg-transparent text-[13px] text-ink2 outline-none"
-                  >
-                    {CLASSIFY_PROVIDERS.map((provider) => (
-                      <option key={provider.id} value={provider.id}>
-                        {provider.label}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown
-                    size={12}
-                    strokeWidth={1.6}
-                    aria-hidden
-                    className="pointer-events-none absolute right-0 bottom-3 text-ink4"
-                  />
-                </div>
-                <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
-                  {chosen.blurb}
+            <div className="mt-6 flex items-center justify-between gap-4 border-t border-rule pt-5">
+              <div className="min-w-0">
+                <div className="text-[15.5px] leading-[1.3] text-ink">Classify new stories</div>
+                <p className="mt-1 max-w-[42ch] text-[13px] leading-[1.45] text-ink4">
+                  Sends a story&apos;s title and summary to the classifier through this app&apos;s
+                  own endpoint. Off by default; nothing is sent while it is off.
                 </p>
               </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={r.classifyEnabled}
+                aria-label="Classify new stories"
+                onClick={() => r.setClassifyEnabled(!r.classifyEnabled)}
+                className={clsx(
+                  "mono shrink-0 px-3 py-2 text-[9.5px] tracking-[0.14em] uppercase transition-colors",
+                  r.classifyEnabled
+                    ? "bg-ink text-canvas"
+                    : "text-ink3 ring-1 ring-rule ring-inset hover:bg-hoverc hover:text-ink",
+                )}
+              >
+                {r.classifyEnabled ? "On" : "Off"}
+              </button>
+            </div>
 
-              <p className="mt-2.5 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
-                Kept in this browser only, and sent to this app&apos;s own endpoint rather than to
-                the service itself. A commercial API bills per story, so a local model is the
-                cheaper default.
-              </p>
+            {r.classifyEnabled && (
+              <div className="ff-fade mt-5">
+                <div className="mono flex flex-wrap items-center gap-x-2 gap-y-1 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles size={11} strokeWidth={1.6} />
+                    {ollamaTrouble
+                      ? `${chosen.label} unreachable`
+                      : ready
+                        ? `${chosen.label} ready`
+                        : `${chosen.label} needs setting up`}
+                  </span>
+                  {r.classifyWorking && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span className="text-spark">Classifying…</span>
+                    </>
+                  )}
+                  {r.pendingClassifications > 0 && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>{r.pendingClassifications} waiting</span>
+                    </>
+                  )}
+                  {lastProvider && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>Last via {lastProvider}</span>
+                    </>
+                  )}
+                </div>
 
-              {/* Whatever the chosen transport asks for, rendered from its own
+                <div className="mt-6">
+                  <label htmlFor="classifier" className="label block text-ink4">
+                    Classifier
+                  </label>
+                  <div className="relative mt-2 border-b border-rulestrong pr-6 pb-2">
+                    <select
+                      id="classifier"
+                      value={chosen.id}
+                      onChange={(e) =>
+                        r.updateClassifyConfig({
+                          provider: e.target.value as ClassifyProviderId,
+                        })
+                      }
+                      className="mono w-full appearance-none bg-transparent text-[13px] text-ink2 outline-none"
+                    >
+                      {CLASSIFY_PROVIDERS.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown
+                      size={12}
+                      strokeWidth={1.6}
+                      aria-hidden
+                      className="pointer-events-none absolute right-0 bottom-3 text-ink4"
+                    />
+                  </div>
+                  <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                    {chosen.blurb}
+                  </p>
+                </div>
+
+                <p className="mt-2.5 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                  Kept in this browser only, and sent to this app&apos;s own endpoint rather than to
+                  the service itself. A commercial API bills per story, so a local model is the
+                  cheaper default.
+                </p>
+
+                {/* Whatever the chosen transport asks for, rendered from its own
                   entry in the table — so a new one needs no change here. */}
-              <div className="mt-6 flex flex-col gap-5">
-                {fields.map((field) => {
-                  const id = `classify-${field.key}`;
-                  const unreachable = field.key === "ollamaModel" && ollamaTrouble;
-                  return (
-                    <div key={field.key}>
-                      <label htmlFor={id} className="label block text-ink4">
-                        {field.label}
-                        {field.optional && <span className="ml-2 normal-case">(optional)</span>}
-                      </label>
-                      {unreachable ? (
-                        <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink3">
-                          Ollama could not be asked at that address. Either it is not running, or it
-                          has not admitted this page — a site on a domain needs{" "}
-                          <span className="mono">OLLAMA_ORIGINS</span> naming it.
-                        </p>
-                      ) : (
-                        <div className="relative mt-2 flex items-center gap-3 border-b border-rulestrong pb-2">
-                          {field.choices ? (
-                            <>
-                              <select
+                <div className="mt-6 flex flex-col gap-5">
+                  {fields.map((field) => {
+                    const id = `classify-${field.key}`;
+                    const unreachable = field.key === "ollamaModel" && ollamaTrouble;
+                    return (
+                      <div key={field.key}>
+                        <label htmlFor={id} className="label block text-ink4">
+                          {field.label}
+                          {field.optional && <span className="ml-2 normal-case">(optional)</span>}
+                        </label>
+                        {unreachable ? (
+                          <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink3">
+                            Ollama could not be asked at that address. Either it is not running, or
+                            it has not admitted this page — a site on a domain needs{" "}
+                            <span className="mono">OLLAMA_ORIGINS</span> naming it.
+                          </p>
+                        ) : (
+                          <div className="relative mt-2 flex items-center gap-3 border-b border-rulestrong pb-2">
+                            {field.choices ? (
+                              <>
+                                <select
+                                  id={id}
+                                  value={fieldValue(r.classifyConfig, chosen.id, field.key)}
+                                  onChange={(e) =>
+                                    r.updateClassifyConfig(
+                                      withField(
+                                        r.classifyConfig,
+                                        chosen.id,
+                                        field.key,
+                                        e.target.value,
+                                      ),
+                                    )
+                                  }
+                                  className="mono w-full appearance-none bg-transparent text-[13px] text-ink2 outline-none"
+                                >
+                                  <option value="">{field.placeholder}</option>
+                                  {field.choices.map((choice) => (
+                                    <option key={choice.value} value={choice.value}>
+                                      {choice.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <ChevronDown
+                                  size={12}
+                                  strokeWidth={1.6}
+                                  aria-hidden
+                                  className="pointer-events-none absolute right-0 bottom-2.5 text-ink4"
+                                />
+                              </>
+                            ) : (
+                              <input
                                 id={id}
+                                type={field.secret ? "password" : "text"}
                                 value={fieldValue(r.classifyConfig, chosen.id, field.key)}
                                 onChange={(e) =>
                                   r.updateClassifyConfig(
@@ -339,110 +369,86 @@ export function Settings() {
                                     ),
                                   )
                                 }
-                                className="mono w-full appearance-none bg-transparent text-[13px] text-ink2 outline-none"
-                              >
-                                <option value="">{field.placeholder}</option>
-                                {field.choices.map((choice) => (
-                                  <option key={choice.value} value={choice.value}>
-                                    {choice.label}
-                                  </option>
-                                ))}
-                              </select>
-                              <ChevronDown
-                                size={12}
-                                strokeWidth={1.6}
-                                aria-hidden
-                                className="pointer-events-none absolute right-0 bottom-2.5 text-ink4"
+                                spellCheck={false}
+                                autoComplete="off"
+                                placeholder={field.placeholder}
+                                className="mono min-w-0 flex-1 bg-transparent text-[13px] text-ink2 outline-none placeholder:text-ink4"
                               />
-                            </>
-                          ) : (
-                            <input
-                              id={id}
-                              type={field.secret ? "password" : "text"}
-                              value={fieldValue(r.classifyConfig, chosen.id, field.key)}
-                              onChange={(e) =>
-                                r.updateClassifyConfig(
-                                  withField(r.classifyConfig, chosen.id, field.key, e.target.value),
-                                )
-                              }
-                              spellCheck={false}
-                              autoComplete="off"
-                              placeholder={field.placeholder}
-                              className="mono min-w-0 flex-1 bg-transparent text-[13px] text-ink2 outline-none placeholder:text-ink4"
-                            />
-                          )}
-                          {field.secret && fieldValue(r.classifyConfig, chosen.id, field.key) && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                r.updateClassifyConfig(
-                                  withField(r.classifyConfig, chosen.id, field.key, ""),
-                                )
-                              }
-                              className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink"
-                            >
-                              Clear
-                            </button>
-                          )}
-                        </div>
-                      )}
-                      {field.hint && (
-                        <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
-                          {field.hint}
-                        </p>
-                      )}
-                      {field.key === "ollamaModel" &&
-                        !unreachable &&
-                        ollamaModels?.length === 0 && (
+                            )}
+                            {field.secret && fieldValue(r.classifyConfig, chosen.id, field.key) && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  r.updateClassifyConfig(
+                                    withField(r.classifyConfig, chosen.id, field.key, ""),
+                                  )
+                                }
+                                className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {field.hint && (
                           <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
-                            No decision models found at that address. Pull one — `ollama pull
-                            clef-flash`, say — and it will appear here.
+                            {field.hint}
                           </p>
                         )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {r.classifyError && (
-                <div className="mt-5 flex items-start justify-between gap-4 border-l-2 border-spark py-1 pl-4">
-                  <p className="text-[13.5px] leading-[1.5] text-ink2">{r.classifyError}</p>
-                  <button
-                    type="button"
-                    onClick={r.retryClassification}
-                    className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
-                  >
-                    Retry
-                  </button>
+                        {field.key === "ollamaModel" &&
+                          !unreachable &&
+                          ollamaModels?.length === 0 && (
+                            <p className="mt-2 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
+                              No decision models found at that address. Pull one — `ollama pull
+                              clef-flash`, say — and it will appear here.
+                            </p>
+                          )}
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
-          )}
 
-          {/* ------------------------------------------------------ briefing */}
-          <div className="mt-9 border-t border-rule pt-6">
+                {r.classifyError && (
+                  <div className="mt-5 flex items-start justify-between gap-4 border-l-2 border-spark py-1 pl-4">
+                    <p className="text-[13.5px] leading-[1.5] text-ink2">{r.classifyError}</p>
+                    <button
+                      type="button"
+                      onClick={r.retryClassification}
+                      className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+          {/* ---------------------------------------------------- briefing */}
+          <section aria-label="AI Briefing settings" className="mt-9 border-t border-rule pt-6">
             <h2 className="display text-[24px] leading-[1.12] font-medium tracking-[-0.016em] text-ink">
-              Today&apos;s briefing
+              AI Briefing
             </h2>
             <p className="mt-2.5 max-w-[54ch] text-[14.5px] leading-[1.5] text-ink3">
-              A short edition of today&apos;s unread stories, written from their own titles and
-              summaries. One a day, and rewritten only when you ask.
+              A daily edition of your own subscriptions — The Big Picture, Top Stories, Worth
+              Reading — written by the model below whenever you ask for it. Only the selected
+              stories&apos; titles, summaries and limited text go to that provider; your key is kept
+              in this browser and is readable by this page&apos;s JavaScript. Generation bills the
+              provider&apos;s own account.
             </p>
 
             <div className="mt-6 flex items-center justify-between gap-4 border-t border-rule pt-5">
-              <div className="min-w-0">
-                <div className="text-[15.5px] leading-[1.3] text-ink">Write a daily briefing</div>
+              <div>
+                <div className="text-[15.5px] text-ink">Enable AI Briefing</div>
                 <p className="mt-1 max-w-[42ch] text-[13px] leading-[1.45] text-ink4">
-                  Sends today&apos;s unread headlines and summaries — up to 20 at once — to the
-                  model you chose, using your own key. A local Ollama sends nothing off this
-                  machine.
+                  Adds Briefing to your navigation. Editions are generated only when you ask;
+                  turning this off keeps your saved editions and model settings.
                 </p>
               </div>
               <button
                 type="button"
                 role="switch"
                 aria-checked={r.digestEnabled}
-                aria-label="Write a daily briefing"
+                aria-label="AI Briefing"
                 onClick={() => r.setDigestEnabled(!r.digestEnabled)}
                 className={clsx(
                   "mono shrink-0 px-3 py-2 text-[9.5px] tracking-[0.14em] uppercase transition-colors",
@@ -454,9 +460,8 @@ export function Settings() {
                 {r.digestEnabled ? "On" : "Off"}
               </button>
             </div>
-
             {r.digestEnabled && (
-              <div className="ff-fade mt-5">
+              <div className="mt-5">
                 <div className="mono flex flex-wrap items-center gap-x-2 gap-y-1 text-[9.5px] tracking-[0.14em] text-ink4 uppercase">
                   <span className="flex items-center gap-1.5">
                     <Sparkles size={11} strokeWidth={1.6} />
@@ -466,18 +471,6 @@ export function Settings() {
                         ? `${chosenLlm.label} ready`
                         : `${chosenLlm.label} needs setting up`}
                   </span>
-                  {r.digestWorking && (
-                    <>
-                      <span aria-hidden>·</span>
-                      <span className="text-spark">Writing…</span>
-                    </>
-                  )}
-                  {lastDigestService && (
-                    <>
-                      <span aria-hidden>·</span>
-                      <span>Last via {lastDigestService}</span>
-                    </>
-                  )}
                 </div>
 
                 <div className="mt-6">
@@ -512,9 +505,9 @@ export function Settings() {
                 </div>
 
                 <p className="mt-2.5 max-w-[54ch] text-[13px] leading-[1.45] text-ink4">
-                  Kept in this browser only, and sent to this app&apos;s own endpoint rather than to
-                  the service itself. A model of your own bills per edition, so a local one is the
-                  cheaper default.
+                  Hosted APIs are called through this app’s endpoint. Local Ollama and custom local
+                  APIs are called directly by your browser and may require CORS permission. Your
+                  model settings stay in this browser.
                 </p>
 
                 {/* Whatever the chosen service asks for, rendered from its own
@@ -606,24 +599,10 @@ export function Settings() {
                   })}
                 </div>
 
-                {r.digestError && (
-                  <div className="mt-5 flex items-start justify-between gap-4 border-l-2 border-spark py-1 pl-4">
-                    <p className="text-[13.5px] leading-[1.5] text-ink2">{r.digestError}</p>
-                    <button
-                      type="button"
-                      onClick={r.writeEdition}
-                      className="mono shrink-0 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                )}
+                <BriefingSettings />
               </div>
             )}
-          </div>
-
-          {/* ---------------------------------------------------- briefing */}
-          <BriefingSettings />
+          </section>
 
           {/* ------------------------------------------------------- topics */}
           <div className="mt-9 flex items-center justify-between gap-4 border-t border-rule pt-6">

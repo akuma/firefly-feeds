@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { FileText, Plus, RotateCcw, Settings as SettingsIcon, X } from "lucide-react";
 import { clsx } from "../clsx";
 import { useReader } from "@/lib/store";
 import { findService, serviceReady } from "@/lib/llm";
 import type { useBriefing } from "@/lib/briefing/useBriefing";
-import { BriefingProgressLine } from "./briefing-progress";
+import { localDate } from "@/lib/briefing/pipeline";
+import { formatBriefingText } from "@/lib/briefing/typography";
+import { BriefingProgressLine, BriefingResumeNotice } from "./briefing-progress";
 
 /**
  * The briefing's middle column: what this edition is made of, and what the
@@ -22,6 +25,10 @@ function gotoSection(id: string) {
 export function BriefingColumn({ briefing }: { briefing: Briefing }) {
   const r = useReader();
   const edition = briefing.current;
+  const [today] = useState(() =>
+    localDate(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
+  );
+  const isToday = edition?.editionDate === today;
   const configured = (() => {
     const service = findService(r.llmConfig.service);
     return service ? serviceReady(service, r.llmConfig) : false;
@@ -34,15 +41,25 @@ export function BriefingColumn({ briefing }: { briefing: Briefing }) {
         <div className="flex items-baseline justify-between gap-3">
           <span className="label text-spark">Briefing</span>
           <span className="mono tnum text-[10px] tracking-[0.12em] text-ink4 uppercase">
-            {edition ? edition.editionDate : "—"}
+            {edition ? edition.editionDate : (briefing.resumable?.editionKey.slice(0, 10) ?? "—")}
           </span>
         </div>
-        <h1 className="display mt-2 text-[25px] leading-[1.1] font-medium tracking-[-0.016em] text-ink">
-          {edition ? "Today's Briefing" : "A daily edition of your own reading"}
+        <h1
+          className={clsx(
+            "display mt-2 text-[25px] leading-[1.1] font-medium tracking-[-0.016em] text-ink",
+            edition && "hidden lg:block",
+          )}
+        >
+          {edition
+            ? isToday
+              ? "Today's Briefing"
+              : "From the archive"
+            : "A daily edition of your own reading"}
         </h1>
 
         {/* ------------------------------------------------------- controls */}
         <div className="mt-4">
+          <BriefingResumeNotice briefing={briefing} />
           {subscribed === 0 ? (
             <div className="border-t border-rule pt-4">
               <p className="text-[13.5px] leading-[1.5] text-ink3">
@@ -75,26 +92,33 @@ export function BriefingColumn({ briefing }: { briefing: Briefing }) {
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rule pt-4">
-              {!briefing.running && (
-                <button
-                  type="button"
-                  data-t="briefing-generate"
-                  onClick={briefing.generate}
-                  className="mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
-                >
-                  <FileText size={11} strokeWidth={1.8} />
-                  {edition ? "Regenerate" : "Generate today's briefing"}
-                </button>
-              )}
               {briefing.resumable && !briefing.running && (
                 <button
                   type="button"
                   data-t="briefing-resume"
                   onClick={briefing.resume}
-                  className="mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink"
+                  className="mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
                 >
                   <RotateCcw size={11} strokeWidth={1.8} />
-                  Resume briefing
+                  Resume r{briefing.resumable.revision}
+                </button>
+              )}
+              {!briefing.running && (
+                <button
+                  type="button"
+                  data-t="briefing-generate"
+                  onClick={briefing.generate}
+                  className={clsx(
+                    "mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] uppercase transition-opacity hover:opacity-70",
+                    briefing.resumable ? "text-ink4" : "text-spark",
+                  )}
+                >
+                  <FileText size={11} strokeWidth={1.8} />
+                  {briefing.resumable && !edition
+                    ? "Start over"
+                    : isToday
+                      ? "Regenerate"
+                      : "Generate today's briefing"}
                 </button>
               )}
               {briefing.running && (
@@ -102,7 +126,7 @@ export function BriefingColumn({ briefing }: { briefing: Briefing }) {
                   type="button"
                   data-t="briefing-cancel"
                   onClick={briefing.cancel}
-                  className="mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-ink"
+                  className="mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
                 >
                   <X size={11} strokeWidth={1.8} />
                   Cancel
@@ -120,51 +144,96 @@ export function BriefingColumn({ briefing }: { briefing: Briefing }) {
         </div>
       </header>
 
-      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      {briefing.editions.length > 1 && (
+        <label className="mono flex items-center gap-3 border-t border-rule px-5 py-3 text-[10px] text-ink4 lg:hidden">
+          Editions
+          <select
+            aria-label="Briefing edition"
+            value={edition?.id ?? ""}
+            onChange={(e) => briefing.open(e.target.value)}
+            className="min-w-0 flex-1 bg-transparent text-ink2"
+          >
+            {briefing.editions.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.editionDate} · r{item.revision} · {item.timezone}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <div className="scroll-thin hidden min-h-0 flex-1 overflow-y-auto overscroll-contain lg:block">
         {/* ------------------------------------------------------- contents */}
         {edition && (
-          <nav className="border-t border-rule px-5 py-4">
-            <div className="label text-ink4">In this edition</div>
-            <ul className="mt-2.5 flex flex-col gap-1">
-              {edition.bigPicture && (
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => gotoSection("briefing-big-picture")}
-                    className="mono w-full truncate py-1 text-left text-[10px] tracking-[0.12em] text-ink3 uppercase transition-colors hover:text-spark"
-                  >
-                    The Big Picture
-                  </button>
-                </li>
-              )}
-              {edition.topStories.map((story) => (
-                <li key={story.id}>
-                  <button
-                    type="button"
-                    onClick={() => gotoSection(`briefing-${story.id}`)}
-                    className="w-full truncate py-1 text-left text-[14px] leading-[1.35] text-ink2 transition-colors hover:text-spark"
-                  >
-                    {story.headline}
-                  </button>
-                </li>
-              ))}
-              {edition.worthReading.map((deep) => {
-                const snapshot = edition.sourceSnapshots.find(
-                  (s) => s.articleId === deep.articleId,
-                );
-                return (
-                  <li key={deep.articleId}>
-                    <button
-                      type="button"
-                      onClick={() => gotoSection(`briefing-deep-${deep.articleId}`)}
-                      className="w-full truncate py-1 text-left text-[14px] leading-[1.35] text-ink2 transition-colors hover:text-spark"
-                    >
-                      {snapshot?.title ?? deep.articleId}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+          <nav aria-label="Briefing contents" className="border-t border-rule px-5 py-4">
+            {edition.bigPicture && (
+              <button
+                type="button"
+                onClick={() => gotoSection("briefing-big-picture")}
+                className="display w-full border-b border-rule pb-4 text-left text-[18px] leading-tight text-ink2 transition-colors hover:text-spark"
+              >
+                The Big Picture
+              </button>
+            )}
+            {edition.topStories.length > 0 && (
+              <section aria-labelledby="briefing-contents-news" className="mt-4">
+                <h3 id="briefing-contents-news" className="label text-ink4">
+                  Top Stories
+                </h3>
+                <ol className="mt-2 divide-y divide-rule">
+                  {edition.topStories.map((story, index) => (
+                    <li key={story.id}>
+                      <button
+                        type="button"
+                        onClick={() => gotoSection(`briefing-${story.id}`)}
+                        className="grid w-full grid-cols-[20px_1fr] items-baseline gap-2.5 py-3 text-left text-ink2 transition-colors hover:text-spark"
+                      >
+                        <span aria-hidden="true" className="mono tnum text-[10px] text-ink4">
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <span className="min-w-0 text-[16px] leading-[1.35]">
+                          {formatBriefingText(story.headline, edition.outputLanguage)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+            {edition.worthReading.length > 0 && (
+              <section
+                aria-labelledby="briefing-contents-reading"
+                className="mt-4 border-t border-rule pt-4"
+              >
+                <h3 id="briefing-contents-reading" className="label text-ink4">
+                  Worth Reading
+                </h3>
+                <ol className="mt-2 divide-y divide-rule">
+                  {edition.worthReading.map((deep, index) => {
+                    const snapshot = edition.sourceSnapshots.find(
+                      (source) => source.articleId === deep.articleId,
+                    );
+                    return (
+                      <li key={deep.articleId}>
+                        <button
+                          type="button"
+                          onClick={() => gotoSection(`briefing-deep-${deep.articleId}`)}
+                          className="grid w-full grid-cols-[20px_1fr] items-baseline gap-2.5 py-3 text-left text-ink2 transition-colors hover:text-spark"
+                        >
+                          <span aria-hidden="true" className="mono tnum text-[10px] text-ink4">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <span className="min-w-0 text-[16px] leading-[1.35]">
+                            {snapshot
+                              ? formatBriefingText(snapshot.title, edition.outputLanguage)
+                              : deep.articleId}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </section>
+            )}
             <div className="mono mt-3 text-[9.5px] tracking-[0.12em] text-ink4 uppercase">
               {edition.stats.candidates} stories considered · {edition.stats.fullTextsFetched}{" "}
               fetched · {edition.stats.llmRequests} model calls
@@ -181,13 +250,16 @@ export function BriefingColumn({ briefing }: { briefing: Briefing }) {
                 <li key={item.id}>
                   <button
                     type="button"
+                    aria-current={item.id === edition?.id ? "page" : undefined}
                     onClick={() => briefing.open(item.id)}
                     className={clsx(
-                      "flex h-[30px] w-full items-center gap-3 pr-2 text-left transition-colors hover:bg-hoverc",
-                      item.id === edition?.id && "text-spark",
+                      "flex h-[30px] w-full items-center gap-3 border-l-2 pr-2 pl-2 text-left transition-colors hover:bg-hoverc",
+                      item.id === edition?.id
+                        ? "border-spark text-spark"
+                        : "border-transparent text-ink2",
                     )}
                   >
-                    <span className="mono tnum min-w-0 flex-1 truncate text-[11.5px] leading-none text-ink2">
+                    <span className="mono tnum min-w-0 flex-1 truncate text-[11.5px] leading-none">
                       {item.editionDate} · r{item.revision}
                     </span>
                     <span className="mono tnum shrink-0 text-[10px] leading-none text-ink4">

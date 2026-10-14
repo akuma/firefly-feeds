@@ -28,14 +28,7 @@ export type LlmWire = "openai" | "anthropic" | "ollama";
 export const CUSTOM_SERVICE = "custom";
 
 export type LlmServiceId =
-  | "ollama"
-  | "openai"
-  | "anthropic"
-  | "deepseek"
-  | "moonshot"
-  | "qwen"
-  | "glm"
-  | typeof CUSTOM_SERVICE;
+  "ollama" | "openai" | "anthropic" | "deepseek" | "gemini" | typeof CUSTOM_SERVICE;
 
 /**
  * The reader's setup, kept on this device and nowhere else.
@@ -59,7 +52,7 @@ export type LlmConfig = {
 export type LlmMessage = { role: "system" | "user"; content: string };
 
 /** What one call may override without becoming a different request. */
-export type CallOptions = { maxTokens?: number };
+export type CallOptions = { maxTokens?: number; jsonOutput?: boolean };
 
 /** One thing the reader fills in. Rendered from the service's own entry. */
 export type LlmField = {
@@ -108,9 +101,8 @@ export type LlmService = {
   fields: readonly LlmField[];
   call(config: LlmConfig, messages: readonly LlmMessage[], options?: CallOptions): ProviderCall;
   /**
-   * Whether the browser may call this service itself. True only for one that
-   * needs no credential and sits on the reader's own network — a local Ollama,
-   * the one address our own server cannot reach on the reader's behalf.
+   * Whether the browser calls an explicitly configured local endpoint itself.
+   * A hosted server cannot reach the reader's own Ollama or custom local API.
    */
   direct?: (config: LlmConfig) => boolean;
 };
@@ -173,9 +165,7 @@ const MODEL_HINT: Record<Exclude<LlmServiceId, "ollama" | typeof CUSTOM_SERVICE>
   openai: "gpt-4o-mini",
   anthropic: "claude-sonnet-4-5",
   deepseek: "deepseek-flash",
-  moonshot: "moonshot-v1-8k",
-  qwen: "qwen-plus",
-  glm: "glm-4-air",
+  gemini: "gemini-3.8-flash",
 };
 
 /** The fields a service asks for. */
@@ -214,7 +204,7 @@ function fieldsFor(seed: ServiceSeed): readonly LlmField[] {
         placeholder: "https://…",
         hint:
           "The address the format's path is appended to. OpenAI-compatible usually " +
-          "ends in /v1; Anthropic-compatible is usually the origin without one.",
+          "ends in /v1; Anthropic-compatible accepts the origin or /v1. Use HTTPS for hosted APIs; local APIs are called directly by this browser.",
       },
       { key: "model", label: "Model", placeholder: "the model this service exposes" },
       { key: "key", label: "API key", placeholder: "the key from your account", secret: true },
@@ -258,8 +248,12 @@ export function baseUrlFor(service: LlmService, config: LlmConfig): string {
 
 /** The full endpoint for one service and one reader configuration. */
 export function endpointFor(service: LlmService, config: LlmConfig): string {
-  const path = service.path ?? WIRE_PATH[effectiveWire(service, config)];
-  return `${baseUrlFor(service, config)}${path}`;
+  const wire = effectiveWire(service, config);
+  const path = service.path ?? WIRE_PATH[wire];
+  const base = baseUrlFor(service, config);
+  if (base.endsWith(path)) return base;
+  if (wire === "anthropic" && base.endsWith("/v1")) return `${base}/messages`;
+  return `${base}${path}`;
 }
 
 export function findService(id: string | null | undefined): LlmService | undefined {
@@ -343,7 +337,14 @@ function serviceCall(
     url: endpointFor(service, config),
     // Whatever this service needs to answer rather than deliberate, on top of
     // the shape its format already has.
-    body: { ...body, ...service.thinkOff },
+    body: {
+      ...body,
+      ...service.thinkOff,
+      ...(options?.jsonOutput && wire === "openai"
+        ? { response_format: { type: "json_object" } }
+        : {}),
+      ...(options?.jsonOutput && wire === "ollama" ? { format: "json" } : {}),
+    },
     headers: anthropic
       ? {
           "x-api-key": credential(config, config.service),
@@ -462,7 +463,13 @@ export async function readLlmReply(
   service: LlmService,
   config: LlmConfig,
 ): Promise<
-  { ok: true; text: string; truncated: boolean } | { ok: false; error: string; status: number }
+  | {
+      ok: true;
+      text: string;
+      truncated: boolean;
+      usage?: { inputTokens?: number; outputTokens?: number };
+    }
+  | { ok: false; error: string; status: number }
 > {
   const wire = effectiveWire(service, config);
   const bodyText = await res.text().catch(() => "");
@@ -477,7 +484,26 @@ export async function readLlmReply(
     return { ok: false, error: llmFailure(service, config, res.status, raw), status: res.status };
   }
   const answer = readLlmText(raw, wire);
-  if (answer) return { ok: true, text: answer, truncated: wasTruncated(raw, wire) };
+  if (answer) {
+    const body = asRecord(raw);
+    const usage = asRecord(body?.usage);
+    const inputTokens = usage?.prompt_tokens ?? usage?.input_tokens ?? body?.prompt_eval_count;
+    const outputTokens = usage?.completion_tokens ?? usage?.output_tokens ?? body?.eval_count;
+    const tokens = {
+      ...(typeof inputTokens === "number" && inputTokens >= 0 && Number.isFinite(inputTokens)
+        ? { inputTokens }
+        : {}),
+      ...(typeof outputTokens === "number" && outputTokens >= 0 && Number.isFinite(outputTokens)
+        ? { outputTokens }
+        : {}),
+    };
+    return {
+      ok: true,
+      text: answer,
+      truncated: wasTruncated(raw, wire),
+      ...(Object.keys(tokens).length ? { usage: tokens } : {}),
+    };
+  }
   if (raw === null) {
     return {
       ok: false,
@@ -581,31 +607,18 @@ export const LLM_SERVICES: readonly LlmService[] = (
       thinkOff: { thinking: { type: "disabled" } },
     },
     {
-      id: "moonshot",
-      label: "Moonshot (Kimi)",
-      blurb: "Kimi, on Moonshot's OpenAI-compatible endpoint.",
+      id: "gemini",
+      label: "Gemini",
+      blurb: "Google's Gemini models, billed to your Google AI Studio account.",
       wire: "openai",
-      baseUrl: "https://api.moonshot.cn/v1",
-    },
-    {
-      id: "qwen",
-      label: "通义千问 (Qwen)",
-      blurb: "Qwen, on DashScope's OpenAI-compatible endpoint.",
-      wire: "openai",
-      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    },
-    {
-      id: "glm",
-      label: "智谱 GLM",
-      blurb: "GLM, on Zhipu's OpenAI-compatible endpoint.",
-      wire: "openai",
-      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      // Google's documented compatibility endpoint uses the same transport.
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      thinkOff: { reasoning_effort: "low" },
     },
     {
       id: CUSTOM_SERVICE,
-      label: "Custom…",
-      blurb:
-        "Any service that speaks one of the two formats. You choose the format and set the address.",
+      label: "Custom API",
+      blurb: "An OpenAI-compatible or Anthropic-compatible API. Choose its format and base URL.",
       wire: "openai",
     },
   ] satisfies readonly ServiceSeed[]
@@ -616,8 +629,12 @@ export const LLM_SERVICES: readonly LlmService[] = (
     ...seed,
     fields: fieldsFor(seed),
     call: (config, messages, options) => serviceCall(service, config, messages, options),
-    ...(seed.id === "ollama"
-      ? { direct: (config: LlmConfig) => onReadersNetwork(baseUrlFor(service, config)) }
+    ...(seed.id === "ollama" || seed.id === CUSTOM_SERVICE
+      ? {
+          direct: (config: LlmConfig) =>
+            /^https?:\/\//.test(baseUrlFor(service, config)) &&
+            onReadersNetwork(baseUrlFor(service, config)),
+        }
       : {}),
   };
   return service;

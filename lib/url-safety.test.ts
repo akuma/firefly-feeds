@@ -36,3 +36,16 @@ describe("isSafeTargetUrl", () => {
     expect(isSafeTargetUrl("http://metadata.google.internal/computeMetadata")).toBe(false);
   });
 });
+
+it.each([
+  "https://[::ffff:127.0.0.1]/v1",
+  "https://[::ffff:10.0.0.1]/v1",
+  "https://[::ffff:169.254.169.254]/v1",
+  "https://[::ffff:7f00:1]/v1",
+])("rejects IPv4-mapped private target %s", (url) => {
+  expect(isSafeTargetUrl(url)).toBe(false);
+});
+
+it("continues to allow a genuinely public IPv4-mapped IPv6 address", () => {
+  expect(isSafeTargetUrl("https://[::ffff:8.8.8.8]/v1")).toBe(true);
+});

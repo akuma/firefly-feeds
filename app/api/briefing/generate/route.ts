@@ -1,13 +1,21 @@
+import { isSafeTargetUrl } from "@/lib/url-safety";
+import { readCapped } from "@/lib/feed-server";
+import { schemaErrors, SHORTLIST_INPUT_SCHEMA, COMPOSE_INPUT_SCHEMA } from "@/lib/briefing/schema";
 import { buildComposeMessages, buildShortlistMessages } from "@/lib/briefing/prompts";
 import {
   BRIEFING_BODY_LIMITS,
-  BRIEFING_LIMITS,
   BRIEFING_LLM_TIMEOUT_MS,
-  BRIEFING_MAX_TOKENS,
+  briefingMaxTokens,
 } from "@/lib/briefing/constants";
-import { parseJsonObject, validateComposition, validateShortlist } from "@/lib/briefing/validate";
+import {
+  parseJsonObject,
+  pruneWeakComposition,
+  validateComposition,
+  validateShortlist,
+} from "@/lib/briefing/validate";
 import type { GenerateFailureCode, GenerateResult } from "@/lib/briefing/types";
 import {
+  CUSTOM_SERVICE,
   findService,
   missingFields,
   modelFor,
@@ -50,7 +58,13 @@ function failure(
     code,
     message,
     retryable,
-    ...(errors ? { errors } : {}),
+    ...(errors
+      ? {
+          errors: errors
+            .slice(0, 20)
+            .map((line) => line.replace(/"[^"\n]*"/g, "<reference>").slice(0, 200)),
+        }
+      : {}),
   };
   return Response.json(body, { status });
 }
@@ -63,16 +77,14 @@ function readInput(
   const input = body.input;
   if (!phase || typeof input !== "object" || input === null || Array.isArray(input)) return null;
   const record = input as Record<string, unknown>;
-  if (record.schemaVersion !== 1) return null;
-  const entries =
-    phase === "shortlist"
-      ? Array.isArray(record.candidates)
-        ? record.candidates
-        : null
-      : Array.isArray(record.materials)
-        ? record.materials
-        : null;
-  if (!entries || entries.length > BRIEFING_LIMITS.maxCandidates) return null;
+  const schema = phase === "shortlist" ? SHORTLIST_INPUT_SCHEMA : COMPOSE_INPUT_SCHEMA;
+  if (schemaErrors(record, schema).length) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(record.editionDate))) return null;
+  try {
+    Intl.DateTimeFormat("en", { timeZone: String(record.timezone) }).format(0);
+  } catch {
+    return null;
+  }
   return { phase, input: record };
 }
 
@@ -97,12 +109,14 @@ export async function POST(request: Request): Promise<Response> {
     return failure("RATE_LIMITED", "Too many briefing requests. Try again in a minute.", true, 429);
   }
 
-  // The body is read as text so the limit is enforced before any parsing —
-  // `request.json()` would happily accept a gigabyte first.
-  const raw = await request.text();
-  const cap = Math.max(BRIEFING_BODY_LIMITS.shortlist, BRIEFING_BODY_LIMITS.compose);
-  if (raw.length > cap) {
-    return failure("INVALID_INPUT", "The request body is too large.", false, 413);
+  let raw: string;
+  try {
+    raw = await readCapped(
+      new Response(request.body, { headers: request.headers }),
+      BRIEFING_BODY_LIMITS.compose,
+    );
+  } catch {
+    return failure("INVALID_INPUT", "The request body is too large or unreadable.", false, 413);
   }
 
   let parsed: unknown;
@@ -118,14 +132,86 @@ export async function POST(request: Request): Promise<Response> {
   }
   const limit =
     read.phase === "shortlist" ? BRIEFING_BODY_LIMITS.shortlist : BRIEFING_BODY_LIMITS.compose;
-  if (raw.length > limit) {
+  if (new TextEncoder().encode(raw).byteLength > limit) {
     return failure("INVALID_INPUT", `The ${read.phase} body is over its budget.`, false, 413);
   }
 
+  const envelope = parsed as Record<string, unknown>;
+  const modelMap = envelope.models;
+  const keyMap = envelope.keys;
+  const selected = typeof envelope.service === "string" ? envelope.service : "";
+  const selectedModel =
+    modelMap && typeof modelMap === "object"
+      ? (modelMap as Record<string, unknown>)[selected]
+      : undefined;
+  const selectedKey =
+    keyMap && typeof keyMap === "object"
+      ? (keyMap as Record<string, unknown>)[selected]
+      : undefined;
+  if (
+    typeof selectedModel !== "string" ||
+    !/^[a-zA-Z0-9._:/-]{1,128}$/.test(selectedModel) ||
+    typeof selectedKey !== "string" ||
+    !selectedKey.trim() ||
+    selectedKey.length > 512
+  ) {
+    return failure(
+      "INVALID_INPUT",
+      "Supply a valid model ID and API key for the selected provider.",
+      false,
+      400,
+    );
+  }
   const config: LlmConfig = readLlmConfig(parsed);
   const service = findService(config.service);
-  if (!service) {
-    return failure("PROVIDER_UNAVAILABLE", "Choose a model in Settings.", false, 400);
+  if (
+    !service ||
+    (!service.baseUrl && service.id !== CUSTOM_SERVICE) ||
+    (parsed as Record<string, unknown>).service !== config.service
+  ) {
+    return failure(
+      "PROVIDER_UNAVAILABLE",
+      "Choose a supported hosted provider, or use local Ollama directly in this browser.",
+      false,
+      400,
+    );
+  }
+  if (service.id === CUSTOM_SERVICE) {
+    let target: URL;
+    try {
+      target = new URL(config.baseUrl);
+    } catch {
+      return failure(
+        "INVALID_INPUT",
+        "Supply an absolute HTTPS base URL for the custom API.",
+        false,
+        400,
+      );
+    }
+    if (
+      typeof envelope.baseUrl !== "string" ||
+      envelope.baseUrl.length > 300 ||
+      target.protocol !== "https:" ||
+      target.username ||
+      target.password ||
+      target.search ||
+      target.hash ||
+      !isSafeTargetUrl(target.href)
+    ) {
+      return failure(
+        "INVALID_INPUT",
+        "Custom hosted APIs require a public HTTPS base URL without credentials, query or fragment. Local APIs are called directly by your browser.",
+        false,
+        400,
+      );
+    }
+    if (envelope.wire !== "openai" && envelope.wire !== "anthropic")
+      return failure(
+        "INVALID_INPUT",
+        "Choose OpenAI-compatible or Anthropic-compatible format.",
+        false,
+        400,
+      );
   }
   // Refused rather than called half-built: a service with no model or no key
   // would only answer with somebody else's error message.
@@ -142,14 +228,27 @@ export async function POST(request: Request): Promise<Response> {
       ? buildShortlistMessages(read.input as never, feedback)
       : buildComposeMessages(read.input as never, feedback);
 
-  const call = service.call(config, messages, { maxTokens: BRIEFING_MAX_TOKENS[read.phase] });
+  const call = service.call(config, messages, {
+    maxTokens: briefingMaxTokens(read.phase, service.id),
+    jsonOutput: true,
+  });
   try {
     const res = await fetch(call.url, {
       method: "POST",
+      redirect: "manual",
       headers: call.headers,
       body: JSON.stringify(call.body),
-      signal: AbortSignal.timeout(BRIEFING_LLM_TIMEOUT_MS),
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(BRIEFING_LLM_TIMEOUT_MS)]),
     });
+    if (res.status >= 300 && res.status < 400) {
+      await res.body?.cancel();
+      return failure(
+        "PROVIDER_ERROR",
+        `${service.label} redirected the request. No credentials were forwarded.`,
+        false,
+        502,
+      );
+    }
     const reply = await readLlmReply(res, service, config);
     if (!reply.ok) {
       const code: GenerateFailureCode =
@@ -160,7 +259,12 @@ export async function POST(request: Request): Promise<Response> {
             : "PROVIDER_ERROR";
       // Upstream detail is summarized, never forwarded verbatim: an error page
       // is the provider's text, not ours.
-      return failure(code, reply.error, reply.status === 429 || reply.status >= 500, 502);
+      return failure(
+        code,
+        `${service.label} ${reply.status === 401 || reply.status === 403 ? "refused the key" : reply.status === 429 ? "is rate limiting requests" : "could not complete this request"}.`,
+        reply.status === 429 || reply.status >= 500,
+        502,
+      );
     }
 
     const answer = parseJsonObject(reply.text);
@@ -181,11 +285,22 @@ export async function POST(request: Request): Promise<Response> {
             "output: expected one JSON object",
           ]);
     }
+    const trimmed =
+      read.phase === "compose"
+        ? pruneWeakComposition(answer, read.input as never)
+        : { output: answer, omitted: 0 };
     const validated =
       read.phase === "shortlist"
-        ? validateShortlist(answer, read.input as never)
-        : validateComposition(answer, read.input as never);
+        ? validateShortlist(trimmed.output, read.input as never)
+        : validateComposition(trimmed.output, read.input as never);
     if (!validated.ok) {
+      if (validated.errors.every((e) => e.startsWith("INSUFFICIENT_CONTENT")))
+        return failure(
+          "INSUFFICIENT_CONTENT",
+          "No proposed topic meets the editorial and evidence requirements yet. There is no minimum article count.",
+          false,
+          422,
+        );
       return failure(
         "INVALID_OUTPUT",
         "The model's answer did not match the phase schema.",
@@ -199,12 +314,21 @@ export async function POST(request: Request): Promise<Response> {
         ok: true,
         phase: read.phase,
         result: validated.value,
+        ...(trimmed.omitted ? { omittedWeakItems: trimmed.omitted } : {}),
         provider: service.id,
         model: modelFor(config),
+        ...(reply.usage ? { usage: reply.usage } : {}),
       } satisfies GenerateResult,
       { headers: { "cache-control": "no-store" } },
     );
-  } catch {
-    return failure("PROVIDER_UNAVAILABLE", `Could not reach ${service.label}.`, true, 502);
+  } catch (cause) {
+    if (cause instanceof Error && cause.name === "TimeoutError")
+      return failure("TIMED_OUT", "The model request timed out.", true, 504);
+    return failure(
+      "PROVIDER_UNAVAILABLE",
+      `Could not reach ${service.label}. Check the connection and try Resume; an earlier request may already have been billed.`,
+      true,
+      502,
+    );
   }
 }
