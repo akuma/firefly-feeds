@@ -232,7 +232,7 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
         lang={edition.outputLanguage === "source" ? undefined : (edition.outputLanguage ?? "en")}
         className="mx-auto max-w-[720px] px-6 pt-9 pb-16 lg:px-10 lg:pt-12"
       >
-        <header className="mb-8 border-b border-rulestrong pb-7 lg:mb-10 lg:pb-8">
+        <header className="mb-8 border-b border-spark/40 pb-7 lg:mb-10 lg:pb-8">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <span className="label text-spark">Daily Briefing</span>
             <span className="mono tnum text-[10px] tracking-[0.12em] text-ink4 uppercase">
@@ -241,7 +241,8 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
             </span>
           </div>
           <h1 className="display mt-5 text-[40px] leading-[1.04] font-medium tracking-[-0.035em] text-ink lg:text-[52px]">
-            {edition.editionDate === today ? "Today’s Briefing" : "Daily Briefing"}
+            {edition.editionDate === today ? "Today’s " : "Daily "}
+            <span className="text-spark">Briefing</span>
           </h1>
           <div className="mono mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[9.5px] tracking-[0.13em] text-ink4 uppercase">
             <ReadingTime edition={edition} />
@@ -279,7 +280,7 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
               >
                 Top Stories
               </h2>
-              <span className="label shrink-0 text-ink4">
+              <span className="label shrink-0 text-spark">
                 {edition.topStories.length} {edition.topStories.length === 1 ? "story" : "stories"}
               </span>
             </div>
@@ -375,7 +376,7 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
                 >
                   Worth Reading
                 </h2>
-                <span className="label shrink-0 text-ink4">
+                <span className="label shrink-0 text-spark">
                   {edition.worthReading.length}{" "}
                   {edition.worthReading.length === 1 ? "pick" : "picks"}
                 </span>
@@ -394,7 +395,7 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
                 >
                   <span
                     aria-hidden
-                    className="mono tnum row-span-3 pt-1 text-[14px] tracking-[-0.03em] text-ink4"
+                    className="mono tnum row-span-3 pt-1 text-[14px] tracking-[-0.03em] text-spark"
                   >
                     {String(index + 1).padStart(2, "0")}
                   </span>

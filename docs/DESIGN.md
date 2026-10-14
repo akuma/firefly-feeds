@@ -291,3 +291,8 @@ height belongs to contents. Mobile retains the compact edition selector.
 Earlier editions is collapsed by default behind a compact footer toggle with
 its version count. Opening it reveals the independently scrolling history;
 switching editions keeps it open and preserves its position.
+
+The briefing masthead gives the word Briefing the existing spark brand ink,
+with a restrained tinted rule beneath the issue metadata. Section counts and
+Worth Reading numerals repeat the same accent; prose, article headlines and
+paper surfaces retain the established reading palette in both themes.
