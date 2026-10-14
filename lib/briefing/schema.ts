@@ -150,6 +150,7 @@ export const COMPOSE_INPUT_SCHEMA = obj(
   {
     ...common,
     ...focusContext,
+    previouslyRecommendedArticleIds: arr(id, L.maxCandidates),
     shortlist: SHORTLIST_SCHEMA,
     materials: arr(
       obj(

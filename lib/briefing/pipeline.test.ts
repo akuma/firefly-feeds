@@ -1017,3 +1017,126 @@ it("freezes readable focus scope and retains it in Writing after preferences cha
     focusTopics: [{ id: "custom-123", label: "Design" }],
   });
 });
+
+it("omits a previously recommended deep read without failing valid news or spending a repair call", async () => {
+  const { pipeline } = await freshModules();
+  const payloads: Array<ShortlistInput | ComposeInput> = [];
+  const model = stubGenerate({
+    compose: () => ({
+      ok: true,
+      phase: "compose",
+      provider: "stub",
+      model: "stub",
+      result: {
+        ...composeAnswer,
+        worthReading: [
+          {
+            articleId: "C~C1",
+            whyRead: {
+              text: "A useful argument.",
+              evidence: [
+                { articleId: "C~C1", excerpt: "A long argument about delivery tradeoffs." },
+              ],
+            },
+          },
+        ],
+      },
+    }),
+  });
+  const outcome = await pipeline.runBriefing({
+    ...FIXTURE,
+    history: [
+      {
+        kind: "insight",
+        editionDate: "2026-10-12",
+        headline: "Earlier pick",
+        sourceArticleIds: ["C~C1"],
+      },
+    ],
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    generate: async (call) => {
+      payloads.push(call.payload);
+      return model.generate(call);
+    },
+    fetchContent: async ({ article: target }) => ({
+      article: target,
+      availability: "summary",
+      fetched: false,
+    }),
+  });
+  expect(outcome.error).toBeUndefined();
+  expect(outcome.edition?.topStories).toHaveLength(1);
+  expect(outcome.edition?.worthReading).toEqual([]);
+  expect(outcome.run.callsUsed).toBe(2);
+  expect(payloads[1]).toMatchObject({ previouslyRecommendedArticleIds: ["C~C1"] });
+});
+
+it.each([true, false])(
+  "finishes a saved composed checkpoint without a call; retained news: %s",
+  async (retainNews) => {
+    const { pipeline, repo } = await freshModules();
+    const first = await pipeline.runBriefing({
+      ...FIXTURE,
+      history: [
+        {
+          kind: "insight",
+          editionDate: "2026-10-12",
+          headline: "Earlier pick",
+          sourceArticleIds: ["C~C1"],
+        },
+      ],
+      focusTopicIds: [],
+      timezone: "UTC",
+      llm: LLM,
+      ...failWritingForResume(),
+      fetchContent: async ({ article: target }) => ({
+        article: target,
+        availability: "summary",
+        fetched: false,
+      }),
+    });
+    const checkpoint = {
+      ...first.run,
+      callsUsed: 3,
+      composed: {
+        ...composeAnswer,
+        topStories: retainNews ? composeAnswer.topStories : [],
+        worthReading: [
+          {
+            articleId: "C~C1",
+            whyRead: {
+              text: "A useful argument.",
+              evidence: [
+                { articleId: "C~C1", excerpt: "A long argument about delivery tradeoffs." },
+              ],
+            },
+          },
+        ],
+      },
+    };
+    await repo.putBriefingRun(checkpoint);
+    const outcome = await pipeline.runBriefing({
+      ...FIXTURE,
+      focusTopicIds: [],
+      timezone: "UTC",
+      llm: LLM,
+      resume: checkpoint,
+      generate: async () => {
+        throw new Error("No call expected");
+      },
+    });
+    if (!retainNews) {
+      expect(outcome.error?.code).toBe("INSUFFICIENT_CONTENT");
+      expect(outcome.error?.retryable).toBe(false);
+      expect(await pipeline.loadResumableRun(checkpoint.editionKey)).toBeUndefined();
+      return;
+    }
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.edition?.worthReading).toEqual([]);
+    expect(outcome.edition?.topStories).toHaveLength(1);
+    expect(outcome.run.callsUsed).toBe(3);
+    expect(outcome.edition?.stats.omittedWeakItems).toBe(1);
+  },
+);

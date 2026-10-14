@@ -862,3 +862,15 @@ unknown. Confirmed user classifications retain precedence. Removed topic IDs no
 longer count as candidate classifications or new-run focus choices. Deleting a
 topic clears its selected focus, and successful startup hydration clears hidden
 stale choices; a storage read failure does not erase preferences.
+
+Compose receives an optional bounded `previouslyRecommendedArticleIds` list
+derived from frozen history and intersected with its materials. Both transports
+validate this same list. A well-formed, evidenced repeat is omitted as a whole
+recommendation before publication, preserving valid news and avoiding a paid
+repair for deduplication. Cached composed checkpoints receive the same cleanup
+on Resume. Structural errors, unknown IDs and invalid excerpts remain failures;
+if nothing evidenced remains, the existing insufficient-content result applies.
+
+A composed checkpoint with no evidenced items left after deduplication ends as
+non-retryable insufficient content and is not offered as Resume. A new generation
+uses a new snapshot; repeated resumes cannot replenish a frozen empty issue.

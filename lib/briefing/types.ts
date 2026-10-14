@@ -88,6 +88,7 @@ export type ArticleMaterial = {
 };
 
 export type ComposeInput = BriefingFocusContext & {
+  previouslyRecommendedArticleIds?: string[];
   schemaVersion: SchemaVersion;
   editionDate: string;
   timezone: string;

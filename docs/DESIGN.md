@@ -281,3 +281,13 @@ new editions to directly relevant material, while an empty selection produces a
 general briefing. The settings helper makes this explicit; fewer stories are
 preferred to unrelated filler. Existing editions and frozen old runs keep their
 original content.
+
+The desktop briefing history is anchored below the independently scrolling
+contents. Switching between short and long editions never moves the history
+heading or its rows. History occupies at most 40% of the available area below
+the controls and scrolls internally when more editions exist; the remaining
+height belongs to contents. Mobile retains the compact edition selector.
+
+Earlier editions is collapsed by default behind a compact footer toggle with
+its version count. Opening it reveals the independently scrolling history;
+switching editions keeps it open and preserves its position.

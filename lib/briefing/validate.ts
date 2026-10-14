@@ -284,6 +284,9 @@ export function validateComposition(
   input: ComposeInput,
   previouslyRecommended: readonly string[] = [],
 ): ValidationResult<ComposeOutput> {
+  previouslyRecommended = [
+    ...new Set([...previouslyRecommended, ...(input.previouslyRecommendedArticleIds ?? [])]),
+  ];
   const errors: Errors = schemaErrors(raw, COMPOSE_SCHEMA, "output");
   const materials = new Map(input.materials.map((m) => [m.articleId, m]));
   if (!isRecord(raw)) return { ok: false, errors: ["output: expected one JSON object"] };
@@ -497,7 +500,7 @@ function withoutEditorialNotes(raw: unknown): unknown {
 }
 
 /**
- * A weak or misplaced topic is an editorial omission. Drop whole items only
+ * A weak, misplaced or previously recommended item is an editorial omission. Drop whole items only
  * when every failure is an editorial selection failure. Unknown references,
  * invented excerpts and structural errors still refuse the entire answer.
  * Revalidation remains the publishing gate; never move prose between sections.
@@ -505,12 +508,13 @@ function withoutEditorialNotes(raw: unknown): unknown {
 export function pruneWeakComposition(
   answer: unknown,
   input: ComposeInput,
+  previouslyRecommended: readonly string[] = [],
 ): { output: unknown; omitted: number } {
   const raw = withoutEditorialNotes(answer);
-  const checked = validateComposition(raw, input);
+  const checked = validateComposition(raw, input, previouslyRecommended);
   if (checked.ok || schemaErrors(raw, COMPOSE_SCHEMA).length) return { output: raw, omitted: 0 };
   const weak =
-    /^(topStories|worthReading)\[(\d+)\]: (?:editorial score below 6|main evidence does not belong to one shortlisted news group; keep insight groups in Worth Reading|article does not belong to a shortlisted insight group)$/;
+    /^(topStories|worthReading)\[(\d+)\](?:: (?:editorial score below 6|main evidence does not belong to one shortlisted news group; keep insight groups in Worth Reading|article does not belong to a shortlisted insight group)|\.articleId: already recommended in an earlier edition)$/;
   if (!checked.errors.length || checked.errors.some((error) => !weak.test(error)))
     return { output: raw, omitted: 0 };
   const output = raw as ComposeOutput;

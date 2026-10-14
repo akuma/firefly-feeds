@@ -432,8 +432,43 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
       ),
     };
 
+    const previouslyRecommendedArticleIds = [
+      ...new Set(
+        prepared.previousStories
+          .filter((entry) => entry.kind !== "news")
+          .flatMap((entry) => entry.sourceArticleIds),
+      ),
+    ].filter((id) => materials.some((material) => material.articleId === id));
+
     /* ---------------------------------------------------------- compose */
     let composed = run.composed;
+    if (composed) {
+      const trimmed = pruneWeakComposition(composed, {
+        schemaVersion: 1,
+        editionDate,
+        timezone,
+        cutoffAt,
+        outputLanguage,
+        previouslyRecommendedArticleIds,
+        shortlist,
+        materials,
+        limits: {
+          maxStories: BRIEFING_LIMITS.maxStories,
+          maxDeepReads: BRIEFING_LIMITS.maxDeepReads,
+          targetReadingMinutes: 4,
+        },
+      });
+      composed = trimmed.output as ComposeOutput;
+      if (trimmed.omitted)
+        run = {
+          ...run,
+          composed,
+          stats: {
+            ...run.stats,
+            omittedWeakItems: (run.stats?.omittedWeakItems ?? 0) + trimmed.omitted,
+          },
+        };
+    }
     if (!composed) {
       emit("composing");
       const payload: ComposeInput = fitComposeInput({
@@ -442,6 +477,7 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         timezone,
         cutoffAt,
         outputLanguage,
+        previouslyRecommendedArticleIds,
         ...(prepared.focusTopics ? { focusTopics: prepared.focusTopics } : {}),
         ...(prepared.focusOnly !== undefined ? { focusOnly: prepared.focusOnly } : {}),
         shortlist,
@@ -493,6 +529,7 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         timezone,
         cutoffAt,
         outputLanguage,
+        previouslyRecommendedArticleIds,
         ...(prepared.focusTopics ? { focusTopics: prepared.focusTopics } : {}),
         ...(prepared.focusOnly !== undefined ? { focusOnly: prepared.focusOnly } : {}),
         shortlist,
@@ -507,7 +544,15 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         .filter((entry) => entry.kind !== "news")
         .flatMap((entry) => entry.sourceArticleIds),
     );
-    if (!verified.ok) return await fail("INVALID_OUTPUT", verified.errors[0], true);
+    if (!verified.ok) {
+      if (verified.errors.every((error) => error.startsWith("INSUFFICIENT_CONTENT")))
+        return await fail(
+          "INSUFFICIENT_CONTENT",
+          "No new evidenced content remains to publish. Try generating a new edition when more articles arrive.",
+          false,
+        );
+      return await fail("INVALID_OUTPUT", verified.errors[0], true);
+    }
     const cited = citedArticleIds(composed);
     const snapshotFor = (articleId: string): BriefingSourceSnapshot | null => {
       const candidate = frozenById.get(articleId);
@@ -776,6 +821,7 @@ export async function loadResumableRun(editionKey?: string): Promise<BriefingRun
     .filter(
       (run) =>
         run.status !== "ready" &&
+        run.error?.code !== "INSUFFICIENT_CONTENT" &&
         run.revision > (published.get(run.editionKey) ?? 0) &&
         Boolean(run.prepared) &&
         (Boolean(run.composed) || run.callsUsed + (run.shortlist ? 1 : 2) <= 3),

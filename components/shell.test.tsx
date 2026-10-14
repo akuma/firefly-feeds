@@ -3266,7 +3266,8 @@ describe("the daily briefing", () => {
       await waitFor(() => expect(within(reader()).getByText(/revision 2/)).toBeInTheDocument(), {
         timeout: 15_000,
       });
-      // Regenerate never overwrites: the earlier edition is one click away
+      // Regenerate never overwrites: open history to return to the earlier edition.
+      await user.click(within(briefing()).getByRole("button", { name: /Earlier editions/ }));
       await user.click(within(briefing()).getByRole("button", { name: /r1/ }));
       await waitFor(() =>
         expect(within(reader()).getByText("A first story explained")).toBeInTheDocument(),
@@ -3681,4 +3682,21 @@ it("removes hidden deleted briefing focus IDs when restoring preferences", async
       "custom-design",
     ]),
   );
+});
+
+it("opens briefing history on demand and keeps it open while switching editions", async () => {
+  localStorage.setItem("firefly.feeds.v1", JSON.stringify(BRIEFING_PREFS));
+  await seedBriefingRecoveryState(["saved", "saved"]);
+  const { user } = await mount();
+  await openBriefing(user);
+  const column = within(document.querySelector<HTMLElement>("[data-t=briefing-column]")!);
+  const toggle = column.getByRole("button", { name: /Earlier editions/ });
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(column.queryByRole("button", { name: /r16.*items/ })).not.toBeInTheDocument();
+  await user.click(toggle);
+  await user.click(column.getByRole("button", { name: /r16.*items/ }));
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(column.getByText("r16 · Saved")).toBeInTheDocument();
+  await user.click(toggle);
+  expect(column.queryByRole("button", { name: /r16.*items/ })).not.toBeInTheDocument();
 });

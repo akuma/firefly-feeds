@@ -65,6 +65,7 @@ Top Stories; each should explain what happened, necessary context, and why it
 matters. Leave optional fields null when unsupported. Distinguish observed facts,
 attributed opinions, and grounded interpretations. Do not invent a debate.
 
+Never recommend an article listed in previouslyRecommendedArticleIds. Leave Worth Reading empty when all eligible articles have already been recommended; do not fill the section with repeats.
 Recommend at most two unique Worth Reading articles whose full original text is
 worth a reader's time; explain the unique value of each, rather than retelling
 it. You may output fewer items or an empty section. Never pad to reach a quota.

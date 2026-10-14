@@ -521,3 +521,36 @@ it("does not silently accept other fields or structured values masquerading as n
     expect(validateComposition(result.output, composeInput()).ok).toBe(false);
   }
 });
+
+it("drops a valid repeated recommendation but never hides invalid evidence behind deduplication", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const input = composeInput({
+    materials: [material(), material({ articleId: "C1", text: "The long argument stands." })],
+  });
+  const context = { ...input, previouslyRecommendedArticleIds: ["C1"] };
+  const repeat = {
+    articleId: "C1",
+    whyRead: {
+      text: "A useful argument.",
+      evidence: [{ articleId: "C1", excerpt: "The long argument stands." }],
+    },
+  };
+  const raw = { ...goodCompose, worthReading: [repeat], bigPicture: repeat.whyRead };
+  const trimmed = pruneWeakComposition(raw, context);
+  expect(trimmed.omitted).toBe(1);
+  expect(validateComposition(trimmed.output, context).ok).toBe(true);
+  expect(trimmed.output).toMatchObject({ worthReading: [], bigPicture: null });
+  const invalid = {
+    ...raw,
+    worthReading: [
+      {
+        ...repeat,
+        whyRead: { ...repeat.whyRead, evidence: [{ articleId: "C1", excerpt: "Invented quote" }] },
+      },
+    ],
+  };
+  expect(pruneWeakComposition(invalid, context).omitted).toBe(0);
+  expect(validateComposition(pruneWeakComposition(invalid, context).output, context).ok).toBe(
+    false,
+  );
+});

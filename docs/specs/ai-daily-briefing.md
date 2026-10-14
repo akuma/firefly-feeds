@@ -934,10 +934,17 @@ publishBriefing(runId, validOutput): Promise<BriefingEdition>
 
 ### 2026-10-14 时间与兴趣范围修正
 
-当前 prompt 版本为 `shortlist-v4 / compose-v5`。两阶段 system prompt 明示冻结的
+此修正由 `shortlist-v4 / compose-v5` 引入。两阶段 system prompt 明示冻结的
 `editionDate`、`timezone` 与 `cutoffAt`，要求区分报道发布时间、事件时间与历史背景；
 不得把回顾中的“赛事之前”写成今天“赛事临近”。无法从材料确定时间时省略该判断。
 引文存在性校验不等同于完整语义/时间事实核查，仍需真实样本的编辑质量验证。
 
 新任务冻结可选 `focusTopics: {id,label}[]` 和 `focusOnly`，写作阶段也接收这些字段。
 旧任务缺少这些字段时继续原有范围，已有成刊不重写；新偏好需要 Regenerate。
+
+### 2026-10-14 重复深读推荐处理
+
+`compose-v6` 明确接收 `previouslyRecommendedArticleIds`（可选，最多 60 个，
+由冻结历史与本轮材料 ID 交集得到）。有效但重复的推荐整条省略，其他内容继续发布，
+不为去重重试模型；结构/引文错误仍拒绝，不能借省略掩盖。旧 composed checkpoint
+恢复时应用同样规则。历史列表默认折叠，点击 Earlier editions 展开。

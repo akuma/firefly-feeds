@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Plus, RotateCcw, Settings as SettingsIcon, X } from "lucide-react";
+import { ChevronDown, FileText, Plus, RotateCcw, Settings as SettingsIcon, X } from "lucide-react";
 import { clsx } from "../clsx";
 import { useReader } from "@/lib/store";
 import { findService, serviceReady } from "@/lib/llm";
@@ -24,6 +24,7 @@ function gotoSection(id: string) {
 
 export function BriefingColumn({ briefing }: { briefing: Briefing }) {
   const r = useReader();
+  const [historyOpen, setHistoryOpen] = useState(false);
   const edition = briefing.current;
   const [today] = useState(() =>
     localDate(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
@@ -161,10 +162,13 @@ export function BriefingColumn({ briefing }: { briefing: Briefing }) {
           </select>
         </label>
       )}
-      <div className="scroll-thin hidden min-h-0 flex-1 overflow-y-auto overscroll-contain lg:block">
+      <div className="hidden min-h-0 flex-1 flex-col lg:flex">
         {/* ------------------------------------------------------- contents */}
         {edition && (
-          <nav aria-label="Briefing contents" className="border-t border-rule px-5 py-4">
+          <nav
+            aria-label="Briefing contents"
+            className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-rule px-5 py-4"
+          >
             {edition.bigPicture && (
               <button
                 type="button"
@@ -243,32 +247,51 @@ export function BriefingColumn({ briefing }: { briefing: Briefing }) {
 
         {/* --------------------------------------------------------- history */}
         {briefing.editions.length > 1 && (
-          <div className="border-t border-rule px-5 py-4">
-            <div className="label text-ink4">Earlier editions</div>
-            <ul className="mt-2">
-              {briefing.editions.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    aria-current={item.id === edition?.id ? "page" : undefined}
-                    onClick={() => briefing.open(item.id)}
-                    className={clsx(
-                      "flex h-[30px] w-full items-center gap-3 border-l-2 pr-2 pl-2 text-left transition-colors hover:bg-hoverc",
-                      item.id === edition?.id
-                        ? "border-spark text-spark"
-                        : "border-transparent text-ink2",
-                    )}
-                  >
-                    <span className="mono tnum min-w-0 flex-1 truncate text-[11.5px] leading-none">
-                      {item.editionDate} · r{item.revision}
-                    </span>
-                    <span className="mono tnum shrink-0 text-[10px] leading-none text-ink4">
-                      {item.topStories.length + item.worthReading.length} items
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+          <div className="flex max-h-[40%] shrink-0 flex-col border-t border-rule px-5 py-4">
+            <button
+              type="button"
+              aria-expanded={historyOpen}
+              aria-controls="briefing-history"
+              onClick={() => setHistoryOpen((open) => !open)}
+              className="label flex shrink-0 items-center gap-2 text-left text-ink4 transition-colors hover:text-spark"
+            >
+              <span className="flex-1">Earlier editions</span>
+              <span className="tnum">{briefing.editions.length}</span>
+              <ChevronDown
+                size={12}
+                strokeWidth={1.6}
+                className={clsx("transition-transform", historyOpen && "rotate-180")}
+              />
+            </button>
+            {historyOpen && (
+              <ul
+                id="briefing-history"
+                className="scroll-thin mt-2 min-h-0 overflow-y-auto overscroll-contain"
+              >
+                {briefing.editions.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      aria-current={item.id === edition?.id ? "page" : undefined}
+                      onClick={() => briefing.open(item.id)}
+                      className={clsx(
+                        "flex h-[30px] w-full items-center gap-3 border-l-2 pr-2 pl-2 text-left transition-colors hover:bg-hoverc",
+                        item.id === edition?.id
+                          ? "border-spark text-spark"
+                          : "border-transparent text-ink2",
+                      )}
+                    >
+                      <span className="mono tnum min-w-0 flex-1 truncate text-[11.5px] leading-none">
+                        {item.editionDate} · r{item.revision}
+                      </span>
+                      <span className="mono tnum shrink-0 text-[10px] leading-none text-ink4">
+                        {item.topStories.length + item.worthReading.length} items
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>
