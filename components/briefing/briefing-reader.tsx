@@ -121,7 +121,7 @@ function Section({
       <Heading
         className={
           label === "The Big Picture"
-            ? "display text-[24px] leading-tight font-medium tracking-[-0.015em] text-ink"
+            ? "display text-[24px] leading-tight font-medium tracking-normal text-ink"
             : "sr-only"
         }
       >
@@ -129,7 +129,7 @@ function Section({
       </Heading>
       <p
         className={clsx(
-          "max-w-[62ch] text-ink",
+          "max-w-[62ch] tracking-[0.005em] text-ink",
           label === "The Big Picture"
             ? "mt-4 text-[length:calc(var(--reader-size,19px)*1.08)] leading-[1.6]"
             : "mt-2.5 text-[length:var(--reader-size,19px)] leading-[1.65]",
@@ -217,13 +217,21 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
     );
   }
 
+  const coverageFormat = new Intl.DateTimeFormat("en", {
+    timeZone: edition.timezone,
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+
   return (
     <div
       data-t="briefing-reader"
       ref={scrollRef}
       onScroll={() => {
         savedScroll.current = scrollRef.current?.scrollTop ?? 0;
-        if (edition) positions.current.set(edition.id, savedScroll.current);
         if (edition) positions.current.set(edition.id, savedScroll.current);
       }}
       className="scroll-thin h-full overflow-y-auto overscroll-contain bg-reader"
@@ -240,7 +248,7 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
               {edition.revision > 1 ? ` · revision ${edition.revision}` : ""}
             </span>
           </div>
-          <h1 className="display mt-5 text-[40px] leading-[1.04] font-medium tracking-[-0.035em] text-ink lg:text-[52px]">
+          <h1 className="mt-5 font-briefing-title text-[40px] leading-[1.04] font-normal tracking-[0.015em] text-ink lg:text-[52px]">
             {edition.editionDate === today ? "Today’s " : "Daily "}
             <span className="text-spark">Briefing</span>
           </h1>
@@ -258,6 +266,23 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
               · {edition.timezone}
             </time>
           </div>
+          {edition.coverageStartedAt !== undefined && (
+            <p
+              data-t="briefing-coverage"
+              className="mono mt-3 text-[9.5px] leading-[1.7] tracking-[0.08em] text-ink4 uppercase"
+            >
+              Coverage ·{" "}
+              <time dateTime={new Date(edition.coverageStartedAt).toISOString()}>
+                {coverageFormat.format(edition.coverageStartedAt)}
+              </time>
+              {" — "}
+              <time dateTime={new Date(edition.cutoffAt).toISOString()}>
+                {coverageFormat.format(edition.cutoffAt)}
+              </time>
+              {" · "}
+              {edition.timezone}
+            </p>
+          )}
         </header>
 
         {edition.bigPicture && (
@@ -276,7 +301,7 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
             <div className="mb-7 flex items-baseline justify-between gap-4 border-t-2 border-ink pt-4">
               <h2
                 id="briefing-news-heading"
-                className="display text-[28px] leading-tight font-medium tracking-[-0.02em] text-ink"
+                className="display text-[28px] leading-tight font-medium tracking-normal text-ink"
               >
                 Top Stories
               </h2>
@@ -297,8 +322,8 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
                   className={clsx(
                     "display font-normal text-ink",
                     index === 0
-                      ? "max-w-[24ch] text-[32px] leading-[1.12] tracking-[-0.025em] lg:text-[38px]"
-                      : "text-[25px] leading-[1.16] tracking-[-0.016em] lg:text-[28px]",
+                      ? "max-w-[24ch] text-[32px] leading-[1.12] tracking-normal lg:text-[38px]"
+                      : "text-[25px] leading-[1.16] tracking-normal lg:text-[28px]",
                   )}
                 >
                   {formatBriefingText(story.headline, edition.outputLanguage)}
@@ -372,7 +397,7 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
               <div className="flex items-baseline justify-between gap-4">
                 <h2
                   id="briefing-reading-heading"
-                  className="display text-[28px] leading-tight font-medium tracking-[-0.02em] text-ink"
+                  className="display text-[28px] leading-tight font-medium tracking-normal text-ink"
                 >
                   Worth Reading
                 </h2>
@@ -399,7 +424,7 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
                   >
                     {String(index + 1).padStart(2, "0")}
                   </span>
-                  <h3 className="display text-[22px] leading-[1.2] font-normal tracking-[-0.012em] text-ink lg:text-[24px]">
+                  <h3 className="display text-[22px] leading-[1.2] font-normal tracking-normal text-ink lg:text-[24px]">
                     {snapshot
                       ? formatBriefingText(snapshot.title, edition.outputLanguage)
                       : deep.articleId}

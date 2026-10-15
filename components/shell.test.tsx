@@ -3214,6 +3214,11 @@ describe("the daily briefing", () => {
 
       expect(reader().className).not.toMatch(/(^| )hidden( |$)/);
       const repo = await import("@/lib/storage/repository");
+      expect((await repo.listBriefingRuns())[0].trigger).toMatchObject({
+        type: "manual",
+        action: "generate",
+        at: expect.any(Number),
+      });
       const reading = (await repo.loadAll()).reading;
       expect(reading.find((item) => item.id === "sdig~one")?.read ?? false).toBe(false);
       pane.scrollTop = 173;
@@ -3699,4 +3704,39 @@ it("opens briefing history on demand and keeps it open while switching editions"
   expect(column.getByText("r16 · Saved")).toBeInTheDocument();
   await user.click(toggle);
   expect(column.queryByRole("button", { name: /r16.*items/ })).not.toBeInTheDocument();
+});
+
+it("restores a saved briefing on load without automatically calling the model", async () => {
+  localStorage.setItem("firefly.feeds.v1", JSON.stringify(BRIEFING_PREFS));
+  await seedBriefingRecoveryState(["saved"]);
+  const spy = briefingSpy();
+  try {
+    const { user } = await mount();
+    await openBriefing(user);
+    await waitFor(() =>
+      expect(within(reader()).getByText("A first story explained")).toBeInTheDocument(),
+    );
+    expect(spy.seen).toHaveLength(0);
+    expect(await (await import("@/lib/storage/repository")).getBriefings()).toHaveLength(1);
+  } finally {
+    spy.restore();
+  }
+});
+
+it("restores an interrupted task without automatically resuming after remount", async () => {
+  localStorage.setItem("firefly.feeds.v1", JSON.stringify(BRIEFING_PREFS));
+  await seedBriefingRecoveryState(["interrupted"]);
+  const spy = briefingSpy();
+  try {
+    const first = await mount();
+    await openBriefing(first.user);
+    expect(await within(briefing()).findByRole("button", { name: "Resume r16" })).toBeVisible();
+    first.unmount();
+    const second = await mount();
+    await openBriefing(second.user);
+    expect(await within(briefing()).findByRole("button", { name: "Resume r16" })).toBeVisible();
+    expect(spy.seen).toHaveLength(0);
+  } finally {
+    spy.restore();
+  }
 });

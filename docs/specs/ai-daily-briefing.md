@@ -111,9 +111,6 @@ export const BRIEFING_LIMITS = {
   maxCandidates: 60,
   maxShortlistGroups: 12,
   recentWindowHours: 24,
-  insightWindowDays: 7,
-  recentQuota: 42,
-  olderQuota: 18,
   maxPerSourceInitial: 5,
   maxNewExtracts: 10,
   extractConcurrency: 2,
@@ -125,14 +122,14 @@ export const BRIEFING_LIMITS = {
 } as const;
 ```
 
-说明：`42 / 18` 只是保障新近资讯和过去一周长文都能被看到的**输入覆盖预算**，不是提前判定 News/Insights。最终 `kind` 由 LLM 决定。若某窗口文章不足，则剩余名额允许补齐另一窗口。不得在规则层按 Topic 排除文章。
+说明：News 与 Insights 共用最近 24 小时的最多 60 个候选名额，最终 `kind` 由 LLM 决定。素材不足不扩大窗口；兴趣范围过滤发生在公平抽样前。
 
 ### 3.3 可重复的筛选步骤
 
 1. **精确去重**：先按稳定 Article ID，再按归一化 canonical URL（去 fragment、常见追踪参数，如 `utm_*`、`fbclid`、`gclid`，保留其他有意义的 query 参数），同源标题完全相同时择一。**不同来源的相似标题暂不强行去重**。
-2. **分桶**：`recent`（[cutoffAt−24h, cutoffAt]）、`older`（(cutoffAt−7d, cutoffAt−24h)）。排序优先按有效时间倒序，tie-break by stable ID，保证同输入稳定。
-3. **来源公平抽样**：每桶先轮转覆盖各源、单源初轮最多 5 篇；再轮转补齐剩余名额。不让单一高频源消耗全部配额；空配额跨桶回填，总量最多 60。
-4. **历史线索**：附最近 7 天已报道事件的标题、`sourceArticleIds`、发布日期；精确重复深读文章默认不再推荐。同一事件可能有新进展，**不按历史相似标题做硬删除**，由模型判断 `material update`。
+2. **时间范围**：仅保留 [cutoffAt−24h, cutoffAt]。沿用有效时间规则：有发布时间时使用发布时间，缺失时使用抓取时间；抓取时间不得覆盖已有发布时间。排序按有效时间倒序，tie-break by stable ID。
+3. **来源公平抽样**：在同一个 24 小时池中先轮转覆盖各源、单源初轮最多 5 篇；再轮转补齐剩余名额，总量最多 60。不向旧文章借配额。
+4. **历史线索**：仅附早于本期本地日期、最近 7 天已报道事件的标题、`sourceArticleIds`、期次日期；跨日期精确重复深读默认不再推荐。同一天的任何修订版均不进入排除历史，Regenerate 允许保留本期文章。同一事件可能有新进展，**不按历史相似标题做硬删除**，由模型判断 `material update`。
 5. **分类与兴趣**：为候选附现有 Topics，并将 focus Topics 的 ID 与可读名称冻结后传给两阶段。已自动分类或人工确认且与所有 focus Topics 不匹配的文章，在采样前排除；待审核、已拒绝或缺分类文章仍可参选，由选稿与写作阶段根据正文判断直接相关性，不自动触发新的 Classification Sweep。
 
 建议纯函数：
@@ -377,7 +374,7 @@ type ComposeOutput = {
 - 事实与解释均须有证据；`EvidenceRef.excerpt` 必须取自传入 `ArticleMaterial.text` 的原始片段。不能自己造引语。
 - 语言自然、有编辑节奏；不硬套四段式，不强制输出 5 个话题；不重复一个事件。
 - 最终输出面向 3–5 分钟阅读体验，宁短勿水。
-- `Worth Reading` 推荐的深度长文可以来自 7 天窗口，不必是当天新闻；但默认不重复最近已经推荐的同一篇文章。
+- `Worth Reading` 与 Top Stories 同样来自最近 24 小时窗口；允许保留本期上一修订版的文章，但不重复此前日期已刊登的同一篇文章。
 
 ### 6.3 Prompt 模板（v1）
 
@@ -948,3 +945,28 @@ publishBriefing(runId, validOutput): Promise<BriefingEdition>
 由冻结历史与本轮材料 ID 交集得到）。有效但重复的推荐整条省略，其他内容继续发布，
 不为去重重试模型；结构/引文错误仍拒绝，不能借省略掩盖。旧 composed checkpoint
 恢复时应用同样规则。历史列表默认折叠，点击 Earlier editions 展开。
+
+### 2026-10-15 一天一期与最近 24 小时
+
+每个用户时区的本地日期为一期，Regenerate 是同一期的新修订版；重新读取当前
+文章与设置，不刻意追求不同。选稿范围为生成截止点前 24 小时，新闻与深读一致。
+素材少就少出，不扩到过去一周。此前日期的内容才参与历史去重；新闻有实质新进展
+仍可入选。两阶段都接收跨期历史，写作也接收已推荐深读 ID。
+
+新冻结输入与成刊可选保存 `coverageStartedAt`，刊头以该版本时区显示起止时间。
+旧成刊缺少该字段时不声称采用新窗口，旧 Resume 保留原冻结窗口、历史和截止点。
+当前 prompt 版本 `shortlist-v5 / compose-v7`。
+
+### 2026-10-15 修复不等于精简
+
+普通 JSON/schema/引文修复维持正常的 5 条新闻、2 条深读上限和可选 Big Picture。
+不能因“只剩最后一次调用”或选稿阶段已重试，就强制缩成 2+1；只有本阶段实际
+输出截断（包括 Resume 记住的截断）才启用精简 schema。总调用上限仍为 3，
+最多一次修复。新 run 可选记录有界 `repairTrace`，便于解释成功后的修复原因。
+
+### 2026-10-15 仅手动触发
+
+生成及继续生成只能由 Generate / Regenerate / Start over / Resume 按钮触发。
+页面加载、刷新、切换版本、修改设置、重新开启 AI Briefing 都只恢复展示状态，
+不自动生成或继续未完成任务。按钮处理器要求对应的 click 事件；新任务保存
+最新手动触发的操作与时间，旧任务缺少记录时不推断来源。

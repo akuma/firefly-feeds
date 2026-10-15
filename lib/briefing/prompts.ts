@@ -31,7 +31,7 @@ reporters' opinions, and your own inference.
 Score each group on VALUE (0..4), NOVELTY (0..3) and EVIDENCE (0..3). For news,
 value means actual significance; for insights, it means depth and enduring
 reader value. Explain briefly what remains unknown. Prefer a diverse selection
-of worthwhile sources, but never pad for balance. A prior story may recur ONLY
+of worthwhile sources, but never pad for balance. Regenerate is a new revision of the same daily issue, not a request for different stories: retaining worthwhile content from today's previous revision is allowed. Only prior-date issues count as history. A prior story may recur ONLY
 when the available material documents a meaningful new development.
 
 Recommend at most ten specific article IDs for full-text extraction, prioritizing
@@ -65,6 +65,7 @@ Top Stories; each should explain what happened, necessary context, and why it
 matters. Leave optional fields null when unsupported. Distinguish observed facts,
 attributed opinions, and grounded interpretations. Do not invent a debate.
 
+Regenerate may retain stories and reading from earlier revisions of this same daily issue; do not reduce the edition just to make it different. previousStories contains prior-issue coverage: repeat a prior news event only when the materials establish a meaningful new development.
 Never recommend an article listed in previouslyRecommendedArticleIds. Leave Worth Reading empty when all eligible articles have already been recommended; do not fill the section with repeats.
 Recommend at most two unique Worth Reading articles whose full original text is
 worth a reader's time; explain the unique value of each, rather than retelling
@@ -93,7 +94,7 @@ Do not fill unused slots with general news. Fewer stories or an empty section ar
 
 function timeInstruction(input: ShortlistInput | ComposeInput): string {
   return `\nReference date: ${input.editionDate} (${input.timezone}); cutoffAt: ${input.cutoffAt} milliseconds since Unix epoch. This is the briefing's frozen time reference, including on Resume.
-Distinguish current developments from historical background. The article publication date is not the event date. A recent report can describe a deal, announcement or tournament that happened earlier.
+${input.coverageStartedAt !== undefined ? `The candidate coverage window starts at ${input.coverageStartedAt} and ends at cutoffAt. Do not expand it to fill sections. ` : ""}Distinguish current developments from historical background. The article publication date is not the event date. A recent report can describe a deal, announcement or tournament that happened earlier.
 Preserve the source's temporal relationships: "before the event" in a retrospective report must not become "the event is approaching" now. "Since the tournament" or "after the event" means that event has already happened in the source's account.
 Do not infer that an event is upcoming from the model's prior knowledge, the article title, or an old forward-looking quote. Use explicit source-supported dates or clearly attribute a past perspective ("at the time"). If the event timing cannot be established from supplied material, omit the temporal framing. Never add current-time context just to make a story sound timely.\n`;
 }
@@ -112,7 +113,7 @@ function languageInstruction(id: DigestLanguageId): string {
  * upstream output — a repair call may only say what shape was wrong.
  */
 export function isCompactReply(feedback: readonly string[]): boolean {
-  return feedback.some((line) => /cut off|compact|TRUNCATED/i.test(line));
+  return feedback.includes("OUTPUT_TRUNCATED");
 }
 
 function repairNote(feedback: readonly string[]): string {

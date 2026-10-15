@@ -234,3 +234,17 @@ New prepared briefing snapshots optionally store `focusTopics` (IDs and display
 labels) and `focusOnly`. These are additive frozen-input fields, requiring no
 migration; old runs without them retain broad selection. The candidate diagnostic
 counts may include optional `offFocus`; stored editions remain unchanged.
+
+Prepared input and published editions optionally store `coverageStartedAt` for
+new strict 24-hour windows. Existing records need no migration or rewriting.
+Legacy Resume keeps its original prepared history and range; new Regenerate
+freezes a new window and excludes same-date revisions from historical coverage.
+
+Briefing runs optionally retain `repairTrace` with the phase, failure code and
+bounded validator feedback for the single repair attempt. Old runs without it
+remain valid; no migration is needed. This cannot retrospectively identify the
+precise repair reason or initiating click of an earlier run.
+
+Briefing runs optionally store `trigger` (`type: manual`, `action: generate | resume`,
+`at` in epoch milliseconds) for the latest explicit start or resume. Legacy runs
+remain valid without this field; their initiating action cannot be inferred.

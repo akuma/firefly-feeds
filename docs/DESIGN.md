@@ -40,7 +40,8 @@ and the small state labels. It is never decorative.
 
 ## Type
 
-Three faces, and one of them sets a single number.
+Three shared faces, and one of them sets a single number. Briefing has one
+additional face limited to its two mastheads.
 
 **Newsreader** is the editorial voice:
 
@@ -66,7 +67,7 @@ keeps its variable weight axis so the numeral still answers `font-medium` rather
 than rendering at a baked weight. Keeping it that narrow is the point: it is a
 figures face, not a third voice.
 
-All three are self-hosted from `public/fonts` and preloaded, so there is no font
+The three shared faces are self-hosted from `public/fonts` and preloaded, so there is no font
 CDN in the request path and the type renders identically offline. All three are
 under the SIL Open Font License, which permits commercial use and web embedding
 but requires the notice to travel with the files — that is
@@ -296,3 +297,23 @@ The briefing masthead gives the word Briefing the existing spark brand ink,
 with a restrained tinted rule beneath the issue metadata. Section counts and
 Worth Reading numerals repeat the same accent; prose, article headlines and
 paper surfaces retain the established reading palette in both themes.
+
+New daily briefings show a compact Coverage line below the generation metadata,
+with the frozen start/end dates and times in the issue timezone. The issue date
+is its daily filing date, while this range explains its rolling 24-hour contents.
+Legacy editions without an explicit range keep their existing masthead metadata.
+
+Briefing mastheads alone use locally hosted **Lora**, regular 400,
+with Tailwind `font-briefing-title` and `tracking-[0.015em]`. Its license is in
+`public/fonts/lora-variable-OFL.txt`. This face is loaded on demand, without a
+site-wide preload or a remote font request. Newsreader remains the face for
+Briefing prose, story headlines, section titles, the logo, and other pages.
+Other serif titles use normal spacing. Prose uses a subtle `0.005em` spacing;
+uppercase metadata keeps its existing wide tracking.
+Briefing text disables font ligatures so pairs such as `fi` in the masthead
+remain separate letterforms in both the contents column and reading pane.
+
+During Briefing generation, the live stage label has the existing small spark
+Firefly breathing dot and a brief fade when the stage changes. Detail counts
+update without restarting the fade. The existing reduced-motion rules disable
+both animations; stages and counts remain the actual pipeline state.

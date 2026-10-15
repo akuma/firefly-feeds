@@ -2,6 +2,7 @@
 
 import type { BriefingRun, RunStatus } from "@/lib/briefing/types";
 import type { useBriefing } from "@/lib/briefing/useBriefing";
+import { Firefly } from "../plate";
 
 /**
  * The run's status, in real counts. A briefing takes a while and spends the
@@ -41,10 +42,13 @@ export function BriefingProgressLine({ briefing }: { briefing: Briefing }) {
       role="status"
       aria-live="polite"
       data-t="briefing-progress"
-      className="mono mt-3 text-[9.5px] tracking-[0.12em] text-ink4 uppercase"
+      className="mono mt-3 flex items-start gap-2 text-[9.5px] leading-[1.7] tracking-[0.12em] text-ink4 uppercase"
     >
-      {STAGE_LABELS[progress.status]}
-      {progress.detail ? ` · ${progress.detail}` : ""}
+      <Firefly size={5} glow={false} pulse={briefing.running} className="mt-[5px]" />
+      <span key={progress.status} className="ff-fade">
+        {STAGE_LABELS[progress.status]}
+        {progress.detail ? ` · ${progress.detail}` : ""}
+      </span>
     </p>
   );
 }

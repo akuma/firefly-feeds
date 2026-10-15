@@ -40,6 +40,7 @@ export type BriefingFocusContext = {
 };
 
 export type ShortlistInput = BriefingFocusContext & {
+  coverageStartedAt?: number;
   schemaVersion: SchemaVersion;
   editionDate: string;
   cutoffAt: number;
@@ -88,6 +89,8 @@ export type ArticleMaterial = {
 };
 
 export type ComposeInput = BriefingFocusContext & {
+  coverageStartedAt?: number;
+  previousStories?: BriefingHistoryDigest[];
   previouslyRecommendedArticleIds?: string[];
   schemaVersion: SchemaVersion;
   editionDate: string;
@@ -191,6 +194,8 @@ export type BriefingEdition = {
   timezone: string;
   revision: number;
   cutoffAt: number;
+  /** Absent on legacy editions that could include week-old reading. */
+  coverageStartedAt?: number;
   generatedAt: number;
   /** Missing on editions created before language selection was restored: English. */
   outputLanguage?: DigestLanguageId;
@@ -231,6 +236,8 @@ export type BriefingRun = {
   createdAt: number;
   updatedAt: number;
   cutoffAt: number;
+  /** Latest manual start/resume; absent on legacy runs whose origin is unknown. */
+  trigger?: { type: "manual"; action: "generate" | "resume"; at: number };
   /** Consistency tag over the frozen inputs; not a security hash. */
   snapshotHash: string;
   sourceSnapshots: BriefingSourceSnapshot[];
@@ -247,6 +254,8 @@ export type BriefingRun = {
   cancelledExtracts?: string[];
   stats?: Partial<BriefingStats>;
   repairUsed?: boolean;
+  /** Bounded validator diagnostics, not provider response bodies or credentials. */
+  repairTrace?: { phase: GeneratePhase; code: GenerateFailureCode; errors: string[] };
   /** Remember compact-output requirements across cancellation and Resume. */
   truncatedPhases?: GeneratePhase[];
   coverageIncomplete?: boolean;

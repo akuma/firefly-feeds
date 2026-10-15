@@ -49,6 +49,9 @@
       cutoffAt: run.cutoffAt,
       promptVersion: run.promptVersion,
       callsUsed: run.callsUsed,
+      repairTrace: run.repairTrace,
+      trigger: run.trigger,
+      truncatedPhases: run.truncatedPhases,
     },
     topics: topics.map(({ id, label, deletedAt }) => ({ id, label, deletedAt })),
     prepared: run.prepared && {

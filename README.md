@@ -33,7 +33,9 @@ _The built-in sample edition, shown on first launch._
 - **AI Daily Briefing** — off by default, enabled with a Settings switch; an AI-edited edition of your own day (`The Big
 Picture`, `Top Stories`, `Worth Reading`), written on request by the model you
   configure, with supporting article references and verified quoted excerpts;
-  editions, revisions and resumable progress remain in this browser
+  editions, revisions and resumable progress remain in this browser. New editions
+  cover the preceding 24 hours; regenerating the same daily issue may retain its
+  stories, while earlier dates inform no-repeat selection
 
 ### What leaves the device
 

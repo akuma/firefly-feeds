@@ -87,7 +87,7 @@ describe("candidate preparation", () => {
     expect(run({ articles }).candidates).toHaveLength(2);
   });
 
-  it("splits the day from the week and refuses timestamps from the future", () => {
+  it("uses only the trailing day and refuses timestamps from the future", () => {
     const articles = [
       article("a~future", "a", T0 + HOUR),
       article("a~recent", "a", T0 - HOUR),
@@ -95,9 +95,9 @@ describe("candidate preparation", () => {
       article("a~ancient", "a", T0 - 20 * 24 * HOUR),
     ];
     const set = run({ articles });
-    expect(set.candidates.map((c) => c.articleId)).toEqual(["a~recent", "a~old"]);
-    expect(set.selectedWindow).toEqual({ recent: 1, older: 1 });
-    expect(set.skippedStats.outOfWindow).toBe(2);
+    expect(set.candidates.map((c) => c.articleId)).toEqual(["a~recent"]);
+    expect(set.selectedWindow).toEqual({ recent: 1, older: 0 });
+    expect(set.skippedStats.outOfWindow).toBe(3);
   });
 
   it("gives every source a first-round share before a loud one gets seconds", () => {
@@ -118,12 +118,12 @@ describe("candidate preparation", () => {
       sources: [source("a", "Loud"), source("b", "Quiet"), source("c", "Essays")],
     });
     expect(set.sourceCoverage["b"]).toBe(1);
-    // the loud source fills the rest of its window's quota, never the edition
-    expect(set.sourceCoverage["a"]).toBe(41);
-    expect(set.sourceCoverage["c"]).toBe(18);
+    // Old essays cannot take slots; the quiet source still gets its fair share.
+    expect(set.sourceCoverage["a"]).toBe(59);
+    expect(set.sourceCoverage["c"]).toBeUndefined();
   });
 
-  it("hands an unfilled window's quota to the other one", () => {
+  it("does not expand a thin day into older material", () => {
     const articles = [
       ...Array.from({ length: 3 }, (_, i) => article(`r${i}`, "a", T0 - i * HOUR)),
       ...Array.from({ length: 25 }, (_, i) =>
@@ -132,9 +132,9 @@ describe("candidate preparation", () => {
     ];
     const set = run({ articles });
     expect(set.selectedWindow.recent).toBe(3);
-    // 18 older slots were reserved; the unfilled recent quota lends the rest
-    expect(set.selectedWindow.older).toBe(25);
-    expect(set.selectedWindow.older).toBeGreaterThan(18);
+    // A thin pool stays thin rather than borrowing older articles.
+    expect(set.selectedWindow.older).toBe(0);
+    expect(set.candidates).toHaveLength(3);
   });
 
   it("is stable: the same records produce the same edition in any order", () => {
@@ -298,4 +298,14 @@ it("treats a stale automatic classification as unknown after the article text ch
       focusTopicIds: ["design"],
     }).candidates,
   ).toEqual([]);
+});
+
+it("includes exactly the 24-hour boundary without reaching further back", () => {
+  const set = run({
+    articles: [
+      article("a~boundary", "a", T0 - 24 * HOUR),
+      article("a~older", "a", T0 - 24 * HOUR - 1),
+    ],
+  });
+  expect(set.candidates.map((candidate) => candidate.articleId)).toEqual(["a~boundary"]);
 });

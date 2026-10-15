@@ -1,5 +1,5 @@
 import { staleSourceIds } from "../refreshing";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import type { DigestLanguageId } from "../languages";
 import type { LlmConfig } from "../llm";
 import * as repo from "../storage/repository";
@@ -25,6 +25,15 @@ export type BriefingError = { code: string; message: string; retryable: boolean 
 function todayEditionKey(): string {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return `${localDate(Date.now(), timezone)}@${timezone}`;
+}
+
+function isGenerationClick(event: MouseEvent<HTMLButtonElement> | undefined, button: string) {
+  // Effects and timers must not be able to invoke these handlers without a button event.
+  return (
+    event?.type === "click" &&
+    event.currentTarget.tagName === "BUTTON" &&
+    event.currentTarget.dataset.t === button
+  );
 }
 
 export function useBriefing(
@@ -91,7 +100,7 @@ export function useBriefing(
   );
 
   const start = useCallback(
-    async (resume?: BriefingRun) => {
+    async (trigger: NonNullable<BriefingRun["trigger"]>, resume?: BriefingRun) => {
       if (!enabled || running.current) return;
       running.current = true;
       setError(null);
@@ -143,6 +152,7 @@ export function useBriefing(
           signal: controllerNow.signal,
           onProgress: setProgress,
           resume: target,
+          trigger,
         });
         if (outcome.error && outcome.error.code !== "CANCELLED") setError(outcome.error);
         if (outcome.edition) setCurrentId(outcome.edition.id);
@@ -176,8 +186,14 @@ export function useBriefing(
     running: progress !== null,
     error,
     resumable,
-    generate: () => start(),
-    resume: () => (resumable ? start(resumable) : Promise.resolve()),
+    generate: (event: MouseEvent<HTMLButtonElement>) =>
+      isGenerationClick(event, "briefing-generate")
+        ? start({ type: "manual", action: "generate", at: Date.now() })
+        : Promise.resolve(),
+    resume: (event: MouseEvent<HTMLButtonElement>) =>
+      resumable && isGenerationClick(event, "briefing-resume")
+        ? start({ type: "manual", action: "resume", at: Date.now() }, resumable)
+        : Promise.resolve(),
     cancel,
     open: (id: string) => setCurrentId(id),
     reload,

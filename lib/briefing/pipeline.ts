@@ -11,7 +11,6 @@ import {
   BRIEFING_RUN_TTL_MS,
   PROMPT_VERSIONS,
 } from "./constants";
-import { isCompactReply } from "./prompts";
 import { createArticleMaterial, fitComposeInput } from "./materials";
 import { rankGroups } from "./score";
 import {
@@ -90,6 +89,7 @@ export type RunBriefingInput = {
   onProgress?: (progress: BriefingProgress) => void;
   /** Continue a paused/cancelled run on its own frozen input. */
   resume?: BriefingRun;
+  trigger?: BriefingRun["trigger"];
   owner?: string;
 };
 
@@ -173,6 +173,7 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
   }
   run = {
     ...((await repo.getBriefingRun(run.runId)) ?? run),
+    ...(input.trigger ? { trigger: input.trigger } : {}),
     lease: { ownerId: owner, expiresAt: Date.now() + BRIEFING_LEASE_MS },
   };
 
@@ -245,10 +246,15 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
           true,
         );
       }
+      // History is measured in local issue dates; DST must not remove or add a date.
+      const historyStartDate = new Date(Date.parse(`${editionDate}T00:00:00Z`) - 7 * 86400_000)
+        .toISOString()
+        .slice(0, 10);
       prepared = {
         schemaVersion: 1,
         editionDate,
         cutoffAt,
+        coverageStartedAt: cutoffAt - BRIEFING_LIMITS.recentWindowHours * 60 * 60_000,
         timezone,
         outputLanguage,
         focusTopicIds,
@@ -261,7 +267,9 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         previousStories: [
           ...new Map(
             [...input.history]
-              .filter((entry) => entry.editionDate >= localDate(cutoffAt - 7 * 86400_000, timezone))
+              .filter(
+                (entry) => entry.editionDate < editionDate && entry.editionDate >= historyStartDate,
+              )
               .map((entry) => [
                 `${entry.kind ?? "news"}:${[...entry.sourceArticleIds].toSorted().join(",")}`,
                 entry,
@@ -450,6 +458,10 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         cutoffAt,
         outputLanguage,
         previouslyRecommendedArticleIds,
+        previousStories: prepared.previousStories,
+        ...(prepared.coverageStartedAt !== undefined
+          ? { coverageStartedAt: prepared.coverageStartedAt }
+          : {}),
         shortlist,
         materials,
         limits: {
@@ -478,6 +490,10 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         cutoffAt,
         outputLanguage,
         previouslyRecommendedArticleIds,
+        previousStories: prepared.previousStories,
+        ...(prepared.coverageStartedAt !== undefined
+          ? { coverageStartedAt: prepared.coverageStartedAt }
+          : {}),
         ...(prepared.focusTopics ? { focusTopics: prepared.focusTopics } : {}),
         ...(prepared.focusOnly !== undefined ? { focusOnly: prepared.focusOnly } : {}),
         shortlist,
@@ -530,6 +546,10 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         cutoffAt,
         outputLanguage,
         previouslyRecommendedArticleIds,
+        previousStories: prepared.previousStories,
+        ...(prepared.coverageStartedAt !== undefined
+          ? { coverageStartedAt: prepared.coverageStartedAt }
+          : {}),
         ...(prepared.focusTopics ? { focusTopics: prepared.focusTopics } : {}),
         ...(prepared.focusOnly !== undefined ? { focusOnly: prepared.focusOnly } : {}),
         shortlist,
@@ -579,6 +599,9 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
       timezone,
       revision,
       cutoffAt,
+      ...(prepared.coverageStartedAt !== undefined
+        ? { coverageStartedAt: prepared.coverageStartedAt }
+        : {}),
       generatedAt: now,
       outputLanguage,
       schemaVersion: 1,
@@ -627,6 +650,7 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
       callsUsed: latest?.callsUsed ?? run.callsUsed,
       repairUsed: latest?.repairUsed ?? run.repairUsed,
       truncatedPhases: latest?.truncatedPhases ?? run.truncatedPhases,
+      repairTrace: latest?.repairTrace ?? run.repairTrace,
     };
     if (input.signal?.aborted || (error instanceof Error && error.message === "cancelled")) {
       run = {
@@ -672,15 +696,14 @@ async function callPhase(
   const previouslyTruncated =
     run.truncatedPhases?.includes(phase) ||
     (run.error?.code === "OUTPUT_TRUNCATED" && phase === (run.shortlist ? "compose" : "shortlist"));
+  const previousFeedback = run.repairTrace?.phase === phase ? run.repairTrace.errors : [];
   let feedback: string[] | undefined = previouslyTruncated
-    ? ["OUTPUT_TRUNCATED"]
-    : phase === "compose" && (repairUsed || run.callsUsed >= 2)
-      ? ["COMPACT_OUTPUT"]
+    ? ["OUTPUT_TRUNCATED", ...previousFeedback]
+    : previousFeedback.length
+      ? previousFeedback
       : undefined;
   /* oxlint-disable no-await-in-loop */
   while (nextRun.callsUsed < (phase === "shortlist" ? 2 : 3)) {
-    if (phase === "compose" && nextRun.callsUsed >= 2 && !isCompactReply(feedback ?? []))
-      feedback = [...(feedback ?? []), "COMPACT_OUTPUT"];
     if (input.signal?.aborted) throw new Error("cancelled");
     nextRun = Object.assign({}, nextRun, {
       callsUsed: nextRun.callsUsed + 1,
@@ -732,10 +755,17 @@ async function callPhase(
           omittedWeakItems: (answer.omittedWeakItems ?? 0) + trimmed.omitted,
         };
     }
-    if (!answer.ok && answer.code === "OUTPUT_TRUNCATED") {
+    if (!answer.ok && ["INVALID_OUTPUT", "OUTPUT_TRUNCATED"].includes(answer.code)) {
       nextRun = {
         ...nextRun,
-        truncatedPhases: [...new Set([...(nextRun.truncatedPhases ?? []), phase])],
+        repairTrace: {
+          phase,
+          code: answer.code,
+          errors: (answer.errors ?? []).slice(0, 3).map((error) => error.slice(0, 300)),
+        },
+        ...(answer.code === "OUTPUT_TRUNCATED"
+          ? { truncatedPhases: [...new Set([...(nextRun.truncatedPhases ?? []), phase])] }
+          : {}),
       };
       await repo.putBriefingRun(nextRun);
     }
@@ -775,7 +805,10 @@ async function callPhase(
       return { run: nextRun, repairUsed, provider: "", model: "", error: answer };
     }
     repairUsed = true;
-    feedback = answer.errors ?? [answer.code];
+    feedback =
+      answer.code === "OUTPUT_TRUNCATED"
+        ? ["OUTPUT_TRUNCATED", ...(answer.errors ?? [])]
+        : (answer.errors ?? [answer.code]);
   }
   /* oxlint-enable no-await-in-loop */
   return {

@@ -154,7 +154,10 @@ it("writes in the selected language while keeping evidence excerpts in their ori
 });
 
 it("uses a smaller actual output schema after truncation instead of only asking for shorter prose", () => {
-  const messages = buildComposeMessages(input, ["output: cut off at the token limit"]);
+  const messages = buildComposeMessages(input, [
+    "OUTPUT_TRUNCATED",
+    "output: cut off at the token limit",
+  ]);
   const schema = JSON.parse(messages[0].content.split("JSON Schema: ")[1].split("\n")[0]);
   expect(schema.properties.topStories.maxItems).toBe(2);
   expect(schema.properties.worthReading.maxItems).toBe(1);
@@ -180,7 +183,7 @@ it("also supplies a complete compose JSON example on the first call", () => {
 it("preserves specific validator feedback when the last writing call also needs to be compact", () => {
   const messages = buildComposeMessages(input, [
     "topStories[0].whatHappened: missing",
-    "COMPACT_OUTPUT",
+    "OUTPUT_TRUNCATED",
   ]);
   expect(messages[0].content).toContain("topStories[0].whatHappened: missing");
 });
@@ -226,3 +229,21 @@ it("accepts new focus context and old checkpoints on both request schemas", asyn
     schemaErrors({ ...input, ...context, focusOnly: "yes" }, COMPOSE_INPUT_SCHEMA),
   ).not.toEqual([]);
 });
+
+it("keeps the normal edition schema when repairing a field rather than truncation", () => {
+  const messages = buildComposeMessages(input, ["topStories[0].whatHappened: missing"]);
+  const schema = JSON.parse(messages[0].content.split("JSON Schema: ")[1].split("\n")[0]);
+  expect(schema.properties.topStories.maxItems).toBe(5);
+  expect(schema.properties.worthReading.maxItems).toBe(2);
+  expect(schema.properties.bigPicture).not.toEqual({ type: "null" });
+});
+
+it.each(["output.compactNote: unexpected field", "topStories[0].truncatedNote: unexpected field"])(
+  "does not treat a field name as a truncation marker: %s",
+  (error) => {
+    const messages = buildComposeMessages(input, [error]);
+    const schema = JSON.parse(messages[0].content.split("JSON Schema: ")[1].split("\n")[0]);
+    expect(schema.properties.topStories.maxItems).toBe(5);
+    expect(schema.properties.worthReading.maxItems).toBe(2);
+  },
+);

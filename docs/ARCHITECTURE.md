@@ -438,7 +438,7 @@ one server entry, `POST /api/briefing/generate`.
 The invariants the implementation is built around:
 
 - **Deterministic first.** `prepareCandidates` decides what the day offers
-  without a model: exact dedupe, two time windows, and a first-round share per
+  without a model: exact dedupe, a trailing 24-hour window, and a first-round share per
   source before any source gets seconds, so a high-volume publisher cannot
   consume the prompt. The same records produce the same candidate set in every
   run.
@@ -825,9 +825,10 @@ If selection has already used the single repair, composition starts compact.
 All complete replies retain the base evidence/structure publishing checks, while
 incomplete JSON is never salvaged or published.
 
-Writing also requests compact output whenever only one paid call remains,
-including after an interrupted selection or a structural-output repair. Specific
-validator feedback is retained alongside the compact requirement.
+Writing requests compact output only for an actual truncated Writing reply,
+including a remembered truncation on Resume. Structural-output repairs retain
+normal editorial capacity and specific validator feedback; spending the final
+call does not by itself shrink the edition.
 
 Resume selection is scoped to today's local date/timezone. Within each issue,
 only the highest revision attempt is considered; a newer saved edition supersedes
@@ -874,3 +875,31 @@ if nothing evidenced remains, the existing insufficient-content result applies.
 A composed checkpoint with no evidenced items left after deduplication ends as
 non-retryable insufficient content and is not offered as Resume. A new generation
 uses a new snapshot; repeated resumes cannot replenish a frozen empty issue.
+
+Each local date is one briefing issue. New runs sample both news and reading
+from the 24 hours ending at the frozen cutoff (published time when supplied,
+otherwise the existing fetched-time fallback). Thin pools never expand to older
+reading. All same-date revisions are excluded from no-repeat history; prior-date
+coverage from the last seven days remains available to both editorial phases.
+News may recur with a material development, while prior-date reading IDs are
+still omitted. Regenerate may retain same-issue stories and uses current inputs.
+
+New prepared inputs and editions have optional `coverageStartedAt`; the reader
+displays that frozen start and cutoff in the issue timezone. Older records lack
+the field and do not show a potentially false 24-hour label. Resume preserves
+its prepared window/history even when the clock or preferences have changed.
+
+Prior history covers the seven local calendar dates preceding the issue date,
+using date arithmetic so daylight-saving changes do not add or remove a day.
+The candidate window remains exactly 24 elapsed hours across those changes.
+
+New run checkpoints record optional bounded `repairTrace` (phase, failure code
+and up to three validator messages). This makes format/evidence repair distinct
+from actual output truncation after a successful publication. No raw provider
+response or configuration is retained in this diagnostic.
+
+Only the explicit `OUTPUT_TRUNCATED` feedback marker enables compact schemas.
+Validator field names containing words like compact or truncated never do. The
+latest bounded repairable-failure trace is checkpointed before cancellation can
+land, merged from storage in the cancellation handler, and reused for the same
+phase on Resume so targeted format corrections survive interruption.

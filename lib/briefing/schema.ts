@@ -112,10 +112,23 @@ const focusContext = {
   focusTopics: arr(obj({ id, label: str(200) }), L.maxFocusTopics),
   focusOnly: { type: "boolean" } as Schema,
 };
+const history = arr(
+  obj(
+    {
+      editionDate: str(10),
+      headline: str(300, 0),
+      sourceArticleIds: arr(id, 60),
+      kind: { enum: ["news", "insight"] },
+    },
+    ["editionDate", "headline", "sourceArticleIds"],
+  ),
+  200,
+);
 export const SHORTLIST_INPUT_SCHEMA = obj(
   {
     ...common,
     ...focusContext,
+    coverageStartedAt: timestamp,
     focusTopicIds: arr(id, L.maxFocusTopics),
     candidates: arr(
       obj({
@@ -131,18 +144,7 @@ export const SHORTLIST_INPUT_SCHEMA = obj(
       }),
       L.maxCandidates,
     ),
-    previousStories: arr(
-      obj(
-        {
-          editionDate: str(10),
-          headline: str(300, 0),
-          sourceArticleIds: arr(id, 60),
-          kind: { enum: ["news", "insight"] },
-        },
-        ["editionDate", "headline", "sourceArticleIds"],
-      ),
-      200,
-    ),
+    previousStories: history,
   },
   [...Object.keys(common), "focusTopicIds", "candidates", "previousStories"],
 );
@@ -150,7 +152,9 @@ export const COMPOSE_INPUT_SCHEMA = obj(
   {
     ...common,
     ...focusContext,
+    coverageStartedAt: timestamp,
     previouslyRecommendedArticleIds: arr(id, L.maxCandidates),
+    previousStories: history,
     shortlist: SHORTLIST_SCHEMA,
     materials: arr(
       obj(

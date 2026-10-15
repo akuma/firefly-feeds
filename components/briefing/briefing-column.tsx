@@ -47,7 +47,7 @@ export function BriefingColumn({ briefing }: { briefing: Briefing }) {
         </div>
         <h1
           className={clsx(
-            "display mt-2 text-[25px] leading-[1.1] font-medium tracking-[-0.016em] text-ink",
+            "mt-2 font-briefing-title text-[25px] leading-[1.1] font-normal tracking-[0.015em] text-ink",
             edition && "hidden lg:block",
           )}
         >

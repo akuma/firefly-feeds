@@ -121,7 +121,7 @@ const FIXTURE = {
     article(
       "C~C1",
       "C",
-      T0 - 5 * 24 * HOURS,
+      T0 - 12 * HOURS,
       "Engineering tradeoffs in software delivery",
       "A long argument about delivery tradeoffs.",
       { body: [] },
@@ -129,7 +129,7 @@ const FIXTURE = {
     article(
       "C~C2",
       "C",
-      T0 - 6 * 24 * HOURS,
+      T0 - 20 * HOURS,
       "The same essay as last week",
       "An essay already recommended last week.",
     ),
@@ -777,7 +777,7 @@ it("carries a truncation requirement into Resume on an older checkpoint without 
   expect(resumed.edition?.stats.llmRequests).toBe(3);
 });
 
-it("asks for compact writing when selection already used the one repair call", async () => {
+it("preserves normal writing capacity after a selection format repair", async () => {
   const { pipeline } = await freshModules();
   let shortlistCalls = 0;
   const model = stubGenerate({
@@ -807,7 +807,7 @@ it("asks for compact writing when selection already used the one repair call", a
     }),
   });
   expect(result.error).toBeUndefined();
-  expect(model.calls[2].feedback).toContain("COMPACT_OUTPUT");
+  expect(model.calls[2].feedback).toBeUndefined();
   expect(model.calls).toHaveLength(3);
 });
 
@@ -848,7 +848,7 @@ it.each(["shortlist", "compose"] as const)(
     expect(resumed.error).toBeUndefined();
     expect(model.calls).toHaveLength(phase === "shortlist" ? 2 : 1);
     expect(model.calls[0].feedback).toContain("OUTPUT_TRUNCATED");
-    if (phase === "shortlist") expect(model.calls[1].feedback).toContain("COMPACT_OUTPUT");
+    if (phase === "shortlist") expect(model.calls[1].feedback).toBeUndefined();
   },
 );
 
@@ -892,13 +892,13 @@ it.each(["OUTPUT_TRUNCATED", "INVALID_OUTPUT"] as const)(
       code === "OUTPUT_TRUNCATED" ? ["compose"] : undefined,
     );
     expect(model.calls.map((c) => c.phase)).toEqual(["shortlist", "compose", "compose"]);
+    expect(result.run.repairTrace).toMatchObject({ phase: "compose", code });
     if (code === "OUTPUT_TRUNCATED")
-      expect(model.calls[2].feedback).toEqual(["output: cut off at the token limit"]);
-    else
       expect(model.calls[2].feedback).toEqual([
-        "topStories[0].whatHappened: missing",
-        "COMPACT_OUTPUT",
+        "OUTPUT_TRUNCATED",
+        "output: cut off at the token limit",
       ]);
+    else expect(model.calls[2].feedback).toEqual(["topStories[0].whatHappened: missing"]);
   },
 );
 
@@ -1140,3 +1140,300 @@ it.each([true, false])(
     expect(outcome.edition?.stats.omittedWeakItems).toBe(1);
   },
 );
+
+it.each(["2026-10-13", "2026-10-12"])(
+  "uses only prior dates for history when regenerating: %s",
+  async (historyDate) => {
+    const { pipeline } = await freshModules();
+    const payloads: Array<ShortlistInput | ComposeInput> = [];
+    const model = stubGenerate({});
+    const outcome = await pipeline.runBriefing({
+      ...FIXTURE,
+      history: [
+        {
+          kind: "insight",
+          editionDate: historyDate,
+          headline: "Earlier pick",
+          sourceArticleIds: ["A~A1"],
+        },
+      ],
+      focusTopicIds: [],
+      timezone: "UTC",
+      llm: LLM,
+      generate: async (call) => {
+        payloads.push(call.payload);
+        return model.generate(call);
+      },
+      fetchContent: async ({ article: target }) => ({
+        article: target,
+        availability: "summary",
+        fetched: false,
+      }),
+    });
+    expect(outcome.error).toBeUndefined();
+    const expected = historyDate === "2026-10-13" ? [] : ["A~A1"];
+    expect(
+      (payloads[0] as ShortlistInput).previousStories.flatMap((item) => item.sourceArticleIds),
+    ).toEqual(expected);
+    expect(payloads[1]).toMatchObject({
+      previouslyRecommendedArticleIds: expected,
+      coverageStartedAt: T0 - 24 * HOURS,
+    });
+    expect(outcome.edition).toMatchObject({ coverageStartedAt: T0 - 24 * HOURS, cutoffAt: T0 });
+  },
+);
+
+it("keeps a same-day reading pick when Regenerate creates another revision", async () => {
+  const { pipeline } = await freshModules();
+  const answer: ComposeOutput = {
+    ...composeAnswer,
+    worthReading: [
+      {
+        articleId: "C~C1",
+        whyRead: {
+          text: "A useful argument.",
+          evidence: [{ articleId: "C~C1", excerpt: "A long argument about delivery tradeoffs." }],
+        },
+      },
+    ],
+  };
+  const args = {
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    fetchContent: async ({ article: target }: { article: ArticleRecord }) => ({
+      article: target,
+      availability: "summary" as const,
+      fetched: false,
+    }),
+  };
+  const model = () =>
+    stubGenerate({
+      compose: () => ({
+        ok: true,
+        phase: "compose",
+        provider: "stub",
+        model: "stub",
+        result: answer,
+      }),
+    });
+  const first = await pipeline.runBriefing({ ...args, ...model() });
+  expect(first.edition?.worthReading).toHaveLength(1);
+  const second = await pipeline.runBriefing({
+    ...args,
+    history: [
+      {
+        kind: "insight",
+        editionDate: first.edition!.editionDate,
+        headline: "Earlier revision",
+        sourceArticleIds: ["C~C1"],
+      },
+    ],
+    ...model(),
+  });
+  expect(second.error).toBeUndefined();
+  expect(second.edition?.worthReading).toHaveLength(1);
+  expect(second.edition?.revision).toBe(2);
+  expect(second.run.callsUsed).toBe(2);
+});
+
+it("uses the local issue date rather than UTC for revision history", async () => {
+  const { pipeline } = await freshModules();
+  const now = Date.parse("2026-10-13T00:30:00Z");
+  vi.mocked(Date.now).mockReturnValue(now);
+  const model = stubGenerate({});
+  const result = await pipeline.runBriefing({
+    ...FIXTURE,
+    articles: FIXTURE.articles.map((item) => ({
+      ...item,
+      publishedAt: now - HOURS,
+      fetchedAt: now,
+    })),
+    history: [
+      {
+        kind: "insight",
+        editionDate: "2026-10-12",
+        headline: "Same local issue",
+        sourceArticleIds: ["A~A1"],
+      },
+      {
+        kind: "insight",
+        editionDate: "2026-10-11",
+        headline: "Prior local issue",
+        sourceArticleIds: ["C~C2"],
+      },
+    ],
+    focusTopicIds: [],
+    timezone: "America/Los_Angeles",
+    llm: LLM,
+    ...model,
+    fetchContent: async ({ article: target }) => ({
+      article: target,
+      availability: "summary",
+      fetched: false,
+    }),
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.edition?.editionDate).toBe("2026-10-12");
+  expect(result.run.prepared?.previousStories.map((item) => item.headline)).toEqual([
+    "Prior local issue",
+  ]);
+  expect(result.edition?.coverageStartedAt).toBe(now - 24 * HOURS);
+});
+
+it.each([true, false])(
+  "preserves frozen coverage on Resume; explicit window: %s",
+  async (explicitWindow) => {
+    const { pipeline, repo } = await freshModules();
+    const args = { ...FIXTURE, focusTopicIds: [], timezone: "UTC", llm: LLM };
+    const first = await pipeline.runBriefing({
+      ...args,
+      ...failWritingForResume(),
+      fetchContent: async ({ article: target }) => ({
+        article: target,
+        availability: "summary",
+        fetched: false,
+      }),
+    });
+    const { coverageStartedAt: _coverage, ...legacyPrepared } = first.run.prepared!;
+    const checkpoint = explicitWindow ? first.run : { ...first.run, prepared: legacyPrepared };
+    await repo.putBriefingRun(checkpoint);
+    vi.mocked(Date.now).mockReturnValue(T0 + 36 * HOURS);
+    const result = await pipeline.runBriefing({ ...args, resume: checkpoint, ...stubGenerate({}) });
+    expect(result.error).toBeUndefined();
+    expect(result.edition?.editionDate).toBe("2026-10-13");
+    expect(result.edition?.cutoffAt).toBe(T0);
+    expect(result.edition?.coverageStartedAt).toBe(explicitWindow ? T0 - 24 * HOURS : undefined);
+  },
+);
+
+it.each([
+  { now: "2026-11-03T04:30:00Z", date: "2026-11-02", first: "2026-10-26", excluded: "2026-10-25" },
+  { now: "2026-03-09T04:30:00Z", date: "2026-03-09", first: "2026-03-02", excluded: "2026-03-01" },
+])(
+  "uses seven calendar dates for prior history across DST: $date",
+  async ({ now, date, first, excluded }) => {
+    const { pipeline } = await freshModules();
+    const at = Date.parse(now);
+    vi.mocked(Date.now).mockReturnValue(at);
+    const result = await pipeline.runBriefing({
+      ...FIXTURE,
+      articles: FIXTURE.articles.map((item) => ({
+        ...item,
+        publishedAt: at - HOURS,
+        fetchedAt: at,
+      })),
+      history: [
+        {
+          kind: "insight",
+          editionDate: first,
+          headline: "Seventh prior date",
+          sourceArticleIds: ["C~C2"],
+        },
+        {
+          kind: "news",
+          editionDate: excluded,
+          headline: "Outside history",
+          sourceArticleIds: ["A~A2"],
+        },
+      ],
+      focusTopicIds: [],
+      timezone: "America/New_York",
+      llm: LLM,
+      ...stubGenerate({}),
+      fetchContent: async ({ article: target }) => ({
+        article: target,
+        availability: "summary",
+        fetched: false,
+      }),
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.edition?.editionDate).toBe(date);
+    expect(result.run.prepared?.previousStories.map((item) => item.editionDate)).toEqual([first]);
+    expect(result.edition?.coverageStartedAt).toBe(at - 24 * HOURS);
+  },
+);
+
+it("retains targeted format feedback when cancellation arrives with the invalid reply", async () => {
+  const { pipeline, repo } = await freshModules();
+  const controller = new AbortController();
+  const first = await pipeline.runBriefing({
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    signal: controller.signal,
+    ...stubGenerate({
+      compose: () => {
+        controller.abort();
+        return {
+          ok: false,
+          code: "INVALID_OUTPUT",
+          retryable: true,
+          message: "bad field",
+          errors: ["topStories[0].truncatedNote: unexpected field"],
+        };
+      },
+    }),
+    fetchContent: async ({ article: target }) => ({
+      article: target,
+      availability: "summary",
+      fetched: false,
+    }),
+  });
+  expect((await repo.getBriefingRun(first.run.runId))?.repairTrace?.errors).toEqual([
+    "topStories[0].truncatedNote: unexpected field",
+  ]);
+  const model = stubGenerate({});
+  const resumed = await pipeline.runBriefing({
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    resume: first.run,
+    ...model,
+  });
+  expect(resumed.error).toBeUndefined();
+  expect(model.calls[0].feedback).toEqual(["topStories[0].truncatedNote: unexpected field"]);
+  expect(resumed.run.callsUsed).toBe(3);
+});
+
+it("preserves repair diagnostics when cancellation interrupts dispatch of the repair", async () => {
+  const { pipeline, repo } = await freshModules();
+  const controller = new AbortController();
+  let attempts = 0;
+  const result = await pipeline.runBriefing({
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    signal: controller.signal,
+    ...stubGenerate({
+      compose: () => {
+        attempts++;
+        if (attempts === 2) {
+          controller.abort();
+          throw new Error("cancelled");
+        }
+        return {
+          ok: false,
+          code: "INVALID_OUTPUT",
+          retryable: true,
+          message: "bad field",
+          errors: ["topStories[0].whatHappened: missing"],
+        };
+      },
+    }),
+    fetchContent: async ({ article: target }) => ({
+      article: target,
+      availability: "summary",
+      fetched: false,
+    }),
+  });
+  expect(result.run.status).toBe("cancelled");
+  expect(result.run.callsUsed).toBe(3);
+  expect((await repo.getBriefingRun(result.run.runId))?.repairTrace?.errors).toEqual([
+    "topStories[0].whatHappened: missing",
+  ]);
+});

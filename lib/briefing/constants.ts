@@ -12,13 +12,8 @@ export const BRIEFING_LIMITS = {
   maxCandidates: 60,
   /** Shortlist output is selective, never an annotation of the whole pool. */
   maxShortlistGroups: 12,
-  /** The recent window: the day itself, as the reader sees it. */
+  /** Both news and reading use the trailing 24 hours, frozen at Generate. */
   recentWindowHours: 24,
-  /** The insight window: how far back deep reading may reach. */
-  insightWindowDays: 7,
-  /** Input coverage quotas between the two windows; either may borrow the rest. */
-  recentQuota: 42,
-  olderQuota: 18,
   /** First rotation round gives every source this many slots before repeats. */
   maxPerSourceInitial: 5,
   /** The most article bodies one run may fetch that were not already cached. */
@@ -38,8 +33,8 @@ export const BRIEFING_LIMITS = {
 
 /** The fixed prompt versions, recorded on every published edition. */
 export const PROMPT_VERSIONS = {
-  shortlist: "shortlist-v4",
-  compose: "compose-v6",
+  shortlist: "shortlist-v5",
+  compose: "compose-v7",
 } as const;
 
 /** Runtime schema versions for the two model contracts. */

@@ -113,6 +113,15 @@
     U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+/* Only the Briefing mastheads request this locally hosted display face. */
+@font-face {
+  font-family: "Lora";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url(/fonts/lora-variable.woff2) format("woff2");
+}
+
 /*
  * The edition date's numeral, and nothing else.
  *
@@ -188,6 +197,7 @@
   --font-serif:
     "Newsreader", ui-serif, Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC",
     serif;
+  --font-briefing-title: "Lora", Georgia, "Times New Roman", serif;
   --font-mono:
     "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", "Noto Sans CJK SC", monospace;
@@ -337,6 +347,12 @@
 .display {
   font-family: var(--font-serif);
   font-optical-sizing: auto;
+}
+
+/* Keep letterforms separate throughout the briefing, including fi in its masthead. */
+[data-t="briefing-reader"],
+[data-t="briefing-column"] {
+  font-variant-ligatures: none;
 }
 
 .tnum {

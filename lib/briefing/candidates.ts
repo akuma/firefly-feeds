@@ -137,11 +137,10 @@ export function prepareCandidates(input: {
   });
 
   const recentWindowMs = BRIEFING_LIMITS.recentWindowHours * 60 * 60_000;
-  const olderWindowMs = BRIEFING_LIMITS.insightWindowDays * 24 * 60 * 60_000;
   const seenIds = new Set<string>();
   const seenUrls = new Set<string>();
   const seenTitles = new Set<string>();
-  const buckets: { recent: Bucketed[]; older: Bucketed[] } = { recent: [], older: [] };
+  const pool: Bucketed[] = [];
 
   for (const article of ordered) {
     const source = sourceById.get(article.sourceId);
@@ -156,7 +155,7 @@ export function prepareCandidates(input: {
     }
     const effectiveAt = article.publishedAt || article.fetchedAt;
     // A timestamp in the future is a feed's error, not news from tomorrow.
-    if (effectiveAt > cutoffAt || effectiveAt <= cutoffAt - olderWindowMs) {
+    if (effectiveAt > cutoffAt || effectiveAt < cutoffAt - recentWindowMs) {
       skippedStats.outOfWindow += 1;
       continue;
     }
@@ -197,27 +196,11 @@ export function prepareCandidates(input: {
           ? cutoffAt - article.fetchedAt < ARTICLE_STALE_MS
           : !needsArticleRefresh(article, cutoffAt)),
     };
-    const bucket = effectiveAt >= cutoffAt - recentWindowMs ? "recent" : "older";
-    buckets[bucket].push({ candidate, bucket });
+    pool.push({ candidate, bucket: "recent" });
   }
 
-  const recent = fairSample(buckets.recent, BRIEFING_LIMITS.recentQuota);
-  const older = fairSample(buckets.older, BRIEFING_LIMITS.olderQuota);
-  const picked = [...recent, ...older];
-
-  // A window that could not fill its quota hands the rest to the other one:
-  // the budgets exist to guarantee coverage, not to cap a thin day twice.
-  if (picked.length < BRIEFING_LIMITS.maxCandidates) {
-    const chosen = new Set(picked.map((item) => item.candidate.articleId));
-    const leftovers = [...buckets.recent, ...buckets.older].filter(
-      (item) => !chosen.has(item.candidate.articleId),
-    );
-    const extra = fairSample(leftovers, BRIEFING_LIMITS.maxCandidates - picked.length);
-    picked.push(...extra);
-    skippedStats.capped += buckets.recent.length + buckets.older.length - picked.length;
-  } else {
-    skippedStats.capped += buckets.recent.length + buckets.older.length - picked.length;
-  }
+  const picked = fairSample(pool, BRIEFING_LIMITS.maxCandidates);
+  skippedStats.capped = pool.length - picked.length;
 
   const sourceCoverage: Record<string, number> = {};
   const selectedWindow = { recent: 0, older: 0 };

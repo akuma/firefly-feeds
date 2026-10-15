@@ -1,6 +1,6 @@
-Fonts in this directory are redistributed under the SIL Open Font License,
-Version 1.1. All three families are used unmodified, and all three permit
-commercial use.
+The three shared font families below are redistributed under the SIL Open Font
+License, Version 1.1. All three permit commercial use. The additional Briefing
+masthead font, Lora, has its notice in lora-variable-OFL.txt.
 
 Newsreader
 Copyright 2020 The Newsreader Project Authors (http://github.com/productiontype/Newsreader)
