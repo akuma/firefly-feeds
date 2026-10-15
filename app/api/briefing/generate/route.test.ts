@@ -25,6 +25,119 @@ function request(body: unknown) {
   });
 }
 afterEach(() => vi.unstubAllGlobals());
+
+it.each([
+  [400, /request format/, false],
+  [401, /refused the key/, false],
+  [402, /balance/, false],
+  [404, /model or API endpoint/, false],
+  [422, /parameters/, false],
+  [429, /rate limiting/, true],
+  [500, /temporarily unavailable/, true],
+  [503, /overloaded/, true],
+  [504, /timed out/, true],
+] as const)(
+  "explains DeepSeek HTTP %s without exposing the upstream body",
+  async (status, message, retryable) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ error: { message: "Diagnostic secret-test-key publisher text" } }),
+            { status },
+          ),
+      ),
+    );
+    const res = await POST(
+      request({
+        phase: "shortlist",
+        input,
+        ...config,
+        service: "deepseek",
+        models: { deepseek: "deepseek-flash" },
+        keys: { deepseek: "secret-test-key" },
+      }),
+    );
+    const body = await res.json();
+    expect(body.message).toMatch(message);
+    expect(body.message).toContain(`HTTP ${status}`);
+    expect(body.retryable).toBe(retryable);
+    expect(JSON.stringify(body)).not.toMatch(/Diagnostic|secret-test-key|publisher text/);
+  },
+);
+
+it.each([
+  ["", /empty response/],
+  ["<html>secret-test-key gateway failure</html>", /cannot read/],
+] as const)(
+  "preserves the distinction between blank and unreadable successful replies",
+  async (text, message) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(text, { status: 200 })),
+    );
+    const body = await (await POST(request({ phase: "shortlist", input, ...config }))).json();
+    expect(body.message).toMatch(message);
+    expect(body.message).toContain("HTTP 200");
+    expect(JSON.stringify(body)).not.toContain("secret-test-key");
+  },
+);
+
+it("reports an empty token-limited reply as truncation rather than provider failure", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        choices: [
+          {
+            message: { content: "", reasoning_content: "private reasoning" },
+            finish_reason: "length",
+          },
+        ],
+      }),
+    ),
+  );
+  const body = await (await POST(request({ phase: "shortlist", input, ...config }))).json();
+  expect(body.code).toBe("OUTPUT_TRUNCATED");
+  expect(body.retryable).toBe(true);
+  expect(JSON.stringify(body)).not.toContain("private reasoning");
+});
+
+it.each(["", "   \n "])(
+  "does not treat blank answer content as a schema repair",
+  async (content) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ choices: [{ message: { content }, finish_reason: "stop" }] }),
+      ),
+    );
+    const body = await (await POST(request({ phase: "shortlist", input, ...config }))).json();
+    expect(body.code).toBe("PROVIDER_ERROR");
+    expect(body.message).toMatch(/returned nothing/);
+    expect(body.message).toContain("HTTP 200");
+  },
+);
+
+it("preserves a timeout while reading the upstream response body", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new DOMException("upstream body timed out", "TimeoutError"));
+            },
+          }),
+        ),
+    ),
+  );
+  const body = await (await POST(request({ phase: "shortlist", input, ...config }))).json();
+  expect(body.code).toBe("TIMED_OUT");
+});
+
 describe("briefing endpoint guards", () => {
   it("rejects malformed nested input before spending a model call", async () => {
     const fetch = vi.fn();
@@ -255,12 +368,16 @@ it.each(["openai", "deepseek"])(
       topStories: [
         {
           headline: "新版发布",
+          headlineNote: { explanation: "Internal title note" },
           whatHappened: {
             text: "项目发布新版。",
             evidence: [{ articleId: "a", excerpt: "A new version shipped." }],
           },
           whatHappenedNote: "Only the release is supported.",
-          context: null,
+          context: {
+            text: "An unverifiable background paragraph.",
+            evidence: [{ articleId: "a", excerpt: "An invented background quotation." }],
+          },
           whyItMatters: null,
           perspectives: [],
         },
@@ -326,6 +443,9 @@ it.each(["openai", "deepseek"])(
     expect(answer.ok).toBe(true);
     expect(answer.result.topStories[0].headline).toBe("新版发布");
     expect(answer.result.topStories[0]).not.toHaveProperty("whatHappenedNote");
+    expect(answer.result.topStories[0]).not.toHaveProperty("headlineNote");
+    expect(answer.result.topStories[0].context).toBeNull();
+    expect(answer.omittedUnsupportedSections).toBe(1);
     expect(fetch).toHaveBeenCalledTimes(1);
   },
 );

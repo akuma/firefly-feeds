@@ -229,6 +229,50 @@ function stubGenerate(options: {
 }
 
 describe("the briefing pipeline", () => {
+  it("publishes the supported edition in two calls while recording omitted optional context once", async () => {
+    const { pipeline, repo } = await freshModules();
+    const model = stubGenerate({
+      compose: () => ({
+        ok: true,
+        phase: "compose",
+        provider: "stub",
+        model: "stub-1",
+        result: {
+          ...composeAnswer,
+          topStories: composeAnswer.topStories.map((story) => ({
+            ...story,
+            context: {
+              text: "Unverifiable context must not be published.",
+              evidence: [{ articleId: "A~A1", excerpt: "Invented quotation" }],
+            },
+          })),
+        },
+      }),
+    });
+    const outcome = await pipeline.runBriefing({
+      ...FIXTURE,
+      focusTopicIds: [],
+      timezone: "UTC",
+      llm: LLM,
+      generate: model.generate,
+      fetchContent: async ({ article: target }) => ({
+        article: target,
+        availability: "summary",
+        fetched: false,
+      }),
+    });
+    expect(outcome.error).toBeUndefined();
+    expect(model.calls).toHaveLength(2);
+    expect(outcome.edition?.stats.omittedUnsupportedSections).toBe(1);
+    expect(outcome.edition?.topStories[0].context).toBeNull();
+    expect(JSON.stringify(await repo.getBriefings())).not.toContain(
+      "Unverifiable context must not be published",
+    );
+    expect((await repo.getBriefingRun(outcome.run.runId))?.stats?.omittedUnsupportedSections).toBe(
+      1,
+    );
+  });
+
   it("writes the annotated edition end to end, in two calls, without trusting the model's metadata", async () => {
     const { pipeline, repo } = await freshModules();
     const { calls, generate } = stubGenerate({});

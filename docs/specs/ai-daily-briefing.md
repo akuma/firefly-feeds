@@ -889,7 +889,7 @@ publishBriefing(runId, validOutput): Promise<BriefingEdition>
 ## 15. 实现核对后的契约补充（2026-10-14）
 
 - 恢复设置中的 `Written in`，复用既有 `Prefs.digestLanguage` 与封闭语言表，不新建偏好键。选题、写作和连接测试均传入所选语言；`source` 下各条正文跟随主来源，Big Picture 使用主要来源语言。二阶段 JSON Schema 使用相同语言枚举；生成提示要求名字和原文证据不翻译。Resume 继续使用 prepared 中冻结的语言。新简报记录可选 `outputLanguage`，旧记录按英文兼容；更改语言不改写已保存简报，也不会自动调用模型。
-- 部分模型会返回额外的 `topStories[].whatHappenedNote`。仅纯文本（最多 2000 字符）或 null 的该字段可在严格校验前删除，永不显示/持久化。其余未知字段、非文本备注及任何引用/证据错误仍拒绝；不增加输出预算或额外付费请求。
+- 模型输出中的额外字段（例如 `headlineNote`、`whatHappenedNote`）按各阶段 JSON schema 递归丢弃，不限制额外字段的值类型，永不显示/持久化，也不消耗修复请求。必填字段、字段类型、文章 ID 与证据仍严格校验；不补全缺失字段，不改变请求/输入的严格校验。
 - 保留现有数据库 v3 的 `digests`，新 stores 使用 v4；原数据库与 preference 名称不变。
 - 沿用独立生成模型配置表，保留 Ollama / OpenAI / Anthropic / DeepSeek，加入 Gemini 与 Custom API，移除 Qwen / Kimi / GLM 预设。Custom API 可选 OpenAI-compatible / Anthropic-compatible 协议；公开 HTTPS 地址经服务端校验，本地地址由浏览器直连，重定向不转发密钥。旧模型/密钥映射保留，与 Classification 配置分离。
 - `ShortlistOutput.groups` 最多 12 组，输入候选仍最多 60；shortlist 输出预算 6000 tokens，compose 默认 8000，DeepSeek compose 为 16000（不改变其他 API 的兼容上限）。OpenAI 格式启用 JSON Mode，Ollama 使用 `format: json`，两端仍执行严格校验。截断修复选题最多 4 组；写作使用紧凑目标 schema 和同步的 input limits：最多 2 条 Top Stories / 1 条 Worth Reading，Big Picture/context 为 null、perspectives 为空，每段仅 1 条最多 120 字符的证据，正文每字段最多 800 字符。不放松发布证据校验；若模型已返回完整且符合基础发布契约的较长输出，也可正常发布。
@@ -970,3 +970,19 @@ publishBriefing(runId, validOutput): Promise<BriefingEdition>
 页面加载、刷新、切换版本、修改设置、重新开启 AI Briefing 都只恢复展示状态，
 不自动生成或继续未完成任务。按钮处理器要求对应的 click 事件；新任务保存
 最新手动触发的操作与时间，旧任务缺少记录时不推断来源。
+
+### Provider 错误提示
+
+Provider 拒绝请求时，显示应用自有的分类说明、HTTP 状态码和下一步操作；
+区分格式/参数、Key、余额、模型/地址、限流、过载、服务不可用与超时，不透传
+上游错误原文。HTTP 200 的空响应与不可读响应单独说明；无正文但被 token 上限
+截断时仍走 OUTPUT_TRUNCATED，读取响应体超时仍为 TIMED_OUT。
+服务故障不自动重试网络请求，保留手动 Resume 和总调用预算限制。
+
+### 可选段落的证据降级
+
+若 Big Picture、context、whyItMatters 或单条 perspective 的唯一错误是已知
+材料中的摘录不能逐字匹配，整段省略（置 null 或移除该 perspective），不保留
+正文，也不改写/补造摘录。主要新闻 whatHappened、深读 whyRead、未知文章 ID、
+字段结构错误仍严格拒绝。处理后再次完整校验，再独立省略不合格选稿条目。
+简报底部说明省略段落数，可选统计 omittedUnsupportedSections 向后兼容旧版。

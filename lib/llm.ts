@@ -469,10 +469,11 @@ export async function readLlmReply(
       truncated: boolean;
       usage?: { inputTokens?: number; outputTokens?: number };
     }
-  | { ok: false; error: string; status: number }
+  | { ok: false; error: string; safeError: string; status: number; truncated: boolean }
 > {
   const wire = effectiveWire(service, config);
-  const bodyText = await res.text().catch(() => "");
+  // Preserve body-read timeouts instead of disguising them as empty responses.
+  const bodyText = await res.text();
   let raw: unknown = null;
   try {
     raw = JSON.parse(bodyText);
@@ -481,10 +482,16 @@ export async function readLlmReply(
   }
 
   if (!res.ok) {
-    return { ok: false, error: llmFailure(service, config, res.status, raw), status: res.status };
+    return {
+      ok: false,
+      error: llmFailure(service, config, res.status, raw),
+      safeError: safeLlmFailure(service.label, res.status),
+      status: res.status,
+      truncated: false,
+    };
   }
   const answer = readLlmText(raw, wire);
-  if (answer) {
+  if (answer.trim()) {
     const body = asRecord(raw);
     const usage = asRecord(body?.usage);
     const inputTokens = usage?.prompt_tokens ?? usage?.input_tokens ?? body?.prompt_eval_count;
@@ -505,15 +512,47 @@ export async function readLlmReply(
     };
   }
   if (raw === null) {
+    const error = bodyText.trim()
+      ? `${service.label} answered in something this app cannot read.`
+      : "The model sent an empty response.";
     return {
       ok: false,
-      error: bodyText
-        ? `${service.label} answered in something this app cannot read.`
-        : "The model sent an empty response.",
+      error,
+      safeError: `${error} (HTTP ${res.status}). Try Resume later.`,
       status: 502,
+      truncated: false,
     };
   }
-  return { ok: false, error: llmSilence(raw, wire), status: 502 };
+  const error = llmSilence(raw, wire);
+  return {
+    ok: false,
+    error,
+    safeError: `${service.label}: ${error} (HTTP ${res.status}). Try Resume later.`,
+    status: 502,
+    truncated: wasTruncated(raw, wire),
+  };
+}
+
+/** Authored explanations only: an upstream error can echo credentials or input. */
+function safeLlmFailure(label: string, status: number): string {
+  const http = `(HTTP ${status})`;
+  if (status === 401 || status === 403)
+    return `${label} refused the key ${http}. Check the API key in Settings.`;
+  if (status === 402)
+    return `${label} reported insufficient balance ${http}. Check the provider's billing page.`;
+  if (status === 400)
+    return `${label} rejected the request format ${http}. Check the model and API compatibility.`;
+  if (status === 404)
+    return `${label} could not find the model or API endpoint ${http}. Check the model in Settings.`;
+  if (status === 422)
+    return `${label} rejected the request parameters ${http}. Check the model and API compatibility.`;
+  if (status === 429)
+    return `${label} is rate limiting requests ${http}. Wait before trying Resume.`;
+  if (status === 503) return `${label} is overloaded ${http}. Try Resume later.`;
+  if (status === 408 || status === 504)
+    return `${label} timed out ${http}. Try Resume later; the earlier request may already have been billed.`;
+  if (status >= 500) return `${label} is temporarily unavailable ${http}. Try Resume later.`;
+  return `${label} rejected the request ${http}. Check the model settings.`;
 }
 
 /** The first human-readable message in an upstream error body. */

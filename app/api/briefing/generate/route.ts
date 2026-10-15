@@ -251,18 +251,26 @@ export async function POST(request: Request): Promise<Response> {
     }
     const reply = await readLlmReply(res, service, config);
     if (!reply.ok) {
+      if (reply.truncated)
+        return failure(
+          "OUTPUT_TRUNCATED",
+          "The model's answer ran out of room before the JSON ended.",
+          true,
+          502,
+          [
+            "output: cut off at the token limit — write more compactly, with shorter excerpts and fewer optional sections",
+          ],
+        );
       const code: GenerateFailureCode =
         reply.status === 429
           ? "RATE_LIMITED"
-          : reply.status === 504
+          : reply.status === 408 || reply.status === 504
             ? "TIMED_OUT"
             : "PROVIDER_ERROR";
-      // Upstream detail is summarized, never forwarded verbatim: an error page
-      // is the provider's text, not ours.
       return failure(
         code,
-        `${service.label} ${reply.status === 401 || reply.status === 403 ? "refused the key" : reply.status === 429 ? "is rate limiting requests" : "could not complete this request"}.`,
-        reply.status === 429 || reply.status >= 500,
+        reply.safeError,
+        reply.status === 408 || reply.status === 429 || reply.status >= 500,
         502,
       );
     }
@@ -288,7 +296,7 @@ export async function POST(request: Request): Promise<Response> {
     const trimmed =
       read.phase === "compose"
         ? pruneWeakComposition(answer, read.input as never)
-        : { output: answer, omitted: 0 };
+        : { output: answer, omitted: 0, omittedSections: 0 };
     const validated =
       read.phase === "shortlist"
         ? validateShortlist(trimmed.output, read.input as never)
@@ -315,6 +323,7 @@ export async function POST(request: Request): Promise<Response> {
         phase: read.phase,
         result: validated.value,
         ...(trimmed.omitted ? { omittedWeakItems: trimmed.omitted } : {}),
+        ...(trimmed.omittedSections ? { omittedUnsupportedSections: trimmed.omittedSections } : {}),
         provider: service.id,
         model: modelFor(config),
         ...(reply.usage ? { usage: reply.usage } : {}),
@@ -322,7 +331,7 @@ export async function POST(request: Request): Promise<Response> {
       { headers: { "cache-control": "no-store" } },
     );
   } catch (cause) {
-    if (cause instanceof Error && cause.name === "TimeoutError")
+    if ((cause instanceof Error || cause instanceof DOMException) && cause.name === "TimeoutError")
       return failure("TIMED_OUT", "The model request timed out.", true, 504);
     return failure(
       "PROVIDER_UNAVAILABLE",

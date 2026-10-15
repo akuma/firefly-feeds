@@ -1,4 +1,4 @@
-import { COMPOSE_SCHEMA, SHORTLIST_SCHEMA, schemaErrors } from "./schema";
+import { COMPOSE_SCHEMA, SHORTLIST_SCHEMA, schemaErrors, stripUnknownOutputFields } from "./schema";
 import { editorialScore, EDITORIAL_FLOOR } from "./score";
 import { BRIEFING_LIMITS } from "./constants";
 import type {
@@ -139,6 +139,7 @@ export function validateShortlist(
   raw: unknown,
   input: ShortlistInput,
 ): ValidationResult<ShortlistOutput> {
+  raw = stripUnknownOutputFields(raw, SHORTLIST_SCHEMA);
   const errors: Errors = schemaErrors(raw, SHORTLIST_SCHEMA, "output");
   if (!isRecord(raw)) return { ok: false, errors: ["output: expected one JSON object"] };
   errors.push(...exactKeys(raw, ["schemaVersion", "groups", "extractArticleIds"], "output"));
@@ -483,22 +484,6 @@ export function validateComposition(
   };
 }
 
-/** A known provider annotation is never reader-facing content or evidence. */
-function withoutEditorialNotes(raw: unknown): unknown {
-  if (!isRecord(raw) || !Array.isArray(raw.topStories)) return raw;
-  return {
-    ...raw,
-    topStories: raw.topStories.map((story) => {
-      if (!isRecord(story) || !("whatHappenedNote" in story)) return story;
-      const note = story.whatHappenedNote;
-      if (note !== null && (typeof note !== "string" || note.length > TEXT_MAX)) return story;
-      const cleaned = { ...story };
-      delete cleaned.whatHappenedNote;
-      return cleaned;
-    }),
-  };
-}
-
 /**
  * A weak, misplaced or previously recommended item is an editorial omission. Drop whole items only
  * when every failure is an editorial selection failure. Unknown references,
@@ -509,14 +494,19 @@ export function pruneWeakComposition(
   answer: unknown,
   input: ComposeInput,
   previouslyRecommended: readonly string[] = [],
-): { output: unknown; omitted: number } {
-  const raw = withoutEditorialNotes(answer);
+): { output: unknown; omitted: number; omittedSections: number } {
+  const projected = stripUnknownOutputFields(answer, COMPOSE_SCHEMA);
+  if (schemaErrors(projected, COMPOSE_SCHEMA).length)
+    return { output: projected, omitted: 0, omittedSections: 0 };
+  const normalized = withoutUnverifiableOptionalSections(projected as ComposeOutput, input);
+  const raw = normalized.output;
+  const omittedSections = normalized.omittedSections;
   const checked = validateComposition(raw, input, previouslyRecommended);
-  if (checked.ok || schemaErrors(raw, COMPOSE_SCHEMA).length) return { output: raw, omitted: 0 };
+  if (checked.ok) return { output: raw, omitted: 0, omittedSections };
   const weak =
     /^(topStories|worthReading)\[(\d+)\](?:: (?:editorial score below 6|main evidence does not belong to one shortlisted news group; keep insight groups in Worth Reading|article does not belong to a shortlisted insight group)|\.articleId: already recommended in an earlier edition)$/;
   if (!checked.errors.length || checked.errors.some((error) => !weak.test(error)))
-    return { output: raw, omitted: 0 };
+    return { output: raw, omitted: 0, omittedSections };
   const output = raw as ComposeOutput;
   const news = new Set<number>();
   const insights = new Set<number>();
@@ -532,7 +522,42 @@ export function pruneWeakComposition(
   const retained = new Set(citedArticleIds({ ...trimmed, bigPicture: null }));
   if (trimmed.bigPicture?.evidence.some((e) => !retained.has(e.articleId)))
     trimmed.bigPicture = null;
-  return { output: trimmed, omitted: news.size + insights.size };
+  return { output: trimmed, omitted: news.size + insights.size, omittedSections };
+}
+
+function withoutUnverifiableOptionalSections(output: ComposeOutput, input: ComposeInput) {
+  const materials = new Map(input.materials.map((material) => [material.articleId, material]));
+  let omittedSections = 0;
+  const keep = (section: SupportedText | null): SupportedText | null => {
+    if (!section) return section;
+    const errors: Errors = [];
+    validateSupportedText(section, "section", materials, errors);
+    // Remove the entire unsupported paragraph, never just its bad citation.
+    // Unknown sources, malformed fields and all required prose still fail validation.
+    if (
+      errors.length &&
+      errors.every((error) => error.endsWith(".excerpt: not found verbatim in the material"))
+    ) {
+      omittedSections++;
+      return null;
+    }
+    return section;
+  };
+  return {
+    output: {
+      ...output,
+      bigPicture: keep(output.bigPicture),
+      topStories: output.topStories.map((story) => ({
+        ...story,
+        context: keep(story.context),
+        whyItMatters: keep(story.whyItMatters),
+        perspectives: story.perspectives
+          .map(keep)
+          .filter((section): section is SupportedText => section !== null),
+      })),
+    },
+    omittedSections,
+  };
 }
 
 /** Every article id the validated composition rests on, for the source list. */

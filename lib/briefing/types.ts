@@ -179,6 +179,8 @@ export type BriefingStats = {
   fullTextsFailed: number;
   /** Whole proposed items omitted for editorial score or section/group mismatch. */
   omittedWeakItems?: number;
+  /** Whole optional paragraphs omitted because their excerpts could not be verified. */
+  omittedUnsupportedSections?: number;
   llmRequests: number;
   inputTokens?: number;
   outputTokens?: number;
@@ -287,6 +289,8 @@ export type GenerateSuccess = {
   ok: true;
   /** Whole proposed items omitted for editorial score or section/group mismatch. */
   omittedWeakItems?: number;
+  /** Whole optional paragraphs omitted because their excerpts could not be verified. */
+  omittedUnsupportedSections?: number;
   phase: GeneratePhase;
   result: ShortlistOutput | ComposeOutput;
   usage?: { inputTokens?: number; outputTokens?: number };

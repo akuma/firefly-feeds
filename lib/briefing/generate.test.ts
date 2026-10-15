@@ -59,6 +59,56 @@ function stubFetch(reply: () => Response) {
   return { bodies, restore: () => (globalThis.fetch = original) };
 }
 
+it("keeps safe HTTP explanations on the direct provider path", async () => {
+  const spy = stubFetch(
+    () => new Response(JSON.stringify({ error: "local-key private input" }), { status: 503 }),
+  );
+  try {
+    const result = await generatePhase({
+      phase: "shortlist",
+      payload: shortlistInput,
+      llm: OLLAMA,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      code: "PROVIDER_ERROR",
+      retryable: true,
+      message: expect.stringMatching(/overloaded.*HTTP 503/),
+    });
+    expect(JSON.stringify(result)).not.toMatch(/local-key|private input/);
+  } finally {
+    spy.restore();
+  }
+});
+
+it("recognizes an empty truncated direct reply and body-read timeout", async () => {
+  const spy = stubFetch(() => ollamaReply("", "length"));
+  try {
+    expect(
+      await generatePhase({ phase: "shortlist", payload: shortlistInput, llm: OLLAMA }),
+    ).toMatchObject({ ok: false, code: "OUTPUT_TRUNCATED" });
+  } finally {
+    spy.restore();
+  }
+  const timeout = stubFetch(
+    () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new DOMException("timed out", "TimeoutError"));
+          },
+        }),
+      ),
+  );
+  try {
+    expect(
+      await generatePhase({ phase: "shortlist", payload: shortlistInput, llm: OLLAMA }),
+    ).toMatchObject({ ok: false, code: "TIMED_OUT" });
+  } finally {
+    timeout.restore();
+  }
+});
+
 describe("one phase, one budget", () => {
   it("asks for the room its own answer needs, in the wire's own words", async () => {
     const spy = stubFetch(() => ollamaReply("{}"));

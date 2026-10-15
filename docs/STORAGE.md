@@ -248,3 +248,8 @@ precise repair reason or initiating click of an earlier run.
 Briefing runs optionally store `trigger` (`type: manual`, `action: generate | resume`,
 `at` in epoch milliseconds) for the latest explicit start or resume. Legacy runs
 remain valid without this field; their initiating action cannot be inferred.
+
+Briefing run stats and published edition stats optionally retain
+`omittedUnsupportedSections`, counting whole optional paragraphs omitted after
+verbatim-evidence checks. Missing values on older records mean zero; no migration
+or rewriting is needed. Required prose and unknown references remain strict.

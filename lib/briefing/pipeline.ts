@@ -471,13 +471,15 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         },
       });
       composed = trimmed.output as ComposeOutput;
-      if (trimmed.omitted)
+      if (trimmed.omitted || trimmed.omittedSections)
         run = {
           ...run,
           composed,
           stats: {
             ...run.stats,
             omittedWeakItems: (run.stats?.omittedWeakItems ?? 0) + trimmed.omitted,
+            omittedUnsupportedSections:
+              (run.stats?.omittedUnsupportedSections ?? 0) + trimmed.omittedSections,
           },
         };
     }
@@ -633,6 +635,9 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         ...(run.stats?.outputTokens !== undefined ? { outputTokens: run.stats.outputTokens } : {}),
         llmRequests: run.callsUsed,
         ...(run.stats?.omittedWeakItems ? { omittedWeakItems: run.stats.omittedWeakItems } : {}),
+        ...(run.stats?.omittedUnsupportedSections
+          ? { omittedUnsupportedSections: run.stats.omittedUnsupportedSections }
+          : {}),
         durationMs: (run.stats?.durationMs ?? 0) + now - started,
       },
       updatedAt: now,
@@ -722,7 +727,7 @@ async function callPhase(
       const trimmed =
         phase === "compose"
           ? pruneWeakComposition(answer.result, payload as ComposeInput)
-          : { output: answer.result, omitted: 0 };
+          : { output: answer.result, omitted: 0, omittedSections: 0 };
       const checked =
         phase === "shortlist"
           ? validateShortlist(trimmed.output, payload as ShortlistInput)
@@ -753,6 +758,8 @@ async function callPhase(
           ...answer,
           result: checked.value,
           omittedWeakItems: (answer.omittedWeakItems ?? 0) + trimmed.omitted,
+          omittedUnsupportedSections:
+            (answer.omittedUnsupportedSections ?? 0) + trimmed.omittedSections,
         };
     }
     if (!answer.ok && ["INVALID_OUTPUT", "OUTPUT_TRUNCATED"].includes(answer.code)) {
@@ -780,6 +787,8 @@ async function callPhase(
         stats: {
           ...stats,
           omittedWeakItems: (stats.omittedWeakItems ?? 0) + (answer.omittedWeakItems ?? 0),
+          omittedUnsupportedSections:
+            (stats.omittedUnsupportedSections ?? 0) + (answer.omittedUnsupportedSections ?? 0),
           ...(answer.usage?.inputTokens !== undefined
             ? { inputTokens: (stats.inputTokens ?? 0) + answer.usage.inputTokens }
             : {}),

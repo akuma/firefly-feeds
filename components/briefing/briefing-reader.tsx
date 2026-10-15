@@ -455,6 +455,8 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
           interpretation can still contain errors.
           {!!edition.stats.omittedWeakItems &&
             ` ${edition.stats.omittedWeakItems} proposed topic${edition.stats.omittedWeakItems === 1 ? " was" : "s were"} omitted after editorial checks.`}
+          {!!edition.stats.omittedUnsupportedSections &&
+            ` ${edition.stats.omittedUnsupportedSections} optional section${edition.stats.omittedUnsupportedSections === 1 ? " was" : "s were"} omitted after evidence checks.`}
           {edition.stats.fullTextsFailed > 0 &&
             ` ${edition.stats.fullTextsFailed} source${edition.stats.fullTextsFailed === 1 ? "" : "s"} could not be read in full.`}
         </p>

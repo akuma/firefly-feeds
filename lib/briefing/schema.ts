@@ -181,6 +181,33 @@ export const COMPOSE_INPUT_SCHEMA = obj(
   [...Object.keys(common), "shortlist", "materials", "limits"],
 );
 
+/** Project model output onto the schema; preserve invalid known values for validation. */
+export function stripUnknownOutputFields(value: unknown, schema: Schema): unknown {
+  if (schema.anyOf) {
+    const branch = schema.anyOf.find((option) =>
+      value === null ? option.type === "null" : option.type !== "null",
+    );
+    return branch ? stripUnknownOutputFields(value, branch) : value;
+  }
+  if (schema.type === "array" && Array.isArray(value) && schema.items)
+    return value.map((item) => stripUnknownOutputFields(item, schema.items!));
+  if (
+    schema.type === "object" &&
+    schema.properties &&
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  ) {
+    const properties = schema.properties;
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => Object.hasOwn(properties, key))
+        .map(([key, child]) => [key, stripUnknownOutputFields(child, properties[key])]),
+    );
+  }
+  return value;
+}
+
 /** Small interpreter for only the schema vocabulary above; no dependencies. */
 export function schemaErrors(value: unknown, schema: Schema, at = "input"): string[] {
   if (schema.anyOf)

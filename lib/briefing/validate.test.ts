@@ -197,7 +197,7 @@ describe("the shortlist contract", () => {
     if (!result.ok) expect(result.errors.join("\n")).toMatch(/unknown article "MADE-UP"/);
   });
 
-  it("refuses structural drift: extra fields, bad ranges, empty groups", () => {
+  it("still refuses bad score ranges when extra fields are discarded", () => {
     const bad = structuredClone(goodShortlist) as typeof goodShortlist;
     bad.groups[0].value = 9;
     (bad.groups[1] as Record<string, unknown>).url = "https://invented.example/x";
@@ -205,7 +205,6 @@ describe("the shortlist contract", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.join("\n")).toMatch(/value: expected an integer 0\.\.4/);
-      expect(result.errors.join("\n")).toMatch(/unexpected field/);
     }
   });
 
@@ -414,6 +413,78 @@ it("does not hide an invalid citation while dropping a low-scoring topic", async
   expect(validateComposition(result.output, input).ok).toBe(false);
 });
 
+it("retains valid news when misplaced news and an unverifiable optional context occur together", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const input = composeInput({ materials: [material(), material({ articleId: "C1" })] });
+  const misplaced = goodStory({
+    headline: "An essay presented as news",
+    whatHappened: {
+      text: "A supported account",
+      evidence: [{ articleId: "C1", excerpt: "The project released version 2 on Tuesday." }],
+    },
+  });
+  const valid = goodStory({
+    context: {
+      text: "This entire paragraph must be omitted.",
+      evidence: [
+        { articleId: "A1", excerpt: "The release limits memory to 4GB." },
+        { articleId: "A1", excerpt: "An invented context quote" },
+      ],
+    },
+  });
+  const result = pruneWeakComposition({ ...goodCompose, topStories: [misplaced, valid] }, input);
+  expect(result.omitted).toBe(1);
+  expect(result.omittedSections).toBe(1);
+  const checked = validateComposition(result.output, input);
+  expect(checked.ok).toBe(true);
+  if (checked.ok) {
+    expect(checked.value.topStories).toHaveLength(1);
+    expect(checked.value.topStories[0].context).toBeNull();
+    expect(checked.value.topStories[0].whatHappened).toEqual(valid.whatHappened);
+  }
+  expect(valid.context?.text).toBe("This entire paragraph must be omitted.");
+});
+
+it.each(["bigPicture", "context", "whyItMatters", "perspectives"] as const)(
+  "omits an entire optional %s with a nonverbatim excerpt",
+  async (field) => {
+    const { pruneWeakComposition } = await import("./validate");
+    const unsupported = {
+      text: "Do not retain this prose",
+      evidence: [{ articleId: "A1", excerpt: "Invented quotation" }],
+    };
+    const raw =
+      field === "bigPicture"
+        ? { ...goodCompose, bigPicture: unsupported }
+        : {
+            ...goodCompose,
+            topStories: [
+              goodStory({ [field]: field === "perspectives" ? [unsupported] : unsupported }),
+            ],
+          };
+    const result = pruneWeakComposition(raw, composeInput());
+    expect(result.omittedSections).toBe(1);
+    expect(result.omitted).toBe(0);
+    expect(validateComposition(result.output, composeInput()).ok).toBe(true);
+    expect(JSON.stringify(result.output)).not.toContain("Do not retain this prose");
+  },
+);
+
+it("still rejects unknown sources and malformed optional sections", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  for (const context of [
+    { text: "Unknown source", evidence: [{ articleId: "MADE-UP", excerpt: "Invented quotation" }] },
+    { text: "Missing evidence", evidence: [] },
+  ]) {
+    const result = pruneWeakComposition(
+      { ...goodCompose, topStories: [goodStory({ context })] },
+      composeInput(),
+    );
+    expect(result.omittedSections).toBe(0);
+    expect(validateComposition(result.output, composeInput()).ok).toBe(false);
+  }
+});
+
 it("omits misplaced selections without losing the valid stories in a thirteen-article edition", async () => {
   const { pruneWeakComposition } = await import("./validate");
   const input = composeInput({
@@ -508,7 +579,7 @@ it("discards the model's extra whatHappenedNote without publishing it or weakeni
   ).toBe(false);
 });
 
-it("does not silently accept other fields or structured values masquerading as notes", async () => {
+it("discards unknown fields of any shape before checking the required story content", async () => {
   const { pruneWeakComposition } = await import("./validate");
   for (const extra of [
     { whatHappenedNote: { text: "Unexpected object" } },
@@ -518,7 +589,81 @@ it("does not silently accept other fields or structured values masquerading as n
       { ...goodCompose, topStories: [{ ...goodStory(), ...extra }] },
       composeInput(),
     );
-    expect(validateComposition(result.output, composeInput()).ok).toBe(false);
+    expect(validateComposition(result.output, composeInput()).ok).toBe(true);
+    for (const key of Object.keys(extra)) expect(JSON.stringify(result.output)).not.toContain(key);
+  }
+});
+
+it("discards extra composition fields recursively without mutating the reply or hiding bad evidence", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const raw = {
+    ...goodCompose,
+    editorialNotes: { anything: ["not published"] },
+    topStories: [
+      {
+        ...goodStory(),
+        headlineNote: "Internal headline explanation",
+        whatHappened: {
+          ...goodStory().whatHappened,
+          note: { anything: true },
+          evidence: goodStory().whatHappened.evidence.map((ref) => ({
+            ...ref,
+            publisherUrl: "https://invented.example",
+            note: [1, 2],
+          })),
+        },
+      },
+    ],
+  };
+  const cleaned = pruneWeakComposition(raw, composeInput());
+  expect(validateComposition(cleaned.output, composeInput()).ok).toBe(true);
+  expect(cleaned.omitted).toBe(0);
+  expect(JSON.stringify(cleaned.output)).not.toMatch(
+    /headlineNote|editorialNotes|publisherUrl|not published/,
+  );
+  expect(raw.topStories[0].headlineNote).toBe("Internal headline explanation");
+  raw.topStories[0].whatHappened.evidence[0].excerpt = "Invented evidence";
+  expect(
+    validateComposition(pruneWeakComposition(raw, composeInput()).output, composeInput()).ok,
+  ).toBe(false);
+});
+
+it("ignores extra shortlist fields but keeps all required field checks", () => {
+  const raw = {
+    ...goodShortlist,
+    notes: ["ignore"],
+    groups: goodShortlist.groups.map((group) => ({
+      ...group,
+      selectionReasonNote: { note: true },
+    })),
+  };
+  const cleaned = validateShortlist(raw, shortlistInput());
+  expect(cleaned.ok).toBe(true);
+  if (cleaned.ok) expect(JSON.stringify(cleaned.value)).not.toMatch(/selectionReasonNote|ignore/);
+  expect(
+    validateShortlist(
+      { ...raw, groups: [{ ...raw.groups[0], articleIds: "A1" }] },
+      shortlistInput(),
+    ).ok,
+  ).toBe(false);
+});
+
+it("does not fill missing or malformed story fields when discarding extras", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const missing: Record<string, unknown> = {
+    ...goodStory(),
+    headlineNote: "Not a replacement headline",
+  };
+  delete missing.headline;
+  for (const story of [
+    missing,
+    { ...goodStory(), headline: 123, headlineNote: "Ignore" },
+    { ...goodStory(), whatHappened: null, headlineNote: "Ignore" },
+  ]) {
+    const raw = { ...goodCompose, topStories: [story] };
+    expect(
+      validateComposition(pruneWeakComposition(raw, composeInput()).output, composeInput()).ok,
+    ).toBe(false);
   }
 });
 

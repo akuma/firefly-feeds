@@ -771,7 +771,13 @@ Custom API accepts OpenAI-compatible or Anthropic-compatible requests to the use
 public HTTPS base URL, checked by the existing target guard (including IPv4-mapped
 IPv6 private addresses). URL credentials, queries and fragments are refused.
 Workers-compatible `redirect: "manual"` rejects redirects explicitly. Provider error
-bodies are not echoed. Local Ollama and explicitly configured custom local APIs
+bodies are not echoed. Briefing errors use authored HTTP-status explanations for
+invalid format/parameters, authentication, balance, missing model/endpoint, rate
+limits, overload, temporary outages and timeouts. Successful HTTP responses that
+are empty or unreadable keep that distinction. An empty token-limited response
+is OUTPUT_TRUNCATED, and body-read timeouts propagate as TIMED_OUT rather than
+becoming an empty reply. No provider failure triggers an automatic network retry.
+Local Ollama and explicitly configured custom local APIs
 stay in the browser; these direct calls also refuse redirects. Classification and prose
 generation retain separate configuration. A normal run makes two model calls;
 there is only one automatic repair for invalid/truncated output, and three calls
@@ -793,9 +799,9 @@ Qwen, Kimi and GLM presets are no longer offered. Stored per-provider model/key
 maps survive that table change, and a removed active provider falls back to Ollama.
 
 The numeric publication floor is distinct from schema/evidence errors. A pure
-`pruneWeakComposition` removes whole items only when _every_ validation error is
-an unambiguous score below six. The remainder is strictly revalidated; malformed
-output, bad excerpts, unknown references and mismatched groups are not hidden.
+`pruneWeakComposition` removes whole items when the remaining validation errors
+are only low scores, misplaced sections or repeated earlier recommendations. The remainder is strictly revalidated; malformed
+output, bad required excerpts and unknown references are not hidden.
 The omission count is saved and displayed. If nothing qualifies, generation stops
 with INSUFFICIENT_CONTENT. No minimum candidate count is required: tests cover
 one and six input articles without inventing extra stories.
@@ -810,10 +816,12 @@ remain verbatim in the source language. With source selected, each item follows 
 main material and Big Picture follows the predominant source language. Application
 controls remain English.
 
-Before strict composition validation, a known extra `whatHappenedNote` may be
-removed only when it is plain text within 2000 characters or null. This annotation
-is never published. Other unknown fields, malformed content and invalid evidence
-still fail; this is schema drift, not output-token exhaustion.
+Before strict output validation, both phases recursively discard fields not
+present in their JSON schema, including model-added headline/editorial notes of
+any type. Discarded data is never published or persisted and does not spend the
+repair call. Missing required fields, wrong types, unknown article IDs and invalid
+evidence still fail. Request/input validation remains strict; this normalization
+applies only to model output.
 
 Truncated composition recovery uses a smaller target JSON schema and matching
 request limits, rather than a prose-only request to shorten the answer. Compose
@@ -903,3 +911,13 @@ Validator field names containing words like compact or truncated never do. The
 latest bounded repairable-failure trace is checkpointed before cancellation can
 land, merged from storage in the cancellation handler, and reused for the same
 phase on Resume so targeted format corrections survive interruption.
+
+Optional Big Picture, context, why-it-matters and individual perspective paragraphs
+are omitted whole when their only validation failures are nonverbatim excerpts
+from known materials. Required news accounts and reading recommendations are
+never salvaged this way; unknown source IDs and structural errors still fail.
+The result is revalidated before publication and editorial omissions are then
+handled independently. `omittedUnsupportedSections` records these paragraphs
+across server, client, pipeline and Resume, and the briefing footer explains the
+omission. No quote is rewritten and no unsupported paragraph is kept by merely
+deleting one of its citations.

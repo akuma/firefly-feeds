@@ -79,6 +79,7 @@ export async function generatePhase(input: {
   let model = modelFor(llm);
   let truncated = false;
   let omittedWeakItems = 0;
+  let omittedUnsupportedSections = 0;
   let usage: { inputTokens?: number; outputTokens?: number } | undefined;
   try {
     if (service.direct?.(llm)) {
@@ -103,10 +104,23 @@ export async function generatePhase(input: {
       }
       const reply = await readLlmReply(res, service, llm);
       if (!reply.ok) {
+        if (reply.truncated)
+          return failure(
+            "OUTPUT_TRUNCATED",
+            "The model's answer ran out of room before the JSON ended.",
+            true,
+            [
+              "output: cut off at the token limit — write more compactly, with shorter excerpts and fewer optional sections",
+            ],
+          );
         return failure(
-          reply.status === 429 ? "RATE_LIMITED" : "PROVIDER_ERROR",
-          reply.error,
-          reply.status === 429 || reply.status >= 500,
+          reply.status === 429
+            ? "RATE_LIMITED"
+            : reply.status === 408 || reply.status === 504
+              ? "TIMED_OUT"
+              : "PROVIDER_ERROR",
+          reply.safeError,
+          reply.status === 408 || reply.status === 429 || reply.status >= 500,
         );
       }
       usage = reply.usage;
@@ -130,6 +144,7 @@ export async function generatePhase(input: {
       if (!data.ok) return data;
       usage = data.usage;
       omittedWeakItems = data.omittedWeakItems ?? 0;
+      omittedUnsupportedSections = data.omittedUnsupportedSections ?? 0;
       provider = data.provider;
       model = data.model;
       parsed = data.result;
@@ -138,7 +153,8 @@ export async function generatePhase(input: {
     if (input.signal?.aborted) {
       return failure("TIMED_OUT", "The run was cancelled.", true);
     }
-    const timedOut = error instanceof Error && error.name === "TimeoutError";
+    const timedOut =
+      (error instanceof Error || error instanceof DOMException) && error.name === "TimeoutError";
     return failure(timedOut ? "TIMED_OUT" : "PROVIDER_ERROR", "Could not reach the model.", true);
   }
 
@@ -164,8 +180,9 @@ export async function generatePhase(input: {
   const trimmed =
     phase === "compose"
       ? pruneWeakComposition(parsed, payload as ComposeInput)
-      : { output: parsed, omitted: 0 };
+      : { output: parsed, omitted: 0, omittedSections: 0 };
   omittedWeakItems += trimmed.omitted;
+  omittedUnsupportedSections += trimmed.omittedSections;
   const validated =
     phase === "shortlist"
       ? validateShortlist(trimmed.output, payload as ShortlistInput)
@@ -192,5 +209,6 @@ export async function generatePhase(input: {
     model,
     ...(usage ? { usage } : {}),
     ...(omittedWeakItems ? { omittedWeakItems } : {}),
+    ...(omittedUnsupportedSections ? { omittedUnsupportedSections } : {}),
   };
 }
