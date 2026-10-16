@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { agoLabel, progressFor, readSignal, readingTime } from "./reading";
 import { FOLDERS, SUGGESTED_SOURCES } from "./sources";
 import { SAMPLE_FEED_BY_ID, SAMPLE_FEEDS, SAMPLE_STORIES } from "./sample";
-import { feedFromSource, formatPublished, readingFlags, storyFromArticle } from "./shaping";
+import {
+  feedFromSource,
+  formatPublished,
+  layoutWithPicture,
+  readingFlags,
+  storyFromArticle,
+} from "./shaping";
 import type { ArticleRecord, SourceRecord } from "./storage/types";
 
 describe("agoLabel", () => {
@@ -299,6 +305,13 @@ describe("storyFromArticle", () => {
     const story = storyFromArticle(article, Date.now());
     expect(story.image).toBe("https://example.com/a.jpg");
     expect(story.plate).toBeUndefined();
+  });
+
+  it("promotes a compact row once a picture and a summary are both known", () => {
+    const story = storyFromArticle({ ...article, layout: "compact" }, Date.now());
+    expect(story.layout).toBe("standard");
+    expect(layoutWithPicture("brief", article.image, "")).toBe("brief");
+    expect(layoutWithPicture("compact", undefined, article.summary)).toBe("compact");
   });
 });
 

@@ -531,10 +531,12 @@ export function ArticlePane({ onBack }: { onBack?: () => void } = {}) {
   const folder = FOLDERS.find((f) => f.id === feed.folder) ?? FOLDERS[0];
   // invented content: there is no original to open, and saying so is the point
   const isSample = Boolean(feed.sample);
-  // Artwork above the body is only ever the page's own cover, the sample
-  // edition's plate, or a video page's frame. A body figure keeps its place,
-  // so it is never lifted here.
-  const leadingFigure = s.plate !== undefined || Boolean(s.hasCover && s.image);
+  // Artwork above the body is the page's own cover, the sample edition's
+  // plate, or a video page's frame. A body figure keeps its place, so it is
+  // never lifted here. The cover and the stream thumbnail are different
+  // photographs when the feed already had a picture of its own.
+  const coverSrc = s.coverImage ?? s.image;
+  const leadingFigure = s.plate !== undefined || Boolean(s.hasCover && coverSrc);
   const saved = r.state.saved[s.id];
   const later = r.state.later[s.id];
   const read = r.state.read[s.id];
@@ -778,7 +780,7 @@ export function ArticlePane({ onBack }: { onBack?: () => void } = {}) {
               <div className="relative">
                 <Media
                   seed={s.plate ?? 0}
-                  src={s.image}
+                  src={s.hasCover ? coverSrc : s.image}
                   alt={s.title}
                   big
                   preservePortrait

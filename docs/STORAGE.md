@@ -69,7 +69,9 @@ mutable record, so the removal can replicate.
 
 **`articles` is a cache with an eviction rule: anything saved or queued is
 exempt** (`replaceArticles(sourceId, items, keep)`). Pruning can never remove
-something you deliberately kept.
+something you deliberately kept. `coverImage` is an optional field on that
+cache: the page's cover when it is a different photograph from the stream
+thumbnail. Older records simply lack it, so the field needs no migration.
 
 **`digests` is derived state, not user state.** A briefing is written again from
 stories the device already has, so it is worth keeping between sessions and not

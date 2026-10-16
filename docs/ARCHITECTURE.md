@@ -234,6 +234,15 @@ picture is never lifted out of its place: if the body's first figure is the same
 photograph as the cover, that duplicate copy is dropped, and otherwise it stays
 exactly where the piece put it.
 
+A thumbnail the feed already showed stays on the row when the original page is
+fetched. The page's picture fills a thumbnail in only when the feed had none.
+When that page picture is a different photograph and the page declares it as
+the cover, the reader shows it (`coverImage`) and the stream keeps the feed
+picture. A compact row with a summary becomes a standard row once a picture is
+known, including one discovered from the page; a brief row stays a contents
+line. A later feed refresh puts the feed's own thumbnail back if an older
+extraction had replaced it.
+
 A page's own video is read from standard metadata (schema.org `VideoObject`,
 Open Graph/Twitter player meta, or a real `<iframe>`) and stored as
 `{ provider, id }` for an allowlisted host only. The reader renders it as a

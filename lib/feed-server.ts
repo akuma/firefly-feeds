@@ -539,7 +539,9 @@ export async function readFeed(input: string): Promise<ParsedFeed> {
  *
  * What is left is genuinely earned: a picture makes a thumbnail row, and an
  * entry with nothing to summarise — rare, but real for title-only feeds — is
- * the one case where hiding the summary costs nothing.
+ * the one case where hiding the summary costs nothing. A picture discovered
+ * after ingest promotes a compact row the same way (`layoutWithPicture`); it
+ * does not turn a brief row into a thumbnail.
  */
 export function layoutFor(input: { hasImage: boolean; hasSummary: boolean }): StoryLayout {
   if (!input.hasSummary) return "brief";

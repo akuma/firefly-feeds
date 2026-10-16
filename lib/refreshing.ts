@@ -1,3 +1,5 @@
+import { imageIdentity } from "./feed-html";
+import { layoutWithPicture } from "./shaping";
 import type { ArticleRecord, SourceRecord } from "./storage/types";
 import type { Block, ContentState, StoryLayout } from "./types";
 
@@ -110,14 +112,30 @@ export function reconcileArticles(
     // the article pane). Legacy records saved before the freshness fields
     // existed carry `extractionState: "success"` and are preserved too.
     if (prev && (prev.contentFetchedAt || prev.extractionState === "success")) {
-      return {
+      // The feed's own thumbnail wins. An older extraction used to replace it
+      // with whatever picture the page named, and that replacement is what a
+      // refresh puts back. A page picture already stored is kept when the feed
+      // still has none.
+      const image = item.image || prev.image;
+      const summary = item.summary || prev.summary;
+      const restored: ArticleRecord = {
         ...prev,
         link: item.link ?? prev.link,
-        summary: item.summary || prev.summary,
+        summary,
         // the feed's caption for the cover is still current
         imageCaption: item.imageCaption ?? prev.imageCaption,
+        image,
+        layout: layoutWithPicture(prev.layout, image, summary),
         fetchedAt: at,
       };
+      if (
+        restored.coverImage &&
+        image &&
+        imageIdentity(restored.coverImage) === imageIdentity(image)
+      ) {
+        delete restored.coverImage;
+      }
+      return restored;
     }
 
     // A failure is remembered so the retry window can throttle it — unless the

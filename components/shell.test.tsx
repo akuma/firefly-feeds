@@ -44,7 +44,12 @@ function colophon(): { unread: number } {
 }
 
 /** A source whose one article has a text-first body with a picture in it. */
-async function seedBody(opts: { image?: string; hasCover?: boolean; imageCaption?: string }) {
+async function seedBody(opts: {
+  image?: string;
+  hasCover?: boolean;
+  coverImage?: string;
+  imageCaption?: string;
+}) {
   const repo = await import("@/lib/storage/repository");
   const now = Date.now();
   await repo.putSource({
@@ -78,6 +83,7 @@ async function seedBody(opts: { image?: string; hasCover?: boolean; imageCaption
       ],
       image: opts.image,
       hasCover: opts.hasCover,
+      coverImage: opts.coverImage,
       imageCaption: opts.imageCaption,
       minutes: 2,
       layout: "standard",
@@ -1862,6 +1868,58 @@ describe("reading the full text on demand", () => {
 });
 
 describe("body images", () => {
+  it("shows the page cover in the reader and the feed picture in the stream", async () => {
+    await seedBody({
+      image: "https://cdn.test/thumb.jpg",
+      hasCover: true,
+      coverImage: "https://cdn.test/cover.jpg",
+    });
+    await mount();
+    expect(reader().querySelector('img[src*="cover.jpg"]')).not.toBeNull();
+    expect(reader().querySelector('img[src*="thumb.jpg"]')).toBeNull();
+    expect(stream().querySelector('img[src*="thumb.jpg"]')).not.toBeNull();
+    expect(stream().querySelector('img[src*="cover.jpg"]')).toBeNull();
+  });
+
+  it("shows a picture on a compact row once the story has one", async () => {
+    const repo = await import("@/lib/storage/repository");
+    const now = Date.now();
+    await repo.putSource({
+      id: "scompact",
+      url: "https://compact.example/feed.xml",
+      siteUrl: "https://compact.example",
+      title: "Compact Source",
+      host: "compact.example",
+      folder: "news",
+      addedAt: now,
+      fetchedAt: now,
+      updatedAt: now,
+    });
+    await repo.replaceArticles("scompact", [
+      {
+        id: "scompact~a",
+        sourceId: "scompact",
+        title: "Picture arrived later",
+        link: "https://compact.example/a",
+        publishedAt: now,
+        fetchedAt: now,
+        summary: "A standfirst that earns a thumbnail row.",
+        body: [{ kind: "p", text: "The piece." }],
+        image: "https://cdn.test/later.jpg",
+        hasCover: true,
+        minutes: 2,
+        layout: "compact",
+        contentState: "full",
+        extractionState: "success",
+        contentFetchedAt: now,
+        contentCheckedAt: now,
+        extractorVersion: EXTRACTOR_VERSION,
+      },
+    ]);
+    await mount();
+    expect(stream().querySelector('img[src*="later.jpg"]')).not.toBeNull();
+  });
+
   it("shows the declared cover above the body", async () => {
     await seedBody({ image: "https://cdn.test/cover.jpg", hasCover: true });
     await mount();

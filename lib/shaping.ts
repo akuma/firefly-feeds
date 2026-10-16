@@ -6,13 +6,30 @@ import type {
   ReadingRecord,
   SourceRecord,
 } from "./storage/types";
-import type { ContentState, Feed, Story } from "./types";
+import type { ContentState, Feed, Story, StoryLayout } from "./types";
 
 /**
  * Records → the view model. This is the seam where stored data becomes the
  * `Feed` / `Story` shapes the interface already speaks, so a fetched source
  * needs no special cases anywhere downstream.
  */
+
+/**
+ * A picture beside a summary is a thumbnail row.
+ *
+ * Compact is the row that had a summary and no picture yet, so a picture found
+ * later — the original page's cover — promotes it. Brief stays a contents
+ * line: there is no summary to sit beside the plate, and a picture alone does
+ * not change that. Feature, quote and standard already have their shape.
+ */
+export function layoutWithPicture(
+  layout: StoryLayout,
+  image: string | undefined,
+  summary: string,
+): StoryLayout {
+  if (layout === "compact" && image && summary.trim()) return "standard";
+  return layout;
+}
 
 export function formatPublished(ms: number): string {
   return new Date(ms).toLocaleDateString("en-GB", {
@@ -48,7 +65,7 @@ export function storyFromArticle(
     dek: article.summary,
     minutesAgo,
     minutes: article.minutes,
-    layout: article.layout,
+    layout: layoutWithPicture(article.layout, article.image, article.summary),
     /*
      * Fetched articles carry artwork only when the publisher supplied it. A
      * generated plate here would occupy the same slot as a photograph and read
@@ -58,6 +75,7 @@ export function storyFromArticle(
      */
     image: article.image,
     hasCover: article.hasCover,
+    coverImage: article.coverImage,
     imageCaption: article.imageCaption,
     videoPage: article.videoPage,
     byline: article.author,

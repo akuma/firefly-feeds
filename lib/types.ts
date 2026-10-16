@@ -80,10 +80,18 @@ export type Article = {
   layout: StoryLayout;
   /** Seed for the generative plate, when the story carries artwork. */
   plate?: number;
-  /** Photograph supplied by the feed or page, used as the stream thumbnail. */
+  /** Photograph used as the stream thumbnail. The feed's picture when it had one. */
   image?: string;
-  /** True when `image` is the page's declared cover, shown above the body. */
+  /**
+   * True when a cover is shown above the body. The picture is `coverImage`
+   * when that is a different photograph, otherwise `image`.
+   */
   hasCover?: boolean;
+  /**
+   * The page's declared cover when it is a different photograph from the
+   * stream thumbnail. Absent when the two are the same picture.
+   */
+  coverImage?: string;
   /** Caption printed under the cover, when the source gave one. */
   imageCaption?: string;
   /** True when the page is a video that has to be watched at the source. */

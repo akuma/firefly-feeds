@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ensureArticleContent } from "./article-content";
+import { ensureArticleContent, mergedArtwork } from "./article-content";
 import { EXTRACTOR_VERSION } from "./refreshing";
 import type { ArticleRecord, SourceRecord } from "./storage/types";
 const now = Date.now();
@@ -30,6 +30,66 @@ const article: ArticleRecord = {
   contentCheckedAt: now - 7 * 3600000,
   extractorVersion: EXTRACTOR_VERSION,
 };
+describe("mergedArtwork", () => {
+  const row = {
+    image: "https://cdn.test/feed.jpg?w=150",
+    hasCover: true,
+    layout: "compact" as const,
+    summary: "Standfirst.",
+  };
+
+  it("keeps the feed thumbnail when the page names a different picture", () => {
+    const artwork = mergedArtwork(row, {
+      image: "https://cdn.test/page.jpg",
+      hasCover: true,
+    });
+    expect(artwork.image).toBe("https://cdn.test/feed.jpg?w=150");
+    expect(artwork.coverImage).toBe("https://cdn.test/page.jpg");
+    expect(artwork.hasCover).toBe(true);
+    expect(artwork.layout).toBe("standard");
+  });
+
+  it("treats a resized copy of the same photograph as the feed thumbnail", () => {
+    const artwork = mergedArtwork(row, {
+      image: "https://cdn.test/feed.jpg?w=1600",
+      hasCover: true,
+    });
+    expect(artwork.image).toBe("https://cdn.test/feed.jpg?w=150");
+    expect(artwork.coverImage).toBeUndefined();
+    expect(artwork.hasCover).toBe(true);
+  });
+
+  it("fills a missing thumbnail from the page and promotes a compact row", () => {
+    const artwork = mergedArtwork(
+      { ...row, image: undefined, hasCover: undefined },
+      { image: "https://cdn.test/page.jpg", hasCover: true },
+    );
+    expect(artwork.image).toBe("https://cdn.test/page.jpg");
+    expect(artwork.coverImage).toBeUndefined();
+    expect(artwork.hasCover).toBe(true);
+    expect(artwork.layout).toBe("standard");
+  });
+
+  it("does not present a different feed thumbnail as the page cover", () => {
+    const artwork = mergedArtwork(row, {
+      image: "https://cdn.test/lede.jpg",
+      hasCover: false,
+    });
+    expect(artwork.image).toBe("https://cdn.test/feed.jpg?w=150");
+    expect(artwork.coverImage).toBeUndefined();
+    expect(artwork.hasCover).toBe(false);
+  });
+
+  it("leaves a contents-page row as a contents-page row", () => {
+    const artwork = mergedArtwork(
+      { image: undefined, hasCover: undefined, layout: "brief", summary: "" },
+      { image: "https://cdn.test/page.jpg", hasCover: true },
+    );
+    expect(artwork.image).toBe("https://cdn.test/page.jpg");
+    expect(artwork.layout).toBe("brief");
+  });
+});
+
 describe("shared article extraction", () => {
   it("keeps the previous complete body if a nominally successful response is empty", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -48,5 +108,37 @@ describe("shared article extraction", () => {
     });
     expect(result.fetched).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("persists the feed thumbnail and a distinct page cover", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        ok: true,
+        article: {
+          blocks: [{ kind: "p", text: "The full piece." }],
+          image: "https://cdn.test/page.jpg",
+          hasCover: true,
+        },
+      }),
+    );
+    const result = await ensureArticleContent({
+      article: {
+        ...article,
+        id: "body-source~thumb",
+        image: "https://cdn.test/feed.jpg",
+        hasCover: true,
+        layout: "compact",
+        contentFetchedAt: undefined,
+        contentCheckedAt: undefined,
+        extractorVersion: undefined,
+      },
+      source,
+      purpose: "reader",
+    });
+    expect(result.article.image).toBe("https://cdn.test/feed.jpg");
+    expect(result.article.coverImage).toBe("https://cdn.test/page.jpg");
+    expect(result.article.layout).toBe("standard");
+    vi.restoreAllMocks();
   });
 });

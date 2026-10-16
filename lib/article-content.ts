@@ -1,6 +1,9 @@
+import { imageIdentity } from "./feed-html";
 import { ARTICLE_STALE_MS, EXTRACTOR_VERSION, needsArticleRefresh } from "./refreshing";
+import { layoutWithPicture } from "./shaping";
 import * as repo from "./storage/repository";
 import type { ArticleRecord, SourceRecord } from "./storage/types";
+import type { StoryLayout } from "./types";
 
 /**
  * One place that downloads an article's original body.
@@ -21,6 +24,45 @@ export type ArticleContentResult = {
 };
 
 const inFlight = new Map<string, Promise<ArticleContentResult>>();
+
+function presentImage(url: string | undefined): string | undefined {
+  const value = url?.trim();
+  return value ? value : undefined;
+}
+
+/**
+ * The stream thumbnail and the reader cover are not always the same photograph.
+ *
+ * A picture the feed already showed stays the thumbnail: replacing it with the
+ * page's image is how a working thumbnail disappears once the original loads,
+ * and a later refresh will not invent the old address back. The page's picture
+ * fills a row that had none. When the page also declares that picture as its
+ * cover, and it is not the thumbnail, the reader keeps it as `coverImage`.
+ */
+export function mergedArtwork(
+  article: Pick<ArticleRecord, "image" | "hasCover" | "layout" | "summary">,
+  page: { image?: string; hasCover?: boolean },
+): {
+  image?: string;
+  hasCover?: boolean;
+  coverImage?: string;
+  layout: StoryLayout;
+} {
+  const feedImage = presentImage(article.image);
+  const pageImage = presentImage(page.image);
+  const image = feedImage || pageImage;
+  const hasCover = page.hasCover ?? article.hasCover;
+  const different =
+    pageImage !== undefined &&
+    image !== undefined &&
+    imageIdentity(pageImage) !== imageIdentity(image);
+  return {
+    image,
+    hasCover,
+    coverImage: hasCover && different ? pageImage : undefined,
+    layout: layoutWithPicture(article.layout, image, article.summary),
+  };
+}
 
 function availabilityOf(article: ArticleRecord): ArticleContentResult["availability"] {
   if (article.contentState === "full") return "full";
@@ -81,14 +123,16 @@ async function fetchContent(
     };
     if (!Array.isArray(body?.blocks) || body.blocks.length === 0)
       throw new Error("The source returned no usable body.");
+    const artwork = mergedArtwork(article, { image: body.image, hasCover: body.hasCover });
     const next: ArticleRecord = {
       ...article,
       title: body.title || article.title,
       author: body.author || article.author,
       body: body.blocks,
-      image: body.image ?? article.image,
-      hasCover: body.hasCover ?? article.hasCover,
+      image: artwork.image,
+      hasCover: artwork.hasCover,
       imageCaption: body.imageCaption ?? article.imageCaption,
+      layout: artwork.layout,
       videoPage: body.videoPage ?? article.videoPage,
       // Only a body that was not cut by our own budget may call itself full.
       contentState: body.truncated ? "truncated" : "full",
@@ -99,6 +143,9 @@ async function fetchContent(
       lastModified: body.lastModified ?? article.lastModified,
       extractorVersion: EXTRACTOR_VERSION,
     };
+    // A previous cover must not linger once this page no longer has a distinct one.
+    if (artwork.coverImage) next.coverImage = artwork.coverImage;
+    else delete next.coverImage;
     await repo.putArticle(next);
     return { article: next, availability: availabilityOf(next), fetched: true };
   } catch (error) {

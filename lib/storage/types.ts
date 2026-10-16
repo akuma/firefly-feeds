@@ -55,9 +55,15 @@ export type ArticleRecord = {
   fetchedAt: number;
   summary: string;
   body: Block[];
+  /** Stream thumbnail. A picture the feed already showed is kept. */
   image?: string;
-  /** True when `image` is the page's declared cover, shown above the body. */
+  /** True when a cover is shown above the body. */
   hasCover?: boolean;
+  /**
+   * The page's declared cover when it differs from `image`. Optional and
+   * additive: older caches simply have no separate cover. Not synced.
+   */
+  coverImage?: string;
   /** Caption printed under the cover, when the source gave one. */
   imageCaption?: string;
   /** True when the page is a video that has to be watched at the source. */

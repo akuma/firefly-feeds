@@ -157,6 +157,58 @@ describe("reconcileArticles", () => {
     expect(next.every((a) => a.extractionState === "idle")).toBe(true);
   });
 
+  it("puts a feed thumbnail back after an extraction replaced it", () => {
+    const existing = [
+      cached("src~a", {
+        image: "https://cdn.test/page.jpg",
+        hasCover: true,
+        layout: "compact",
+        summary: "Standfirst.",
+        contentState: "full",
+        extractionState: "success",
+        contentFetchedAt: 5000,
+      }),
+    ];
+    const next = reconcileArticles(
+      "src",
+      [
+        incoming("a", {
+          image: "https://cdn.test/feed.jpg",
+          hasCover: true,
+          layout: "standard",
+          summary: "Standfirst.",
+        }),
+      ],
+      existing,
+      9000,
+    );
+    expect(next[0].image).toBe("https://cdn.test/feed.jpg");
+    expect(next[0].layout).toBe("standard");
+    expect(next[0].body).toEqual(existing[0].body);
+  });
+
+  it("keeps a page picture and promotes the row when the feed never had one", () => {
+    const existing = [
+      cached("src~a", {
+        image: "https://cdn.test/page.jpg",
+        hasCover: true,
+        layout: "compact",
+        summary: "Standfirst.",
+        contentState: "full",
+        extractionState: "success",
+        contentFetchedAt: 5000,
+      }),
+    ];
+    const next = reconcileArticles(
+      "src",
+      [incoming("a", { summary: "Standfirst.", layout: "compact" })],
+      existing,
+      9000,
+    );
+    expect(next[0].image).toBe("https://cdn.test/page.jpg");
+    expect(next[0].layout).toBe("standard");
+  });
+
   it("keeps an original body when the feed refreshes", () => {
     const extracted = cached("src~a", {
       link: "https://e.test/a",

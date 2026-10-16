@@ -117,6 +117,10 @@ some have neither.
 **A row may never hide a summary that exists.** A bare title reads as missing
 data, not as a deliberate layout.
 
+A compact row becomes standard once a picture is known, including one found
+when the original page is opened. Brief stays a contents line: an entry with
+nothing to summarise does not grow a plate just because a picture exists.
+
 ## Plates
 
 The sample edition's illustrations are generated SVG, drawn deterministically
