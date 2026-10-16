@@ -641,7 +641,7 @@ type BriefingRun = {
 
 - 左栏 `Reading` 新增 **Briefing**，优先于 `Today`。
 - 进入 Briefing 后，中栏显示本期目录（Big Picture、各 Top Story、Worth Reading）及简报历史日期/修订版本；右栏是完整 Briefing Reading Pane。
-- 点目录项让右栏滚动到对应 section，不影响文章 read flags；点某来源打开现有 Article Reader。
+- 点目录项让右栏滚动到对应 section，不影响文章 read flags；点某来源打开现有 Article Reader。来源仍开着时再点目录，先回到本期简报，再滚到该节。
 - 在原文阅读区提供清晰 `Back to Briefing`；返回时恢复原简报 `editionId + sectionId + scroll position`（仅本次浏览会话需要）。
 - 不把 Briefing 伪装成已有 `Story`，避免它参与 RSS `read/unread`、文章列表计数、文章分类扫表。
 

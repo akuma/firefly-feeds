@@ -11,6 +11,7 @@ import {
   Search,
   Sun,
 } from "lucide-react";
+import { useCallback, useRef } from "react";
 import { clsx } from "./clsx";
 import type { Edition } from "@/lib/edition";
 import { AddSource } from "./add-source";
@@ -131,6 +132,21 @@ export function Shell({ edition }: { edition?: Edition }) {
     r.ready && r.digestEnabled,
     r.digestLanguage,
   );
+  // A cited article replaces the edition, so a contents link has nothing to
+  // scroll until the reader brings that page back. Closing it in the click
+  // keeps the state change out of an effect.
+  const returnToSection = useRef<((id: string) => void) | null>(null);
+  const bindReturnToSection = useCallback((handler: ((id: string) => void) | null) => {
+    returnToSection.current = handler;
+  }, []);
+  const openBriefingSection = useCallback((id: string) => {
+    const target = document.getElementById(id);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    returnToSection.current?.(id);
+  }, []);
 
   const readerClasses = clsx(
     "min-h-0 flex-col bg-reader",
@@ -168,13 +184,21 @@ export function Shell({ edition }: { edition?: Edition }) {
           >
             <MobileTopBar />
             <div className="min-h-0 flex-1">
-              {r.view === "briefing" ? <BriefingColumn briefing={briefing} /> : <StreamColumn />}
+              {r.view === "briefing" ? (
+                <BriefingColumn briefing={briefing} onOpenSection={openBriefingSection} />
+              ) : (
+                <StreamColumn />
+              )}
             </div>
           </div>
         )}
 
         <div data-col="reader" className={readerClasses}>
-          {r.view === "briefing" ? <BriefingReader briefing={briefing} /> : <ArticlePane />}
+          {r.view === "briefing" ? (
+            <BriefingReader briefing={briefing} onReturnToSection={bindReturnToSection} />
+          ) : (
+            <ArticlePane />
+          )}
         </div>
         {!r.mobileReading && <MobileTabBar />}
       </div>

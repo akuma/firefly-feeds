@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, ExternalLink } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { formatBriefingText } from "@/lib/briefing/typography";
 import { readingTime } from "@/lib/reading";
 import { useReader } from "@/lib/store";
@@ -148,11 +148,19 @@ function Section({
   );
 }
 
-export function BriefingReader({ briefing }: { briefing: Briefing }) {
+export function BriefingReader({
+  briefing,
+  onReturnToSection,
+}: {
+  briefing: Briefing;
+  /** Contents links call the registered handler when the edition is not on screen. */
+  onReturnToSection: (handler: ((id: string) => void) | null) => void;
+}) {
   const r = useReader();
   const scrollRef = useRef<HTMLDivElement>(null);
   const savedScroll = useRef(0);
   const positions = useRef(new Map<string, number>());
+  const pendingScroll = useRef<string | null>(null);
   const [readingArticle, setReadingArticle] = useState(false);
 
   const edition = briefing.current;
@@ -160,15 +168,37 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
     localDate(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
   );
   const articleVisible = readingArticle && r.mobileReading;
-  useLayoutEffect(() => {
-    if (!articleVisible && scrollRef.current && edition)
-      scrollRef.current.scrollTop = positions.current.get(edition.id) ?? 0;
-  }, [edition, articleVisible]);
-  const back = () => {
+  const closeArticle = () => {
     setReadingArticle(false);
     r.setMobileReading(false);
     r.setImmersive(false);
   };
+  // The click runs before the edition is mounted again, so remember the
+  // section and move once this layout can see it.
+  const requestReturn = useCallback(
+    (id: string) => {
+      pendingScroll.current = id;
+      setReadingArticle(false);
+      r.setMobileReading(false);
+      r.setImmersive(false);
+    },
+    [r],
+  );
+  useLayoutEffect(() => {
+    onReturnToSection(requestReturn);
+    return () => onReturnToSection(null);
+  }, [onReturnToSection, requestReturn]);
+  useLayoutEffect(() => {
+    if (articleVisible || !scrollRef.current || !edition) return;
+    const id = pendingScroll.current;
+    if (id) {
+      pendingScroll.current = null;
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+      positions.current.set(edition.id, scrollRef.current.scrollTop);
+      return;
+    }
+    scrollRef.current.scrollTop = positions.current.get(edition.id) ?? 0;
+  }, [edition, articleVisible]);
 
   // Opening a cited source and coming back must land the reader where they
   // were: the briefing is a page with a place in it, not a stream of rows.
@@ -195,7 +225,7 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
           <button
             type="button"
             data-t="briefing-back"
-            onClick={back}
+            onClick={closeArticle}
             className="mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-ink4 uppercase transition-colors hover:text-spark"
           >
             <ArrowLeft size={12} strokeWidth={1.8} />
@@ -203,7 +233,7 @@ export function BriefingReader({ briefing }: { briefing: Briefing }) {
           </button>
         </div>
         <div className="min-h-0 flex-1">
-          <ArticlePane onBack={back} />
+          <ArticlePane onBack={closeArticle} />
         </div>
       </div>
     );

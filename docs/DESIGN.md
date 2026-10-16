@@ -158,7 +158,8 @@ headline, mono metadata, hairline rules, no cards and no AI dashboard. The
 middle column is the edition's contents and its history; the right pane is the
 writing itself. A cited source is a mono line — publication, headline — that
 opens the ordinary article reader with a clear `Back to Briefing`, returning to
-the exact place in the page. Reading a briefing never marks anything read.
+the exact place in the page. A contents link pressed while that article is open
+returns to the edition and moves to the section it names. Reading a briefing never marks anything read.
 While a run works, the column shows real counts (`Reading sources · 3 of 8
 articles checked`), never a fabricated percentage, and failures say what failed.
 

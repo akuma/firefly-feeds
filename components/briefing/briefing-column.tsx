@@ -18,11 +18,13 @@ import { BriefingProgressLine, BriefingResumeNotice } from "./briefing-progress"
 
 type Briefing = ReturnType<typeof useBriefing>;
 
-function gotoSection(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-export function BriefingColumn({ briefing }: { briefing: Briefing }) {
+export function BriefingColumn({
+  briefing,
+  onOpenSection,
+}: {
+  briefing: Briefing;
+  onOpenSection: (id: string) => void;
+}) {
   const r = useReader();
   const [historyOpen, setHistoryOpen] = useState(false);
   const edition = briefing.current;
@@ -172,7 +174,7 @@ export function BriefingColumn({ briefing }: { briefing: Briefing }) {
             {edition.bigPicture && (
               <button
                 type="button"
-                onClick={() => gotoSection("briefing-big-picture")}
+                onClick={() => onOpenSection("briefing-big-picture")}
                 className="display w-full border-b border-rule pb-4 text-left text-[18px] leading-tight text-ink2 transition-colors hover:text-spark"
               >
                 The Big Picture
@@ -188,7 +190,7 @@ export function BriefingColumn({ briefing }: { briefing: Briefing }) {
                     <li key={story.id}>
                       <button
                         type="button"
-                        onClick={() => gotoSection(`briefing-${story.id}`)}
+                        onClick={() => onOpenSection(`briefing-${story.id}`)}
                         className="grid w-full grid-cols-[20px_1fr] items-baseline gap-2.5 py-3 text-left text-ink2 transition-colors hover:text-spark"
                       >
                         <span aria-hidden="true" className="mono tnum text-[10px] text-ink4">
@@ -220,7 +222,7 @@ export function BriefingColumn({ briefing }: { briefing: Briefing }) {
                       <li key={deep.articleId}>
                         <button
                           type="button"
-                          onClick={() => gotoSection(`briefing-deep-${deep.articleId}`)}
+                          onClick={() => onOpenSection(`briefing-deep-${deep.articleId}`)}
                           className="grid w-full grid-cols-[20px_1fr] items-baseline gap-2.5 py-3 text-left text-ink2 transition-colors hover:text-spark"
                         >
                           <span aria-hidden="true" className="mono tnum text-[10px] text-ink4">

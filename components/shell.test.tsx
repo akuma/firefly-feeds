@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { editionFor } from "@/lib/edition";
 import { articleFingerprint, defaultTopics } from "@/lib/classify";
 import { ARTICLE_STALE_MS, EXTRACTOR_VERSION, EXTRACTION_RETRY_MS } from "@/lib/refreshing";
@@ -3317,6 +3317,28 @@ describe("the daily briefing", () => {
       await waitFor(() =>
         expect(reader().querySelector("[data-t='briefing-reader']")?.scrollTop).toBe(173),
       );
+
+      // A contents link still works after a cited source has replaced the edition.
+      const returned = reader().querySelector<HTMLElement>("[data-t='briefing-reader']")!;
+      await user.click(within(returned).getByRole("button", { name: /Digest Source/ }));
+      await waitFor(() =>
+        expect(within(reader()).getByText("Back to Briefing")).toBeInTheDocument(),
+      );
+      const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+      await user.click(within(briefing()).getByRole("button", { name: "A first story explained" }));
+      await waitFor(() =>
+        expect(
+          within(reader()).getByText("The first summary is the whole of what happened."),
+        ).toBeInTheDocument(),
+      );
+      expect(reader().querySelector("[data-t=briefing-back]")).toBeNull();
+      const section = scroll.mock.instances.find(
+        (node): node is HTMLElement =>
+          node instanceof HTMLElement && node.id.startsWith("briefing-"),
+      );
+      expect(section?.textContent).toContain("The first summary is the whole of what happened.");
+      expect(scroll).toHaveBeenCalledWith({ block: "start" });
+      scroll.mockRestore();
       await user.click(within(nav()).getByLabelText("Settings"));
       const settings = await screen.findByRole("dialog", { name: "Settings" });
       await user.click(within(settings).getByRole("switch", { name: "AI Briefing" }));
