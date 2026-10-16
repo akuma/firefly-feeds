@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { editionFor } from "@/lib/edition";
@@ -1871,6 +1871,17 @@ describe("body images", () => {
     const text = document.querySelector("[data-t='reader-body']")!.textContent ?? "";
     expect(text.indexOf("Opening paragraph")).toBeLessThan(text.indexOf("An inset caption."));
     expect(reader().querySelector('img[src*="inset.jpg"]')).not.toBeNull();
+  });
+
+  it("shows a portrait in the reader at its own ratio", async () => {
+    await seedBody({});
+    await mount();
+    const img = reader().querySelector<HTMLImageElement>('img[src*="inset.jpg"]')!;
+    Object.defineProperty(img, "naturalWidth", { configurable: true, get: () => 200 });
+    Object.defineProperty(img, "naturalHeight", { configurable: true, get: () => 300 });
+    fireEvent.load(img);
+    expect(img.className).not.toContain("object-cover");
+    expect(img.style.width).toBe("min(100%, 50vh)");
   });
 
   it("shows the caption the feed gave for the cover", async () => {

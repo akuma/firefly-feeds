@@ -353,6 +353,7 @@ function Blocks({ blocks }: { blocks: Block[] }) {
                   src={b.src}
                   alt={b.caption}
                   big
+                  preservePortrait
                   className="aspect-[16/9] w-full"
                 />
                 <figcaption className="mono mt-3 max-w-[62ch] text-[10px] leading-[1.75] tracking-[0.08em] text-ink4 uppercase">
@@ -780,6 +781,7 @@ export function ArticlePane({ onBack }: { onBack?: () => void } = {}) {
                   src={s.image}
                   alt={s.title}
                   big
+                  preservePortrait
                   className="aspect-[16/9] w-full"
                 />
                 {s.videoPage && articleHref && (

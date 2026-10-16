@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { clsx } from "./clsx";
 
 /* ------------------------------------------------------------- generator */
@@ -365,9 +365,35 @@ export function Firefly({
 }
 
 /**
+ * A reader portrait may fill the column, then stops. Past this fraction of the
+ * viewport the picture narrows instead of growing, so a full-length photograph
+ * stays whole without running away with the page.
+ */
+const PORTRAIT_MAX_HEIGHT = "75vh";
+
+type ImageFit = { kind: "frame" } | { kind: "pending" } | { kind: "portrait"; ratio: number };
+
+/**
+ * Portrait means taller than wide. A square stays in the caller's frame: it is
+ * not the head-and-feet crop, and the stream still wants one rhythm.
+ */
+function fitOf(img: HTMLImageElement): Exclude<ImageFit, { kind: "pending" }> | undefined {
+  const width = img.naturalWidth;
+  const height = img.naturalHeight;
+  if (width <= 0 || height <= 0) return undefined;
+  if (height > width) return { kind: "portrait", ratio: width / height };
+  return { kind: "frame" };
+}
+
+/**
  * A story's artwork is either the publisher's own photograph or a generated
- * plate. If a remote image fails, the plate is already behind it, so the
- * layout never collapses.
+ * plate. A remote image that fails says so, rather than being replaced: a plate
+ * drawn in a photograph's slot would read as the article's own image.
+ *
+ * The stream always passes a fixed frame, and a landscape photograph keeps it.
+ * `preservePortrait` is the reader. Forcing a portrait into that frame crops
+ * the head and the feet, so once the image has loaded the reader lets a
+ * portrait keep its own ratio.
  */
 export function Media({
   seed,
@@ -376,6 +402,7 @@ export function Media({
   className,
   big = false,
   sizes,
+  preservePortrait = false,
 }: {
   seed: number;
   src?: string;
@@ -383,8 +410,28 @@ export function Media({
   className?: string;
   big?: boolean;
   sizes?: string;
+  preservePortrait?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
+  const [fit, setFit] = useState<ImageFit>(
+    preservePortrait ? { kind: "pending" } : { kind: "frame" },
+  );
+  const imgRef = useRef<HTMLImageElement>(null);
+  const modeKey = `${src ?? ""}:${preservePortrait ? "1" : "0"}`;
+  const [trackedMode, setTrackedMode] = useState(modeKey);
+  if (trackedMode !== modeKey) {
+    setTrackedMode(modeKey);
+    setFailed(false);
+    setFit(preservePortrait ? { kind: "pending" } : { kind: "frame" });
+  }
+
+  useLayoutEffect(() => {
+    if (!preservePortrait || !src) return;
+    const img = imgRef.current;
+    if (!img?.complete) return;
+    const next = fitOf(img);
+    if (next) setFit(next);
+  }, [preservePortrait, src]);
 
   /*
    * Two different things wear the same slot, and they must not be confused.
@@ -397,14 +444,23 @@ export function Media({
    */
   if (!src) return <Plate seed={seed} big={big} className={className} bordered />;
 
+  // Until a portrait is measured it stays in normal flow, so the 16:9 frame
+  // never flashes a cropped head. A landscape, and any stream thumbnail, uses
+  // the frame the caller sized.
+  const framed = failed || fit.kind === "frame";
+
   return (
-    <div className={clsx("relative overflow-hidden bg-plate", className)}>
+    <div
+      className={clsx("relative bg-plate", framed && "overflow-hidden", className)}
+      style={framed ? undefined : { aspectRatio: "auto" }}
+    >
       {failed ? (
         <span className="mono absolute inset-0 flex items-center justify-center text-[9px] tracking-[0.14em] text-ink4 uppercase">
           Image unavailable
         </span>
       ) : (
         <img
+          ref={imgRef}
           src={src}
           alt={alt ?? ""}
           loading="lazy"
@@ -419,8 +475,22 @@ export function Media({
            */
           referrerPolicy="strict-origin-when-cross-origin"
           sizes={sizes}
+          onLoad={(event) => {
+            if (!preservePortrait) return;
+            const next = fitOf(event.currentTarget);
+            if (next) setFit(next);
+          }}
           onError={() => setFailed(true)}
-          className="absolute inset-0 h-full w-full object-cover"
+          className={
+            framed
+              ? "absolute inset-0 h-full w-full object-cover"
+              : "mx-auto block h-auto w-full max-w-full"
+          }
+          style={
+            fit.kind === "portrait"
+              ? { width: `min(100%, calc(${PORTRAIT_MAX_HEIGHT} * ${fit.ratio}))` }
+              : undefined
+          }
         />
       )}
     </div>

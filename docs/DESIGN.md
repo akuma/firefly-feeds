@@ -127,6 +127,12 @@ artwork only when the publisher's feed supplied it; a plate in a photograph's
 slot would read as the article's own image and would not exist on the page the
 story links to.
 
+In the stream, a photograph is cropped to its row: 16:10 on a feature, 4:3 on
+a standard row. The reader keeps that 16:9 frame for a landscape. A portrait —
+taller than it is wide — is shown whole, at the column width, and narrows once
+it would exceed three quarters of the viewport. Feeds rarely carry a reliable
+size, so the reader measures the loaded image. A square stays in the frame.
+
 ## Mobile
 
 ![Firefly Feeds on a phone](preview-mobile.webp)
