@@ -105,6 +105,27 @@ function normalize(text: string): string {
   return text.normalize("NFKC").replace(/\s+/g, " ").trim();
 }
 
+/** Models sometimes wrap a mid-sentence quote; accept only its exact contiguous interior. */
+function verifiedExcerpt(excerpt: string, materialText: string): string | null {
+  const source = normalize(materialText);
+  if (source.includes(normalize(excerpt))) return excerpt;
+  const trimmed = excerpt.trim();
+  const pairs = [
+    ["“", "”"],
+    ['"', '"'],
+    ["‘", "’"],
+    ["'", "'"],
+    ["「", "」"],
+    ["『", "』"],
+  ];
+  const wrapped = pairs.some(
+    ([open, close]) => trimmed.startsWith(open) && trimmed.endsWith(close),
+  );
+  if (!wrapped) return null;
+  const interior = trimmed.slice(1, -1).trim();
+  return interior && source.includes(normalize(interior)) ? interior : null;
+}
+
 /**
  * The one JSON object in a reply, fences and prose stripped. Models wrap JSON
  * in markdown despite being told not to; slicing from the first `{` to the
@@ -267,13 +288,14 @@ function validateSupportedText(
         errors.push(`${where}.articleId: unknown material "${articleId}"`);
         return;
       }
-      // The quote must exist in what the model was actually given — verbatim
-      // up to whitespace. A paraphrase is a fabrication.
-      if (excerpt && !normalize(material.text).includes(normalize(excerpt))) {
+      // Only an added outer quotation pair may be removed. Retain no wording
+      // that is not a contiguous source excerpt; never drop a failing citation.
+      const verified = excerpt ? verifiedExcerpt(excerpt, material.text) : null;
+      if (excerpt && verified === null) {
         errors.push(`${where}.excerpt: not found verbatim in the material`);
         return;
       }
-      if (articleId && excerpt) evidence.push({ articleId, excerpt });
+      if (articleId && verified) evidence.push({ articleId, excerpt: verified });
     });
   }
   if (!text || evidence.length === 0) return null;
@@ -486,43 +508,99 @@ export function validateComposition(
 
 /**
  * A weak, misplaced or previously recommended item is an editorial omission. Drop whole items only
- * when every failure is an editorial selection failure. Unknown references,
- * invented excerpts and structural errors still refuse the entire answer.
- * Revalidation remains the publishing gate; never move prose between sections.
+ * when that item's failures are only editorial selection failures. Fill the edition
+ * in model order, discarding whole tail items once its size cap is reached.
+ * Invalid references, invented excerpts and structural errors in retained required
+ * prose still fail the final publishing gate; never move prose between sections.
  */
 export function pruneWeakComposition(
   answer: unknown,
   input: ComposeInput,
   previouslyRecommended: readonly string[] = [],
 ): { output: unknown; omitted: number; omittedSections: number } {
-  const projected = stripUnknownOutputFields(answer, COMPOSE_SCHEMA);
-  if (schemaErrors(projected, COMPOSE_SCHEMA).length)
-    return { output: projected, omitted: 0, omittedSections: 0 };
-  const normalized = withoutUnverifiableOptionalSections(projected as ComposeOutput, input);
-  const raw = normalized.output;
-  const omittedSections = normalized.omittedSections;
-  const checked = validateComposition(raw, input, previouslyRecommended);
-  if (checked.ok) return { output: raw, omitted: 0, omittedSections };
-  const weak =
-    /^(topStories|worthReading)\[(\d+)\](?:: (?:editorial score below 6|main evidence does not belong to one shortlisted news group; keep insight groups in Worth Reading|article does not belong to a shortlisted insight group)|\.articleId: already recommended in an earlier edition)$/;
-  if (!checked.errors.length || checked.errors.some((error) => !weak.test(error)))
-    return { output: raw, omitted: 0, omittedSections };
-  const output = raw as ComposeOutput;
-  const news = new Set<number>();
-  const insights = new Set<number>();
-  for (const error of checked.errors) {
-    const match = weak.exec(error)!;
-    (match[1] === "topStories" ? news : insights).add(Number(match[2]));
-  }
-  const trimmed: ComposeOutput = {
-    ...output,
-    topStories: output.topStories.filter((_story, i) => !news.has(i)),
-    worthReading: output.worthReading.filter((_story, i) => !insights.has(i)),
+  const cap = (output: unknown, omitted = 0, omittedSections = 0) => {
+    if (!isRecord(output)) return { output, omitted, omittedSections };
+    const bounded = { ...output };
+    for (const [key, limit] of [
+      ["topStories", Math.max(0, Math.min(input.limits.maxStories, BRIEFING_LIMITS.maxStories))],
+      [
+        "worthReading",
+        Math.max(0, Math.min(input.limits.maxDeepReads, BRIEFING_LIMITS.maxDeepReads)),
+      ],
+    ] as const) {
+      const items = output[key];
+      if (!Array.isArray(items)) continue;
+      bounded[key] = items.slice(0, limit);
+      omitted += Math.max(0, items.length - limit);
+    }
+    return { output: bounded, omitted, omittedSections };
   };
-  const retained = new Set(citedArticleIds({ ...trimmed, bigPicture: null }));
-  if (trimmed.bigPicture?.evidence.some((e) => !retained.has(e.articleId)))
-    trimmed.bigPicture = null;
-  return { output: trimmed, omitted: news.size + insights.size, omittedSections };
+  const projected = stripUnknownOutputFields(answer, COMPOSE_SCHEMA);
+  if (
+    !isRecord(projected) ||
+    !Array.isArray(projected.topStories) ||
+    !Array.isArray(projected.worthReading)
+  )
+    return cap(projected);
+  const root = { ...projected, topStories: [], worthReading: [] };
+  if (schemaErrors(root, COMPOSE_SCHEMA).length) return cap(projected);
+  const normalizedRoot = withoutUnverifiableOptionalSections(
+    root as unknown as ComposeOutput,
+    input,
+  );
+  let omitted = 0;
+  let omittedSections = normalizedRoot.omittedSections;
+  const weak =
+    /^(topStories|worthReading)\[\d+\](?:: (?:editorial score below 6|main evidence does not belong to one shortlisted news group; keep insight groups in Worth Reading|article does not belong to a shortlisted insight group)|\.articleId: already recommended in an earlier edition)$/;
+  const select = (key: "topStories" | "worthReading", entries: unknown[], limit: number) => {
+    const kept: unknown[] = [];
+    for (const [index, entry] of entries.entries()) {
+      // Stop at the publication cap; unused tail data cannot poison retained stories.
+      if (kept.length >= limit || index >= BRIEFING_LIMITS.maxCandidates) {
+        omitted += entries.length - index;
+        break;
+      }
+      const candidate = { ...normalizedRoot.output, bigPicture: null, [key]: [entry] };
+      if (schemaErrors(candidate, COMPOSE_SCHEMA).length) {
+        kept.push(entry);
+        continue;
+      }
+      const normalized = withoutUnverifiableOptionalSections(candidate as ComposeOutput, input);
+      const checked = validateComposition(normalized.output, input, previouslyRecommended);
+      if (
+        !checked.ok &&
+        checked.errors.length &&
+        checked.errors.every((error) => weak.test(error))
+      ) {
+        omitted++;
+        continue;
+      }
+      // Invalid required prose is retained for the final strict gate, never repaired locally.
+      kept.push(normalized.output[key][0]);
+      omittedSections += normalized.omittedSections;
+    }
+    return kept;
+  };
+  const trimmed = {
+    ...normalizedRoot.output,
+    topStories: select(
+      "topStories",
+      projected.topStories,
+      Math.max(0, Math.min(input.limits.maxStories, BRIEFING_LIMITS.maxStories)),
+    ),
+    worthReading: select(
+      "worthReading",
+      projected.worthReading,
+      Math.max(0, Math.min(input.limits.maxDeepReads, BRIEFING_LIMITS.maxDeepReads)),
+    ),
+  };
+  const checked = validateComposition(trimmed, input, previouslyRecommended);
+  if (omitted && checked.ok) {
+    const retained = new Set(citedArticleIds({ ...checked.value, bigPicture: null }));
+    if (trimmed.bigPicture?.evidence.some((ref) => !retained.has(ref.articleId)))
+      trimmed.bigPicture = null;
+  }
+  return { output: trimmed, omitted, omittedSections };
 }
 
 function withoutUnverifiableOptionalSections(output: ComposeOutput, input: ComposeInput) {

@@ -182,6 +182,123 @@ const goodCompose = {
   worthReading: [],
 };
 
+const budgetSupported = (articleId: string) => ({
+  text: "The project released version 2 on Tuesday.",
+  evidence: [{ articleId, excerpt: "The project released version 2 on Tuesday." }],
+});
+
+function overBudgetEdition() {
+  const ids = Array.from({ length: 10 }, (_, i) => `budget-${i}`);
+  const input = composeInput({
+    materials: ids.map((articleId) => material({ articleId })),
+    shortlist: {
+      schemaVersion: 1,
+      extractArticleIds: [],
+      groups: ids.map((articleId, i) => ({
+        ...goodShortlist.groups[0],
+        groupId: `budget-group-${i}`,
+        articleIds: [articleId],
+        kind: i < 7 ? "news" : "insight",
+      })),
+    },
+  });
+
+  return {
+    input,
+    output: {
+      ...goodCompose,
+      topStories: ids.slice(0, 7).map((articleId, i) =>
+        goodStory({
+          headline: `Development ${i}`,
+          whatHappened: budgetSupported(articleId),
+          whyItMatters: null,
+        }),
+      ),
+      worthReading: ids
+        .slice(7)
+        .map((articleId) => ({ articleId, whyRead: budgetSupported(articleId) })),
+    },
+  };
+}
+
+it("caps excess whole stories and recommendations after validating them, without spending a repair", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const { input, output } = overBudgetEdition();
+  expect(validateComposition(output, input).ok).toBe(false);
+  const normalized = pruneWeakComposition(output, input);
+  const checked = validateComposition(normalized.output, input);
+  expect(checked.ok).toBe(true);
+  if (checked.ok) {
+    expect(checked.value.topStories).toEqual(output.topStories.slice(0, 5));
+    expect(checked.value.worthReading).toEqual(output.worthReading.slice(0, 2));
+  }
+  expect(normalized.omitted).toBe(3);
+  expect(output.topStories).toHaveLength(7);
+  expect(pruneWeakComposition(normalized.output, input).omitted).toBe(0);
+});
+
+it("removes ineligible topics before applying the item cap", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const { input, output } = overBudgetEdition();
+  input.shortlist.groups[0] = { ...input.shortlist.groups[0], value: 0, novelty: 0, evidence: 0 };
+  const normalized = pruneWeakComposition(output, input);
+  const checked = validateComposition(normalized.output, input);
+  expect(checked.ok).toBe(true);
+  if (checked.ok) expect(checked.value.topStories).toEqual(output.topStories.slice(1, 6));
+  expect(normalized.omitted).toBe(3);
+});
+
+it.each(["structure", "evidence"])(
+  "does not let an unused tail item's invalid %s block five eligible stories",
+  async (fault) => {
+    const { pruneWeakComposition } = await import("./validate");
+    const { input, output } = overBudgetEdition();
+    input.shortlist.groups[0] = { ...input.shortlist.groups[0], value: 0, novelty: 0, evidence: 0 };
+    const raw: unknown =
+      fault === "structure"
+        ? {
+            ...output,
+            topStories: output.topStories.map((story, i) =>
+              i === 6 ? { ...story, whatHappened: { ...story.whatHappened, text: 42 } } : story,
+            ),
+          }
+        : {
+            ...output,
+            topStories: output.topStories.map((story, i) =>
+              i === 6
+                ? {
+                    ...story,
+                    whatHappened: {
+                      ...story.whatHappened,
+                      evidence: [{ articleId: "budget-6", excerpt: "Invented quotation" }],
+                    },
+                  }
+                : story,
+            ),
+          };
+    const normalized = pruneWeakComposition(raw, input);
+    const checked = validateComposition(normalized.output, input);
+    expect(checked.ok).toBe(true);
+    if (checked.ok) expect(checked.value.topStories).toEqual(output.topStories.slice(1, 6));
+    expect(normalized.omitted).toBe(3);
+  },
+);
+
+it("honors smaller composition limits while preserving invalid required evidence", async () => {
+  const { pruneWeakComposition } = await import("./validate");
+  const { input, output } = overBudgetEdition();
+  input.limits = { ...input.limits, maxStories: 2, maxDeepReads: 1 };
+  const normalized = pruneWeakComposition(output, input);
+  const checked = validateComposition(normalized.output, input);
+  expect(checked.ok).toBe(true);
+  if (checked.ok) {
+    expect(checked.value.topStories).toHaveLength(2);
+    expect(checked.value.worthReading).toHaveLength(1);
+  }
+  output.topStories[0].whatHappened.evidence[0].excerpt = "Fabricated evidence";
+  expect(validateComposition(pruneWeakComposition(output, input).output, input).ok).toBe(false);
+});
+
 describe("the shortlist contract", () => {
   it("accepts the annotated example and computes nothing it was not given", () => {
     const result = validateShortlist(goodShortlist, shortlistInput());
@@ -698,4 +815,63 @@ it("drops a valid repeated recommendation but never hides invalid evidence behin
   expect(validateComposition(pruneWeakComposition(invalid, context).output, context).ok).toBe(
     false,
   );
+});
+
+// Real DeepSeek failure: a new opening quote was added to a mid-quotation excerpt.
+describe("evidence quotation boundaries", () => {
+  const source =
+    "Bluesky CEO Toni Schneider shared the news of Attie’s new capabilities during an interview at Disrupt, saying, “We’re adding a feature to our Attie product that allows you to build sites and social experiences again for a group of people. So think of it as … social vibe coding or vibe coding for your community.”";
+  const text = "So think of it as … social vibe coding or vibe coding for your community.";
+  const check = (excerpt: string, sourceText = source) =>
+    validateComposition(
+      {
+        ...goodCompose,
+        topStories: [
+          goodStory({
+            whatHappened: {
+              text: "Schneider described social vibe coding.",
+              evidence: [{ articleId: "A1", excerpt }],
+            },
+            whyItMatters: null,
+          }),
+        ],
+      },
+      composeInput({ materials: [material({ text: sourceText })] }),
+    );
+
+  it.each([
+    ["“", "”"],
+    ['"', '"'],
+    ["‘", "’"],
+    ["'", "'"],
+    ["「", "」"],
+    ["『", "』"],
+  ])(
+    "removes only a matched %s %s wrapper when the complete interior is verbatim",
+    (open, close) => {
+      const result = check(open + text + close);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.topStories[0].whatHappened.evidence[0].excerpt).toBe(text);
+    },
+  );
+
+  it("preserves an exact source quote unchanged", () => {
+    const quote = "“The project released version 2.”";
+    const result = check(quote, `The announcement said: ${quote}`);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.topStories[0].whatHappened.evidence[0].excerpt).toBe(quote);
+  });
+
+  it.each([
+    "“So think of it as social vibe coding or vibe coding for your community.”",
+    "“So think of it as … social coding or vibe coding for your community.”",
+    "“So think of it as … social vibe coding or vibe coding for our community.”",
+    "“So think of it as … social vibe coding or vibe coding for your community!”",
+    "“”",
+    "“So think of it as … social vibe coding or vibe coding for your community.'",
+  ])("still refuses changed words, punctuation, empty or mismatched wrappers: %s", (excerpt) => {
+    const result = check(excerpt);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join("\n")).toContain("not found verbatim");
+  });
 });

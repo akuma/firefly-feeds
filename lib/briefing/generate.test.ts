@@ -59,6 +59,62 @@ function stubFetch(reply: () => Response) {
   return { bodies, restore: () => (globalThis.fetch = original) };
 }
 
+it("accepts six supported news stories in one phase call and publishes only the first five", async () => {
+  const ids = Array.from({ length: 6 }, (_, i) => `cap-${i}`);
+  const text = "A new version shipped.";
+  const payload: ComposeInput = {
+    ...composeInput,
+    shortlist: {
+      schemaVersion: 1,
+      extractArticleIds: [],
+      groups: ids.map((articleId, i) => ({
+        groupId: `group-${i}`,
+        kind: "news",
+        workingHeadline: `Development ${i}`,
+        articleIds: [articleId],
+        value: 3,
+        novelty: 2,
+        evidence: 2,
+        selectionReason: "Supported development",
+        missingInformation: "",
+      })),
+    },
+    materials: ids.map((articleId) => ({
+      articleId,
+      sourceName: "Fixture",
+      title: articleId,
+      sourceUrl: null,
+      publishedAt: null,
+      materialQuality: "full",
+      text,
+    })),
+  };
+  const response = {
+    schemaVersion: 1,
+    bigPicture: null,
+    worthReading: [],
+    topStories: ids.map((articleId, i) => ({
+      headline: `Development ${i}`,
+      whatHappened: { text, evidence: [{ articleId, excerpt: text }] },
+      context: null,
+      whyItMatters: null,
+      perspectives: [],
+    })),
+  };
+  const spy = stubFetch(() => ollamaReply(JSON.stringify(response)));
+  try {
+    const answer = await generatePhase({ phase: "compose", payload, llm: OLLAMA });
+    expect(answer.ok).toBe(true);
+    if (answer.ok && "topStories" in answer.result) {
+      expect(answer.result.topStories).toHaveLength(5);
+      expect(answer.omittedWeakItems).toBe(1);
+    }
+    expect(spy.bodies).toHaveLength(1);
+  } finally {
+    spy.restore();
+  }
+});
+
 it("keeps safe HTTP explanations on the direct provider path", async () => {
   const spy = stubFetch(
     () => new Response(JSON.stringify({ error: "local-key private input" }), { status: 503 }),
@@ -234,5 +290,65 @@ it("refuses a redirect from a custom local API instead of forwarding its credent
     }
   } finally {
     globalThis.fetch = original;
+  }
+});
+
+it("returns complete invalid direct-provider JSON and attaches it on repair", async () => {
+  const bad = JSON.stringify({
+    schemaVersion: 1,
+    groups: [{ articleIds: "one" }],
+    extractArticleIds: [],
+  });
+  const stub = stubFetch(() => ollamaReply(bad));
+  try {
+    const first = await generatePhase({ phase: "shortlist", payload: shortlistInput, llm: OLLAMA });
+    expect(first.ok).toBe(false);
+    if (first.ok) throw new Error("expected invalid output");
+    expect(first.repairOutput).toBe(bad);
+    await generatePhase({
+      phase: "shortlist",
+      payload: shortlistInput,
+      llm: OLLAMA,
+      retryFeedback: first.errors,
+      repairOutput: first.repairOutput,
+    });
+    expect(JSON.stringify(stub.bodies[1].messages)).toContain("Previous invalid JSON");
+    expect(stub.bodies).toHaveLength(2);
+  } finally {
+    stub.restore();
+  }
+});
+
+it("captures fenced invalid JSON and redacts keys in direct-provider validation errors", async () => {
+  const bad = {
+    schemaVersion: 1,
+    groups: [
+      {
+        groupId: "g",
+        kind: "news",
+        workingHeadline: "News",
+        articleIds: ["secret-test-key"],
+        value: 3,
+        novelty: 2,
+        evidence: 2,
+        selectionReason: "reason",
+        missingInformation: "",
+      },
+    ],
+    extractArticleIds: [],
+  };
+  const stub = stubFetch(() => ollamaReply("```json\n" + JSON.stringify(bad) + "\n```"));
+  try {
+    const result = await generatePhase({
+      phase: "shortlist",
+      payload: shortlistInput,
+      llm: { ...OLLAMA, keys: { ollama: "secret-test-key" } },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected invalid output");
+    expect(result.repairOutput).toBeTruthy();
+    expect(JSON.stringify(result)).not.toContain("secret-test-key");
+  } finally {
+    stub.restore();
   }
 });

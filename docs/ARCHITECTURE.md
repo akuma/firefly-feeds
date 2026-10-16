@@ -915,9 +915,22 @@ using date arithmetic so daylight-saving changes do not add or remove a day.
 The candidate window remains exactly 24 elapsed hours across those changes.
 
 New run checkpoints record optional bounded `repairTrace` (phase, failure code
-and up to three validator messages). This makes format/evidence repair distinct
-from actual output truncation after a successful publication. No raw provider
-response or configuration is retained in this diagnostic.
+and up to three validator messages). It may also contain `output`: a complete
+invalid JSON object, capped at 64 KiB after credential redaction. The same frozen
+input, validation feedback and previous invalid JSON are sent on the existing
+single repair call; the previous answer is explicitly untrusted data. Oversized,
+partial or non-JSON answers fall back to feedback alone. No provider envelope or
+configuration is retained. The optional field works with old checkpoints and
+survives Resume without resetting the one-repair/three-call budget.
+
+Hosted briefing requests log bounded JSON lines with ISO timestamps, INFO/WARN/
+ERROR levels, a per-HTTP-request ID, run ID, call number, phase, provider, model,
+token budget, input counts, repair flag, duration, HTTP/upstream status, validation
+errors, usage and short response previews. Each line is at most 4,000 characters;
+headers, keys, prompts and full article bodies are excluded. The response returns
+`x-briefing-request-id` for correlation. An app 502 with `INVALID_OUTPUT` and
+upstream 200 identifies validation failure rather than a provider outage. Local
+direct-provider requests do not pass through these server logs.
 
 Only the explicit `OUTPUT_TRUNCATED` feedback marker enables compact schemas.
 Validator field names containing words like compact or truncated never do. The
@@ -934,3 +947,23 @@ handled independently. `omittedUnsupportedSections` records these paragraphs
 across server, client, pipeline and Resume, and the briefing footer explains the
 omission. No quote is rewritten and no unsupported paragraph is kept by merely
 deleting one of its citations.
+
+Composition selection walks proposed items in model order, checks their evidence
+and skips editorially ineligible topics until it fills five news stories and two
+reading recommendations (or smaller explicitly supplied input limits). Remaining
+tail items are discarded whole without blocking the selected edition. Malformed
+required content among retained items still fails the final strict validation.
+Excess items count in the existing `omittedWeakItems` omission total and do not
+trigger a paid repair. No retained prose or citations are truncated to fit.
+
+### Evidence excerpt quotation wrappers
+
+Evidence matching first checks the complete excerpt using the existing Unicode
+and whitespace normalization. If that fails, one matching outer quotation pair
+(`“”`, `""`, `‘’`, `''`, `「」`, `『』`) may be removed, only when the complete
+nonempty interior is a contiguous substring of that same article material. The
+verified interior is persisted as the excerpt; exact quotes remain unchanged.
+This handles a model adding an opening quote to a mid-quotation extract without
+fuzzy matching, removing interior punctuation, dropping citations or changing
+required prose. It spends no model call and applies to hosted, direct and local
+publication checks alike.

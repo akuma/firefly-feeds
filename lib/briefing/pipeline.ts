@@ -13,6 +13,7 @@ import {
 } from "./constants";
 import { createArticleMaterial, fitComposeInput } from "./materials";
 import { rankGroups } from "./score";
+import { captureRepairOutput, safeDiagnosticText } from "./repair";
 import {
   citedArticleIds,
   pruneWeakComposition,
@@ -48,6 +49,9 @@ export type GenerateFn = (call: {
   phase: "shortlist" | "compose";
   payload: ShortlistInput | ComposeInput;
   retryFeedback?: string[];
+  repairOutput?: string;
+  runId?: string;
+  attempt?: number;
   signal?: AbortSignal;
 }) => Promise<GenerateResult>;
 
@@ -698,10 +702,17 @@ async function callPhase(
   error?: { code: string; message: string; retryable: boolean; errors?: string[] };
 }> {
   let nextRun = run;
+  const secrets = Object.values(input.llm.keys).filter((key): key is string => !!key);
   const previouslyTruncated =
     run.truncatedPhases?.includes(phase) ||
     (run.error?.code === "OUTPUT_TRUNCATED" && phase === (run.shortlist ? "compose" : "shortlist"));
-  const previousFeedback = run.repairTrace?.phase === phase ? run.repairTrace.errors : [];
+  const previousFeedback = (run.repairTrace?.phase === phase ? run.repairTrace.errors : []).map(
+    (error) => safeDiagnosticText(error, secrets, 300),
+  );
+  let repairOutput =
+    run.repairTrace?.phase === phase && run.repairTrace.output
+      ? captureRepairOutput(run.repairTrace.output, secrets)
+      : undefined;
   let feedback: string[] | undefined = previouslyTruncated
     ? ["OUTPUT_TRUNCATED", ...previousFeedback]
     : previousFeedback.length
@@ -721,6 +732,9 @@ async function callPhase(
       phase,
       payload,
       retryFeedback: feedback,
+      repairOutput,
+      runId: run.runId,
+      attempt: nextRun.callsUsed,
       signal: input.signal,
     });
     if (answer.ok) {
@@ -752,6 +766,10 @@ async function callPhase(
           retryable:
             checked.ok || !checked.errors.every((e) => e.startsWith("INSUFFICIENT_CONTENT")),
           errors: checked.ok ? ["output.phase: wrong phase"] : checked.errors,
+          repairOutput: captureRepairOutput(
+            JSON.stringify(answer.result),
+            Object.values(input.llm.keys).filter((key): key is string => !!key),
+          ),
         };
       else if (checked.ok)
         answer = {
@@ -763,12 +781,23 @@ async function callPhase(
         };
     }
     if (!answer.ok && ["INVALID_OUTPUT", "OUTPUT_TRUNCATED"].includes(answer.code)) {
+      answer = {
+        ...answer,
+        errors: answer.errors?.slice(0, 20).map((error) => safeDiagnosticText(error, secrets, 300)),
+        repairOutput: answer.repairOutput
+          ? captureRepairOutput(
+              answer.repairOutput,
+              Object.values(input.llm.keys).filter((key): key is string => !!key),
+            )
+          : undefined,
+      };
       nextRun = {
         ...nextRun,
         repairTrace: {
           phase,
           code: answer.code,
           errors: (answer.errors ?? []).slice(0, 3).map((error) => error.slice(0, 300)),
+          ...(answer.repairOutput ? { output: answer.repairOutput } : {}),
         },
         ...(answer.code === "OUTPUT_TRUNCATED"
           ? { truncatedPhases: [...new Set([...(nextRun.truncatedPhases ?? []), phase])] }
@@ -814,6 +843,7 @@ async function callPhase(
       return { run: nextRun, repairUsed, provider: "", model: "", error: answer };
     }
     repairUsed = true;
+    repairOutput = answer.repairOutput;
     feedback =
       answer.code === "OUTPUT_TRUNCATED"
         ? ["OUTPUT_TRUNCATED", ...(answer.errors ?? [])]

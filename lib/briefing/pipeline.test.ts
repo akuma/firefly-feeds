@@ -200,13 +200,28 @@ function stubGenerate(options: {
   shortlist?: () => GenerateResult;
   compose?: () => GenerateResult;
 }) {
-  const calls: { phase: string; feedback?: string[] }[] = [];
+  const calls: {
+    phase: string;
+    feedback?: string[];
+    repairOutput?: string;
+    runId?: string;
+    attempt?: number;
+  }[] = [];
   const generate = async (call: {
     phase: "shortlist" | "compose";
     payload: ShortlistInput | ComposeInput;
     retryFeedback?: string[];
+    repairOutput?: string;
+    runId?: string;
+    attempt?: number;
   }) => {
-    calls.push({ phase: call.phase, feedback: call.retryFeedback });
+    calls.push({
+      phase: call.phase,
+      feedback: call.retryFeedback,
+      repairOutput: call.repairOutput,
+      runId: call.runId,
+      attempt: call.attempt,
+    });
     const answer =
       call.phase === "shortlist"
         ? (options.shortlist?.() ?? {
@@ -351,6 +366,10 @@ describe("the briefing pipeline", () => {
             message: "bad",
             retryable: true,
             errors: ['groups[0].articleIds: unknown article "MADE-UP"'],
+            repairOutput: JSON.stringify({
+              groups: [{ articleIds: "MADE-UP" }],
+              apiKey: "private",
+            }),
           };
         }
         return {
@@ -378,9 +397,13 @@ describe("the briefing pipeline", () => {
 
     expect(outcome.error).toBeUndefined();
     expect(outcome.edition?.stats.llmRequests).toBe(3);
-    // the repair repeated the same frozen question and only added complaints
+    // The repair retains the frozen question and the complete failed JSON.
     expect(calls[0].feedback).toBeUndefined();
     expect(calls[1].feedback).toEqual(['groups[0].articleIds: unknown article "MADE-UP"']);
+    expect(JSON.parse(calls[1].repairOutput!).groups[0].articleIds).toBe("MADE-UP");
+    expect(calls[1].repairOutput).not.toContain("private");
+    expect(calls.map((call) => call.attempt)).toEqual([1, 2, 3]);
+    expect(new Set(calls.map((call) => call.runId)).size).toBe(1);
     expect(await repo.getBriefings()).toHaveLength(1);
   });
 
@@ -1417,6 +1440,7 @@ it("retains targeted format feedback when cancellation arrives with the invalid 
           retryable: true,
           message: "bad field",
           errors: ["topStories[0].truncatedNote: unexpected field"],
+          repairOutput: JSON.stringify({ topStories: [{ headline: "preserve" }] }),
         };
       },
     }),
@@ -1440,6 +1464,10 @@ it("retains targeted format feedback when cancellation arrives with the invalid 
   });
   expect(resumed.error).toBeUndefined();
   expect(model.calls[0].feedback).toEqual(["topStories[0].truncatedNote: unexpected field"]);
+  expect(JSON.parse(model.calls[0].repairOutput!)).toEqual({
+    topStories: [{ headline: "preserve" }],
+  });
+  expect(model.calls[0].attempt).toBe(3);
   expect(resumed.run.callsUsed).toBe(3);
 });
 

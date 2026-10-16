@@ -7,6 +7,7 @@ import {
   type LlmConfig,
 } from "../llm";
 import { BRIEFING_LLM_TIMEOUT_MS, briefingMaxTokens } from "./constants";
+import { captureRepairOutput, safeDiagnosticText } from "./repair";
 import { buildComposeMessages, buildShortlistMessages } from "./prompts";
 import {
   parseJsonObject,
@@ -38,8 +39,16 @@ function failure(
   message: string,
   retryable: boolean,
   errors?: string[],
+  repairOutput?: string,
 ): GenerateFailure {
-  return { ok: false, code, message, retryable, ...(errors ? { errors } : {}) };
+  return {
+    ok: false,
+    code,
+    message,
+    retryable,
+    ...(errors ? { errors } : {}),
+    ...(repairOutput ? { repairOutput } : {}),
+  };
 }
 
 /** The reader may stop a run; the abort is not the provider failing. */
@@ -55,6 +64,9 @@ export async function generatePhase(input: {
   payload: ShortlistInput | ComposeInput;
   llm: LlmConfig;
   retryFeedback?: string[];
+  repairOutput?: string;
+  runId?: string;
+  attempt?: number;
   signal?: AbortSignal;
 }): Promise<GenerateResult> {
   const { phase, payload, llm, retryFeedback = [] } = input;
@@ -71,10 +83,11 @@ export async function generatePhase(input: {
 
   const messages =
     phase === "shortlist"
-      ? buildShortlistMessages(payload as ShortlistInput, retryFeedback)
-      : buildComposeMessages(payload as ComposeInput, retryFeedback);
+      ? buildShortlistMessages(payload as ShortlistInput, retryFeedback, input.repairOutput)
+      : buildComposeMessages(payload as ComposeInput, retryFeedback, input.repairOutput);
 
   let parsed: unknown;
+  let repairOutput: string | undefined;
   let provider: string = service.id;
   let model = modelFor(llm);
   let truncated = false;
@@ -126,6 +139,13 @@ export async function generatePhase(input: {
       usage = reply.usage;
       truncated = reply.truncated;
       parsed = parseJsonObject(reply.text);
+      repairOutput =
+        parsed === null
+          ? undefined
+          : captureRepairOutput(
+              JSON.stringify(parsed),
+              Object.values(llm.keys).filter((key): key is string => !!key),
+            );
     } else {
       const res = await fetch("/api/briefing/generate", {
         method: "POST",
@@ -134,6 +154,9 @@ export async function generatePhase(input: {
           phase,
           input: payload,
           retryFeedback,
+          repairOutput: input.repairOutput,
+          runId: input.runId,
+          attempt: input.attempt,
           ...llm,
           models: { [llm.service]: modelFor(llm) },
           keys: { [llm.service]: llm.keys[llm.service] ?? "" },
@@ -198,7 +221,14 @@ export async function generatePhase(input: {
       "INVALID_OUTPUT",
       "The model's answer did not match the phase schema.",
       true,
-      validated.errors,
+      validated.errors.slice(0, 20).map((error) =>
+        safeDiagnosticText(
+          error,
+          Object.values(llm.keys).filter((key): key is string => !!key),
+          300,
+        ),
+      ),
+      repairOutput,
     );
   }
   return {

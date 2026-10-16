@@ -177,7 +177,7 @@ export type BriefingStats = {
   sourcesConsidered: number;
   fullTextsFetched: number;
   fullTextsFailed: number;
-  /** Whole proposed items omitted for editorial score or section/group mismatch. */
+  /** Whole proposed items omitted for score, section/group mismatch or edition size limits. */
   omittedWeakItems?: number;
   /** Whole optional paragraphs omitted because their excerpts could not be verified. */
   omittedUnsupportedSections?: number;
@@ -257,7 +257,12 @@ export type BriefingRun = {
   stats?: Partial<BriefingStats>;
   repairUsed?: boolean;
   /** Bounded validator diagnostics, not provider response bodies or credentials. */
-  repairTrace?: { phase: GeneratePhase; code: GenerateFailureCode; errors: string[] };
+  repairTrace?: {
+    phase: GeneratePhase;
+    code: GenerateFailureCode;
+    errors: string[];
+    output?: string;
+  };
   /** Remember compact-output requirements across cancellation and Resume. */
   truncatedPhases?: GeneratePhase[];
   coverageIncomplete?: boolean;
@@ -287,7 +292,7 @@ export type GenerateFailureCode =
 
 export type GenerateSuccess = {
   ok: true;
-  /** Whole proposed items omitted for editorial score or section/group mismatch. */
+  /** Whole proposed items omitted for score, section/group mismatch or edition size limits. */
   omittedWeakItems?: number;
   /** Whole optional paragraphs omitted because their excerpts could not be verified. */
   omittedUnsupportedSections?: number;
@@ -305,6 +310,8 @@ export type GenerateFailure = {
   retryable: boolean;
   /** Short validator field paths, safe to echo back as repair feedback. */
   errors?: string[];
+  /** Complete, credential-redacted failed JSON for the existing single repair. */
+  repairOutput?: string;
 };
 
 export type GenerateResult = GenerateSuccess | GenerateFailure;

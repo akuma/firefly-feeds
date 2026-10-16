@@ -243,7 +243,10 @@ Legacy Resume keeps its original prepared history and range; new Regenerate
 freezes a new window and excludes same-date revisions from historical coverage.
 
 Briefing runs optionally retain `repairTrace` with the phase, failure code and
-bounded validator feedback for the single repair attempt. Old runs without it
+bounded validator feedback for the single repair attempt. Optional `output` holds
+a complete invalid JSON object up to 64 KiB after credential redaction, solely
+for correction using the same frozen input. Incomplete or oversized output is
+omitted. This checkpoint is not published as an edition. Old runs without it
 remain valid; no migration is needed. This cannot retrospectively identify the
 precise repair reason or initiating click of an earlier run.
 
@@ -255,3 +258,6 @@ Briefing run stats and published edition stats optionally retain
 `omittedUnsupportedSections`, counting whole optional paragraphs omitted after
 verbatim-evidence checks. Missing values on older records mean zero; no migration
 or rewriting is needed. Required prose and unknown references remain strict.
+
+The existing `omittedWeakItems` topic-omission total also includes whole items
+removed to meet edition size limits. Its name and record shape remain unchanged.
