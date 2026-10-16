@@ -23,6 +23,7 @@ import { clsx } from "./clsx";
 import { IconButton, Rule } from "./brand";
 import { Hint, LOW_CONFIDENCE_HINT } from "./hint";
 import { Media } from "./plate";
+import { bodyHasPhotograph } from "@/lib/feed-html";
 import { FOLDERS } from "@/lib/sources";
 import { DWELL_MS, progressFor, readSignal } from "@/lib/reading";
 import { FONT_SIZES, useReader, type ReaderFont } from "@/lib/store";
@@ -534,9 +535,11 @@ export function ArticlePane({ onBack }: { onBack?: () => void } = {}) {
   // Artwork above the body is the page's own cover, the sample edition's
   // plate, or a video page's frame. A body figure keeps its place, so it is
   // never lifted here. The cover and the stream thumbnail are different
-  // photographs when the feed already had a picture of its own.
+  // photographs when the feed already had a picture of its own. A photograph
+  // the body already shows is not drawn again above it.
   const coverSrc = s.coverImage ?? s.image;
-  const leadingFigure = s.plate !== undefined || Boolean(s.hasCover && coverSrc);
+  const repeated = bodyHasPhotograph(s.body, s.hasCover ? coverSrc : undefined);
+  const leadingFigure = s.plate !== undefined || Boolean(s.hasCover && coverSrc && !repeated);
   const saved = r.state.saved[s.id];
   const later = r.state.later[s.id];
   const read = r.state.read[s.id];
@@ -770,10 +773,9 @@ export function ArticlePane({ onBack }: { onBack?: () => void } = {}) {
           )}
 
           {/*
-           * A body image keeps its position, so the article never renders one
-           * above the body. Artwork appears here only for the sample edition's
-           * generated plate and for a video page, whose frame is the page's own
-           * poster — neither is a body figure.
+           * A body image keeps its position. This slot is a real cover, the
+           * sample edition's plate, or a video page's frame. A photograph the
+           * body already shows is not drawn again here.
            */}
           {leadingFigure && (
             <figure className="mt-8">

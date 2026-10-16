@@ -79,6 +79,23 @@ describe("extractArticle", () => {
     expect(article.blocks.some((b) => b.kind === "figure")).toBe(true);
   });
 
+  it("does not draw a later copy of the cover above the body as well", () => {
+    const page = `<!doctype html><html><head>
+      <meta property="og:image" content="https://cdn.test/hero.jpg">
+      <title>Hero again</title>
+    </head><body><article><h1>Hero again</h1>
+      ${paragraph("Opening paragraph.")}
+      <img src="https://cdn.test/other.jpg" width="800" height="600" alt="Other">
+      <figure><img src="https://cdn.test/hero-1024x683.jpg" width="1024" height="683" alt="Hero"><figcaption>At the end.</figcaption></figure>
+    </article></body></html>`;
+    const article = extractArticle(page, "https://example.com/a");
+    // still the stream thumbnail
+    expect(article.image).toBe("https://cdn.test/hero.jpg");
+    // the article already shows it, so it is not also a cover
+    expect(article.hasCover).toBe(false);
+    expect(article.blocks.filter((block) => block.kind === "figure")).toHaveLength(2);
+  });
+
   it("drops the body's copy when the cover is that same photograph", () => {
     const page = `<!doctype html><html><head>
       <meta property="og:image" content="https://cdn.test/hero.jpg">
@@ -90,6 +107,19 @@ describe("extractArticle", () => {
     const article = extractArticle(page, "https://example.com/a");
     expect(article.hasCover).toBe(true);
     // the cover is shown above the body, so the body's copy of it is dropped
+    expect(article.blocks.some((b) => b.kind === "figure")).toBe(false);
+  });
+
+  it("treats a resized body copy as that same cover photograph", () => {
+    const page = `<!doctype html><html><head>
+      <meta property="og:image" content="https://cdn.test/hero.jpg">
+      <title>Resized</title>
+    </head><body><article><h1>Resized</h1>
+      ${paragraph("Opening paragraph.")}
+      <img src="https://cdn.test/hero-1024x683.jpg" width="1024" height="683" alt="Hero">
+    </article></body></html>`;
+    const article = extractArticle(page, "https://example.com/a");
+    expect(article.hasCover).toBe(true);
     expect(article.blocks.some((b) => b.kind === "figure")).toBe(false);
   });
 

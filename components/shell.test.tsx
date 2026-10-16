@@ -1920,6 +1920,19 @@ describe("body images", () => {
     expect(stream().querySelector('img[src*="later.jpg"]')).not.toBeNull();
   });
 
+  it("does not repeat a picture the body already shows as a cover", async () => {
+    await seedBody({
+      image: "https://cdn.test/thumb.jpg",
+      hasCover: true,
+      coverImage: "https://cdn.test/inset.jpg",
+    });
+    await mount();
+    const sources = [...reader().querySelectorAll("img")].map((img) => img.getAttribute("src"));
+    expect(sources.filter((src) => src?.includes("inset.jpg"))).toHaveLength(1);
+    expect(sources.some((src) => src?.includes("thumb.jpg"))).toBe(false);
+    expect(stream().querySelector('img[src*="thumb.jpg"]')).not.toBeNull();
+  });
+
   it("shows the declared cover above the body", async () => {
     await seedBody({ image: "https://cdn.test/cover.jpg", hasCover: true });
     await mount();

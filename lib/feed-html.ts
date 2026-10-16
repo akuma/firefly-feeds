@@ -571,7 +571,25 @@ export function imageIdentity(url: string): string {
   if (nested > 0) value = value.slice(nested);
   const query = value.indexOf("?");
   if (query !== -1) value = value.slice(0, query);
-  return value.replace(/[/#]+$/, "");
+  value = value.replace(/[/#]+$/, "");
+  // Publishers append the rendered size (`photo-1024x683.jpg`) or `-scaled`.
+  // Those are the same photograph as `photo.jpg`, not a second picture.
+  let previous = "";
+  while (previous !== value) {
+    previous = value;
+    value = value.replace(/-(?:scaled|\d{2,4}x\d{2,4})(?=\.[a-z0-9]+$)/, "");
+  }
+  return value;
+}
+
+/** Whether the body already shows this photograph, at any of its sizes. */
+export function bodyHasPhotograph(blocks: readonly Block[], cover?: string): boolean {
+  if (!cover) return false;
+  const id = imageIdentity(cover);
+  return blocks.some(
+    (block) =>
+      block.kind === "figure" && block.src !== undefined && imageIdentity(block.src) === id,
+  );
 }
 
 /**

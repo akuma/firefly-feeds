@@ -4,6 +4,7 @@ import { DOMParser, parseHTML } from "linkedom";
 import { FeedError, readCapped, USER_AGENT } from "./feed-server";
 import {
   ARTICLE_BODY_BUDGET,
+  bodyHasPhotograph,
   bodyLeadsWithMedia,
   decodeEntities,
   decodeObfuscatedEmails,
@@ -345,13 +346,22 @@ export function extractArticle(html: string, url: string, siteHint?: string): Ex
   // The page's own cover image. It is shown above the body when the piece
   // does not already open with a picture — otherwise that first figure is the
   // cover and the metadata image is only a thumbnail. A cover that shares a
-  // photograph with the body's first figure removes that duplicate copy; any
-  // picture further down keeps its place.
+  // photograph with the body's first figure removes that duplicate copy.
+  // If the same photograph still appears further down, it is not a cover: the
+  // article already shows it, and drawing it again above the body doubles it.
   const metaCover = usableImage(parsed?.image, url);
   const bodyBlocks = video ? [{ kind: "video" as const, ...video }, ...blocks] : blocks;
-  const hasCover = Boolean(metaCover) && !bodyLeadsWithMedia(bodyBlocks);
+  let hasCover = Boolean(metaCover) && !bodyLeadsWithMedia(bodyBlocks);
+  let body = bodyBlocks;
+  if (hasCover && metaCover) {
+    const stripped = stripCoverCopy(bodyBlocks, metaCover);
+    if (bodyHasPhotograph(stripped, metaCover)) {
+      hasCover = false;
+    } else {
+      body = stripped;
+    }
+  }
   const image = metaCover ?? firstFigureSrc(blocks);
-  const body = hasCover ? stripCoverCopy(bodyBlocks, metaCover) : bodyBlocks;
 
   return {
     title: cleanTitle(parsed?.title, parsed?.site, siteHint),

@@ -493,17 +493,20 @@ Article body 中的图片顺序必须尽量保持 Original page 的真实正文�
 如果某一个 figure 被确定为 Article lead image：
 
 - 设置为 Article.image。
-- 从正文 Block[] 中移除第一个 src 相同的 figure。
+- 从正文 Block[] 中移除第一个与它同一张照片的 figure。文件名里的渲染尺寸（`photo-1024x683.jpg`、`photo-scaled.jpg`）和原图是同一张照片。
 
-不要删除正文中后面可能确实再次出现的图片。
+不要删除正文中后面可能确实再次出现的图片。如果去掉第一张之后，同一张照片仍在正文更后面，它就不是封面：`hasCover` 为 false，正文保持原样，这张图仍可作信息流缩略图，但不再画在正文上方。
 
 最终：
 
 Article.image
-= lead image
+= 页面元数据图，没有时才是正文第一张合理图片。它是缩略图候选，不一定是封面。
+
+Article.hasCover
+= 这张图会画在正文上方。正文里已经出现的照片不是封面。
 
 Article.body
-= 不再重复包含同一个 lead image
+= 只有在它被当作封面、且正文里没有留下另一份时，才去掉第一份副本。
 
 ## 十五、正文图片基础去重
 
@@ -626,7 +629,8 @@ Images：
 - picture/source 可以识别。
 - avatar / logo / tracking pixel 被过滤。
 - 正文图片顺序保持。
-- lead image 不再在 body 中重复。
+- 被当作封面的 lead image 不再在 body 中重复。
+- 正文更后面仍有同一张照片时，不把它再画到正文上方。
 - 相同 resolved URL 可以去重。
 
 ## 二十、不要做的事情

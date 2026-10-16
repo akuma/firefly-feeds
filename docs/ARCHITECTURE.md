@@ -231,17 +231,21 @@ reasonable body picture. When the piece does not already open with a picture,
 that cover is shown above the body; when it does open with one, that first
 figure is the cover and the metadata image is only the stream thumbnail. A body
 picture is never lifted out of its place: if the body's first figure is the same
-photograph as the cover, that duplicate copy is dropped, and otherwise it stays
-exactly where the piece put it.
+photograph as the cover, that duplicate copy is dropped. If the same photograph
+still appears further down, it stays where the piece put it and is not also
+drawn above the body. A resized filename (`photo-1024x683.jpg`) is the same
+photograph as `photo.jpg`.
 
 A thumbnail the feed already showed stays on the row when the original page is
 fetched. The page's picture fills a thumbnail in only when the feed had none.
 When that page picture is a different photograph and the page declares it as
 the cover, the reader shows it (`coverImage`) and the stream keeps the feed
-picture. A compact row with a summary becomes a standard row once a picture is
-known, including one discovered from the page; a brief row stays a contents
-line. A later feed refresh puts the feed's own thumbnail back if an older
-extraction had replaced it.
+picture. A page picture that already appears in the body stays there; it can
+fill a thumbnail, and it is not drawn a second time above the body. A compact
+row with a summary becomes a standard row once a picture is known, including
+one discovered from the page; a brief row stays a contents line. A later feed
+refresh puts the feed's own thumbnail back if an older extraction had replaced
+it.
 
 A page's own video is read from standard metadata (schema.org `VideoObject`,
 Open Graph/Twitter player meta, or a real `<iframe>`) and stored as

@@ -6,6 +6,7 @@ import {
   htmlToBlocks,
   htmlToSummary,
   htmlToText,
+  imageIdentity,
   isSafeUrl,
   sharedOpening,
 } from "./feed-html";
@@ -308,6 +309,20 @@ describe("htmlToBlocks", () => {
 
 const figureSrcs = (blocks: ReturnType<typeof htmlToBlocks>["blocks"]) =>
   blocks.flatMap((block) => (block.kind === "figure" && block.src ? [block.src] : []));
+
+describe("imageIdentity", () => {
+  it("treats a resized filename as the same photograph", () => {
+    expect(imageIdentity("https://cdn.test/hero-1024x683.jpg?w=10")).toBe(
+      imageIdentity("https://cdn.test/hero.jpg"),
+    );
+    expect(imageIdentity("https://cdn.test/hero-scaled.jpg")).toBe(
+      imageIdentity("https://cdn.test/hero.jpg"),
+    );
+    expect(imageIdentity("https://cdn.test/other.jpg")).not.toBe(
+      imageIdentity("https://cdn.test/hero.jpg"),
+    );
+  });
+});
 
 describe("images", () => {
   it("picks a readable resolution from srcset rather than the smallest thumbnail", () => {
