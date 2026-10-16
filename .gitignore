@@ -10,3 +10,4 @@ coverage
 .worktrees/
 .wrangler/
 .dev.vars
+.playwright-mcp/
