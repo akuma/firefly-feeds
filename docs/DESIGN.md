@@ -132,7 +132,11 @@ slot would read as the article's own image and would not exist on the page the
 story links to.
 
 In the stream, a photograph is cropped to its row: 16:10 on a feature, 4:3 on
-a standard row. The reader keeps that 16:9 frame for a landscape. A portrait —
+a standard row. The picture is requested with this reader's origin first. If
+that response cannot be shown, the same address is requested once more with no
+referrer. When neither can be shown, the frame says so and the requested
+address is shown beneath it, across the row rather than inside the thumbnail.
+The reader keeps that 16:9 frame for a landscape. A portrait —
 taller than it is wide — is shown whole, at the column width, and narrows once
 it would exceed three quarters of the viewport. Feeds rarely carry a reliable
 size, so the reader measures the loaded image. A square stays in the frame.
@@ -273,13 +277,16 @@ URLs, email addresses, code spans, source identifiers and evidence excerpts rema
 verbatim. Explicit Japanese/Korean editions and text containing their scripts are
 left unchanged. New model prompts request the same Chinese spacing convention.
 
-Briefing controls distinguish the saved edition from unfinished work. A newer
-incomplete task displays its revision and next stage, with Resume rN as the
-primary action. With no saved edition, the secondary action is Start over;
-otherwise the existing Regenerate/Generate action stays available. A saved
-edition is explicitly marked Saved. Older attempts disappear from these controls
-once a newer edition succeeds; dates/timezones distinguish a selected archive
-from today's unfinished work. Errors and live generation progress stay separate.
+Briefing controls distinguish the saved edition from unfinished work. The
+dateline stays at the top right of the masthead. On the line below, status
+stays on the left and the action on the right: a saved edition, an interrupted
+task, live progress, or the source count on the left; Generate, Regenerate, or
+Cancel on the right. A newer incomplete task displays its revision and next
+stage, with Resume rN as the rightmost action. With no saved edition, Start
+over sits beside it; otherwise Regenerate does. Older attempts disappear from
+these controls once a newer edition succeeds; dates/timezones distinguish a
+selected archive from today's unfinished work. The setup explanations for a
+missing source or model keep the full width of the column.
 
 The desktop briefing contents begin with a roman serif Big Picture entry,
 followed by separate mono-labelled Top Stories and Worth Reading groups, without

@@ -434,6 +434,7 @@ export function ArticlePane({ onBack }: { onBack?: () => void } = {}) {
   const [progress, setProgress] = useState(0);
   const [fontOpen, setFontOpen] = useState(false);
   const [topicOpen, setTopicOpen] = useState(false);
+  const [failedCoverId, setFailedCoverId] = useState<string | null>(null);
   /** Stories already credited by the scroll-to-end rule, so it fires once each. */
   const credited = useRef(new Set<string>());
 
@@ -540,6 +541,7 @@ export function ArticlePane({ onBack }: { onBack?: () => void } = {}) {
   const coverSrc = s.coverImage ?? s.image;
   const repeated = bodyHasPhotograph(s.body, s.hasCover ? coverSrc : undefined);
   const leadingFigure = s.plate !== undefined || Boolean(s.hasCover && coverSrc && !repeated);
+  const coverFailed = failedCoverId === `${s.id}:${coverSrc}`;
   const saved = r.state.saved[s.id];
   const later = r.state.later[s.id];
   const read = r.state.read[s.id];
@@ -787,6 +789,7 @@ export function ArticlePane({ onBack }: { onBack?: () => void } = {}) {
                   big
                   preservePortrait
                   className="aspect-[16/9] w-full"
+                  onError={() => setFailedCoverId(`${s.id}:${coverSrc}`)}
                 />
                 {s.videoPage && articleHref && (
                   <a
@@ -794,7 +797,12 @@ export function ArticlePane({ onBack }: { onBack?: () => void } = {}) {
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-label={`Watch on ${hostOf(articleHref)}`}
-                    className="absolute inset-0 flex items-center justify-center bg-black/25 transition-colors hover:bg-black/40"
+                    className={clsx(
+                      "absolute inset-x-0 top-0 flex items-center justify-center bg-black/25 transition-colors hover:bg-black/40",
+                      // A failed picture leaves its address under the frame. The
+                      // play link then covers only the 16:9 frame, not that line.
+                      coverFailed ? "aspect-[16/9]" : "bottom-0",
+                    )}
                   >
                     <span className="flex items-center gap-2 bg-ink px-4 py-2.5 text-canvas">
                       <Play size={13} strokeWidth={2} fill="currentColor" />

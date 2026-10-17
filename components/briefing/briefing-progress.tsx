@@ -30,7 +30,7 @@ export function BriefingProgressLine({ briefing }: { briefing: Briefing }) {
       <p
         role="alert"
         data-t="briefing-error"
-        className="mono mt-3 max-w-[46ch] text-[9.5px] leading-[1.7] tracking-[0.12em] text-spark uppercase"
+        className="mono max-w-[46ch] text-[9.5px] leading-[1.7] tracking-[0.12em] text-spark uppercase"
       >
         {error.message}
       </p>
@@ -42,7 +42,7 @@ export function BriefingProgressLine({ briefing }: { briefing: Briefing }) {
       role="status"
       aria-live="polite"
       data-t="briefing-progress"
-      className="mono mt-3 flex items-start gap-2 text-[9.5px] leading-[1.7] tracking-[0.12em] text-ink4 uppercase"
+      className="mono flex items-start gap-2 text-[9.5px] leading-[1.7] tracking-[0.12em] text-ink4 uppercase"
     >
       <Firefly size={5} glow={false} pulse={briefing.running} className="mt-[5px]" />
       <span key={progress.status} className="ff-fade">
@@ -65,7 +65,7 @@ export function BriefingResumeNotice({ briefing }: { briefing: Briefing }) {
   const { current, resumable } = briefing;
   if (!resumable)
     return current ? (
-      <p role="status" className="mono mb-3 text-[9.5px] tracking-[0.12em] text-ink4 uppercase">
+      <p role="status" className="mono text-[9.5px] tracking-[0.12em] text-ink4 uppercase">
         r{current.revision} · Saved
       </p>
     ) : null;
@@ -88,7 +88,7 @@ export function BriefingResumeNotice({ briefing }: { briefing: Briefing }) {
     <div
       role="status"
       data-t="briefing-resume-notice"
-      className="mb-3 text-[13px] leading-relaxed text-ink3"
+      className="text-[13px] leading-relaxed text-ink3"
     >
       <p>{saved ? `Showing ${saved} (saved).` : "No completed edition yet."}</p>
       <p className="text-ink2">

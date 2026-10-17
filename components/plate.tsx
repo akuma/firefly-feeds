@@ -395,6 +395,8 @@ function fitOf(img: HTMLImageElement): Exclude<ImageFit, { kind: "pending" }> | 
  * the head and the feet, so once the image has loaded the reader lets a
  * portrait keep its own ratio.
  */
+type ReferrerPolicy = "strict-origin-when-cross-origin" | "no-referrer";
+
 export function Media({
   seed,
   src,
@@ -403,6 +405,7 @@ export function Media({
   big = false,
   sizes,
   preservePortrait = false,
+  onError,
 }: {
   seed: number;
   src?: string;
@@ -411,8 +414,13 @@ export function Media({
   big?: boolean;
   sizes?: string;
   preservePortrait?: boolean;
+  /** Fires once the publisher's picture cannot be shown. */
+  onError?: () => void;
 }) {
   const [failed, setFailed] = useState(false);
+  // Some publishers refuse an empty Referer; others refuse a foreign origin.
+  // Try the origin first, and only then a request that names no page.
+  const [referrer, setReferrer] = useState<ReferrerPolicy>("strict-origin-when-cross-origin");
   const [fit, setFit] = useState<ImageFit>(
     preservePortrait ? { kind: "pending" } : { kind: "frame" },
   );
@@ -422,6 +430,7 @@ export function Media({
   if (trackedMode !== modeKey) {
     setTrackedMode(modeKey);
     setFailed(false);
+    setReferrer("strict-origin-when-cross-origin");
     setFit(preservePortrait ? { kind: "pending" } : { kind: "frame" });
   }
 
@@ -449,38 +458,44 @@ export function Media({
   // the frame the caller sized.
   const framed = failed || fit.kind === "frame";
 
-  return (
+  const frame = (
     <div
       className={clsx("relative bg-plate", framed && "overflow-hidden", className)}
       style={framed ? undefined : { aspectRatio: "auto" }}
     >
       {failed ? (
-        <span className="mono absolute inset-0 flex items-center justify-center text-[9px] tracking-[0.14em] text-ink4 uppercase">
+        <span className="mono absolute inset-0 flex items-center justify-center px-2 text-center text-[9px] tracking-[0.14em] text-ink4 uppercase">
           Image unavailable
         </span>
       ) : (
         <img
+          key={referrer}
           ref={imgRef}
           src={src}
           alt={alt ?? ""}
           loading="lazy"
           decoding="async"
           /*
-           * The browser's own default, and deliberately not `no-referrer`.
-           * Some publisher CDNs — 少数派's among them — refuse a request whose
-           * Referer is empty while serving the same image to any referer, so
-           * sending the origin is the difference between the picture and
-           * "Image unavailable". Cross-origin it is the origin only, never the
-           * reading URL.
+           * Cross-origin this sends the origin only, never the reading URL.
+           * A publisher that rejects that origin gets one more try with no
+           * Referer. Giving up only after both means the address is shown
+           * for a picture neither request could display.
            */
-          referrerPolicy="strict-origin-when-cross-origin"
+          referrerPolicy={referrer}
           sizes={sizes}
           onLoad={(event) => {
             if (!preservePortrait) return;
             const next = fitOf(event.currentTarget);
             if (next) setFit(next);
           }}
-          onError={() => setFailed(true)}
+          onError={() => {
+            if (referrer === "strict-origin-when-cross-origin") {
+              setReferrer("no-referrer");
+              return;
+            }
+            setFailed(true);
+            onError?.();
+          }}
           className={
             framed
               ? "absolute inset-0 h-full w-full object-cover"
@@ -493,6 +508,24 @@ export function Media({
           }
         />
       )}
+    </div>
+  );
+
+  if (!failed) return frame;
+  // The address sits with the picture, not inside the frame. A stream plate is
+  // only 84px wide, so the address has to join the row's own grid and use the
+  // row's width. `contents` is what lets that sibling participate.
+  return (
+    <div className="contents">
+      {frame}
+      <span
+        data-t="image-address"
+        className="mono col-span-2 mt-1.5 block min-w-0 cursor-text text-[10px] leading-[1.55] break-all text-ink4 select-text"
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {src}
+      </span>
     </div>
   );
 }

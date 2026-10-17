@@ -62,7 +62,6 @@ export function BriefingColumn({
 
         {/* ------------------------------------------------------- controls */}
         <div className="mt-4">
-          <BriefingResumeNotice briefing={briefing} />
           {subscribed === 0 ? (
             <div className="border-t border-rule pt-4">
               <p className="text-[13.5px] leading-[1.5] text-ink3">
@@ -94,56 +93,71 @@ export function BriefingColumn({
               </button>
             </div>
           ) : (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rule pt-4">
-              {briefing.resumable && !briefing.running && (
-                <button
-                  type="button"
-                  data-t="briefing-resume"
-                  onClick={briefing.resume}
-                  className="mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
-                >
-                  <RotateCcw size={11} strokeWidth={1.8} />
-                  Resume r{briefing.resumable.revision}
-                </button>
-              )}
-              {!briefing.running && (
-                <button
-                  type="button"
-                  data-t="briefing-generate"
-                  onClick={briefing.generate}
-                  className={clsx(
-                    "mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] uppercase transition-opacity hover:opacity-70",
-                    briefing.resumable ? "text-ink4" : "text-spark",
+            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-t border-rule pt-3">
+              <div className="min-w-0 flex-1 basis-32">
+                <BriefingResumeNotice briefing={briefing} />
+                <BriefingProgressLine briefing={briefing} />
+                {!edition &&
+                  !briefing.running &&
+                  !briefing.resumable &&
+                  !briefing.progress &&
+                  !briefing.error && (
+                    <span className="mono text-[9.5px] tracking-[0.12em] text-ink4 uppercase">
+                      From {subscribed} subscribed source{subscribed === 1 ? "" : "s"}
+                    </span>
                   )}
-                >
-                  <FileText size={11} strokeWidth={1.8} />
-                  {briefing.resumable && !edition
-                    ? "Start over"
-                    : isToday
-                      ? "Regenerate"
-                      : "Generate today's briefing"}
-                </button>
-              )}
-              {briefing.running && (
-                <button
-                  type="button"
-                  data-t="briefing-cancel"
-                  onClick={briefing.cancel}
-                  className="mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
-                >
-                  <X size={11} strokeWidth={1.8} />
-                  Cancel
-                </button>
-              )}
-              {!edition && !briefing.running && (
-                <span className="mono text-[9.5px] tracking-[0.12em] text-ink4 uppercase">
-                  From {subscribed} subscribed source{subscribed === 1 ? "" : "s"}
-                </span>
-              )}
+              </div>
+              <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-4 gap-y-2">
+                {!briefing.running && (
+                  <button
+                    type="button"
+                    data-t="briefing-generate"
+                    onClick={briefing.generate}
+                    className={clsx(
+                      "mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] uppercase transition-opacity hover:opacity-70",
+                      briefing.resumable ? "text-ink4" : "text-spark",
+                    )}
+                  >
+                    <FileText size={11} strokeWidth={1.8} />
+                    {briefing.resumable && !edition
+                      ? "Start over"
+                      : isToday
+                        ? "Regenerate"
+                        : "Generate today's briefing"}
+                  </button>
+                )}
+                {briefing.running && (
+                  <button
+                    type="button"
+                    data-t="briefing-cancel"
+                    onClick={briefing.cancel}
+                    className="mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
+                  >
+                    <X size={11} strokeWidth={1.8} />
+                    Cancel
+                  </button>
+                )}
+                {briefing.resumable && !briefing.running && (
+                  <button
+                    type="button"
+                    data-t="briefing-resume"
+                    onClick={briefing.resume}
+                    className="mono flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-spark uppercase transition-opacity hover:opacity-70"
+                  >
+                    <RotateCcw size={11} strokeWidth={1.8} />
+                    Resume r{briefing.resumable.revision}
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
-          <BriefingProgressLine briefing={briefing} />
+          {(subscribed === 0 || !configured) && (
+            <div className="mt-3">
+              <BriefingResumeNotice briefing={briefing} />
+              <BriefingProgressLine briefing={briefing} />
+            </div>
+          )}
         </div>
       </header>
 
