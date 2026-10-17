@@ -3,6 +3,8 @@
 - **状态**：工程实现完成，待真实模型编辑质量验收
 - **版本**：1.1（2026-10-14）
 
+2026-10-17 写作契约更新：新任务使用 v2，`evidence` 仅包含 `articleId`，不再要求 `excerpt`。本文下方的摘录契约保留用于解释旧 v1；旧 Resume 继续按 v1，历史摘录不清理。输入、选稿及存储外层 schema 仍为 v1；版本及兼容细节以 [ARCHITECTURE.md](../ARCHITECTURE.md) 与 [STORAGE.md](../STORAGE.md) 为准。
+
 实现核对与验证边界见 [ai-daily-briefing-audit.md](ai-daily-briefing-audit.md)。
 
 ## 0. 给 Coding Agent 的执行指令

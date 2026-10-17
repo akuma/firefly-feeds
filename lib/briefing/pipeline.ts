@@ -139,7 +139,9 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
   const editionDate = resume ? resume.editionKey.slice(0, 10) : localDate(cutoffAt, timezone);
   const editionKey = resume?.editionKey ?? `${editionDate}@${timezone}`;
   const revision = resume?.revision ?? (await nextRevision(editionKey));
-  const promptVersion = `${PROMPT_VERSIONS.shortlist}/${PROMPT_VERSIONS.compose}`;
+  const composeContractVersion = resume ? (resume.prepared?.composeContractVersion ?? 1) : 2;
+  const promptVersion =
+    resume?.promptVersion ?? `${PROMPT_VERSIONS.shortlist}/${PROMPT_VERSIONS.compose}`;
 
   // Failed and cancelled runs are working state; only they get cleaned up.
   await repo.cleanupBriefingRuns(Date.now() - BRIEFING_RUN_TTL_MS);
@@ -256,6 +258,7 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
         .slice(0, 10);
       prepared = {
         schemaVersion: 1,
+        composeContractVersion,
         editionDate,
         cutoffAt,
         coverageStartedAt: cutoffAt - BRIEFING_LIMITS.recentWindowHours * 60 * 60_000,
@@ -457,6 +460,7 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
     if (composed) {
       const trimmed = pruneWeakComposition(composed, {
         schemaVersion: 1,
+        composeContractVersion,
         editionDate,
         timezone,
         cutoffAt,
@@ -491,6 +495,7 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
       emit("composing");
       const payload: ComposeInput = fitComposeInput({
         schemaVersion: 1,
+        composeContractVersion,
         editionDate,
         timezone,
         cutoffAt,
@@ -547,6 +552,7 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
       composed,
       {
         schemaVersion: 1,
+        composeContractVersion,
         editionDate,
         timezone,
         cutoffAt,
@@ -611,6 +617,7 @@ export async function runBriefing(input: RunBriefingInput): Promise<BriefingOutc
       generatedAt: now,
       outputLanguage,
       schemaVersion: 1,
+      composeContractVersion,
       promptVersion,
       model: modelRef,
       coverageIncomplete:

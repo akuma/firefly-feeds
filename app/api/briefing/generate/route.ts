@@ -391,7 +391,7 @@ async function handle(request: Request, trace: Trace): Promise<Response> {
           true,
           502,
           [
-            "output: cut off at the token limit — write more compactly, with shorter excerpts and fewer optional sections",
+            "output: cut off at the token limit — write more compactly, with shorter prose and fewer optional sections",
           ],
         );
       const code: GenerateFailureCode =
@@ -423,7 +423,7 @@ async function handle(request: Request, trace: Trace): Promise<Response> {
             true,
             502,
             [
-              "output: cut off at the token limit — write more compactly, with shorter excerpts and fewer optional sections",
+              "output: cut off at the token limit — write more compactly, with shorter prose and fewer optional sections",
             ],
           )
         : failure("INVALID_OUTPUT", "The model's answer was not JSON.", true, 502, [

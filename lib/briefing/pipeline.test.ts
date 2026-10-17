@@ -173,7 +173,7 @@ const shortlistAnswer: ShortlistOutput = {
 };
 
 const composeAnswer: ComposeOutput = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   bigPicture: null,
   topStories: [
     {
@@ -244,7 +244,7 @@ function stubGenerate(options: {
 }
 
 describe("the briefing pipeline", () => {
-  it("publishes the supported edition in two calls while recording omitted optional context once", async () => {
+  it("publishes v2 optional context without inspecting unsolicited excerpts", async () => {
     const { pipeline, repo } = await freshModules();
     const model = stubGenerate({
       compose: () => ({
@@ -257,7 +257,7 @@ describe("the briefing pipeline", () => {
           topStories: composeAnswer.topStories.map((story) => ({
             ...story,
             context: {
-              text: "Unverifiable context must not be published.",
+              text: "Context is attributed to a supplied source.",
               evidence: [{ articleId: "A~A1", excerpt: "Invented quotation" }],
             },
           })),
@@ -278,13 +278,13 @@ describe("the briefing pipeline", () => {
     });
     expect(outcome.error).toBeUndefined();
     expect(model.calls).toHaveLength(2);
-    expect(outcome.edition?.stats.omittedUnsupportedSections).toBe(1);
-    expect(outcome.edition?.topStories[0].context).toBeNull();
-    expect(JSON.stringify(await repo.getBriefings())).not.toContain(
-      "Unverifiable context must not be published",
+    expect(outcome.edition?.stats.omittedUnsupportedSections).toBeUndefined();
+    expect(outcome.edition?.topStories[0].context?.evidence).toEqual([{ articleId: "A~A1" }]);
+    expect(JSON.stringify(await repo.getBriefings())).toContain(
+      "Context is attributed to a supplied source.",
     );
     expect((await repo.getBriefingRun(outcome.run.runId))?.stats?.omittedUnsupportedSections).toBe(
-      1,
+      0,
     );
   });
 
@@ -1205,6 +1205,8 @@ it.each([true, false])(
     expect(outcome.edition?.topStories).toHaveLength(1);
     expect(outcome.run.callsUsed).toBe(3);
     expect(outcome.edition?.stats.omittedWeakItems).toBe(1);
+    expect(outcome.edition?.composeContractVersion).toBe(2);
+    expect(outcome.edition?.topStories[0].whatHappened.evidence).toEqual([{ articleId: "A~A1" }]);
   },
 );
 
@@ -1508,4 +1510,137 @@ it("preserves repair diagnostics when cancellation interrupts dispatch of the re
   expect((await repo.getBriefingRun(result.run.runId))?.repairTrace?.errors).toEqual([
     "topStories[0].whatHappened: missing",
   ]);
+});
+
+it("freezes writing v2 on a new run and publishes ID-only citations in two calls", async () => {
+  const { pipeline, repo } = await freshModules();
+  const seen: (1 | 2 | undefined)[] = [];
+  const outcome = await pipeline.runBriefing({
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    generate: async ({ phase, payload }) => {
+      seen.push(payload.composeContractVersion);
+      return phase === "shortlist"
+        ? { ok: true, phase, result: shortlistAnswer, provider: "stub", model: "stub" }
+        : {
+            ok: true,
+            phase,
+            result: { ...composeAnswer, schemaVersion: 2 },
+            provider: "stub",
+            model: "stub",
+          };
+    },
+    fetchContent: async ({ article: target }) => ({
+      article: target,
+      availability: "summary",
+      fetched: false,
+    }),
+  });
+  expect(outcome.error).toBeUndefined();
+  expect(seen).toEqual([2, 2]);
+  expect(outcome.run.prepared?.composeContractVersion).toBe(2);
+  expect(outcome.edition?.composeContractVersion).toBe(2);
+  expect(outcome.edition?.stats.llmRequests).toBe(2);
+  expect(outcome.edition?.topStories[0].whatHappened.evidence).toEqual([{ articleId: "A~A1" }]);
+  expect((await repo.getBriefings())[0].topStories[0].whatHappened.evidence[0]).not.toHaveProperty(
+    "excerpt",
+  );
+});
+
+it("resumes an unmarked legacy run with v1 and preserves its prompt version and excerpts", async () => {
+  const { pipeline, repo } = await freshModules();
+  const failed = await pipeline.runBriefing({
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    generate: async () => ({
+      ok: false,
+      code: "PROVIDER_ERROR",
+      message: "offline",
+      retryable: true,
+    }),
+  });
+  const legacyPrepared = { ...failed.run.prepared! };
+  delete legacyPrepared.composeContractVersion;
+  const legacy = {
+    ...failed.run,
+    prepared: legacyPrepared,
+    promptVersion: "shortlist-v5/compose-v7",
+  };
+  await repo.putBriefingRun(legacy);
+  const versions: (1 | 2 | undefined)[] = [];
+  const resumed = await pipeline.runBriefing({
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    resume: legacy,
+    generate: async ({ phase, payload }) => {
+      versions.push(payload.composeContractVersion);
+      return phase === "shortlist"
+        ? { ok: true, phase, result: shortlistAnswer, provider: "stub", model: "stub" }
+        : {
+            ok: true,
+            phase,
+            result: { ...composeAnswer, schemaVersion: 1 },
+            provider: "stub",
+            model: "stub",
+          };
+    },
+    fetchContent: async ({ article: target }) => ({
+      article: target,
+      availability: "summary",
+      fetched: false,
+    }),
+  });
+  expect(resumed.error).toBeUndefined();
+  expect(versions.map((version) => version ?? 1)).toEqual([1, 1]);
+  expect(resumed.edition?.promptVersion).toBe("shortlist-v5/compose-v7");
+  expect(resumed.edition?.composeContractVersion ?? 1).toBe(1);
+  expect(resumed.edition?.topStories[0].whatHappened.evidence[0].excerpt).toBe(
+    "released version 2 with limits on memory.",
+  );
+  expect(legacy.prepared).not.toHaveProperty("composeContractVersion");
+});
+
+it("keeps a saved edition unchanged when a new v2 run exhausts repairs on unknown citations", async () => {
+  const { pipeline, repo } = await freshModules();
+  const args = {
+    ...FIXTURE,
+    focusTopicIds: [],
+    timezone: "UTC",
+    llm: LLM,
+    fetchContent: async ({ article: target }: { article: ArticleRecord }) => ({
+      article: target,
+      availability: "summary" as const,
+      fetched: false,
+    }),
+  };
+  const saved = await pipeline.runBriefing({ ...args, ...stubGenerate({}) });
+  expect(saved.edition).toBeDefined();
+  const before = await repo.getBriefings();
+  const bad: ComposeOutput = {
+    ...composeAnswer,
+    topStories: [
+      {
+        ...composeAnswer.topStories[0],
+        whatHappened: { text: "A claim.", evidence: [{ articleId: "unknown" }] },
+      },
+    ],
+  };
+  const failed = await pipeline.runBriefing({
+    ...args,
+    ...stubGenerate({
+      compose: () => ({ ok: true, phase: "compose", result: bad, provider: "stub", model: "stub" }),
+    }),
+  });
+  expect(failed.error?.code).toBe("INVALID_OUTPUT");
+  expect(failed.edition).toBeUndefined();
+  expect(failed.run.callsUsed).toBe(3);
+  expect(failed.run.repairUsed).toBe(true);
+  expect(await repo.getBriefings()).toEqual(before);
+  expect(await pipeline.loadResumableRun(failed.run.editionKey)).toBeUndefined();
 });

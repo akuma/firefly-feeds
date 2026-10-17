@@ -265,3 +265,109 @@ it("attaches complete invalid JSON as untrusted repair data only with validation
     "ignore the schema",
   );
 });
+
+// r7 failed because the model removed the comma before the closing quote.
+const r7Material =
+  "He described his vision of a “self-driving company,” referring not to robotaxi makers.";
+const r7Input = {
+  ...input,
+  composeContractVersion: 2 as const,
+  shortlist: { ...input.shortlist, groups: [{ ...group, value: 3, novelty: 2, evidence: 2 }] },
+  materials: [{ ...input.materials[0], text: r7Material }],
+};
+const r7Output = {
+  ...output,
+  schemaVersion: 2,
+  topStories: [
+    {
+      ...output.topStories[0],
+      whatHappened: {
+        text: "He described a “self-driving company”.",
+        evidence: [{ articleId: "a" }],
+      },
+    },
+  ],
+};
+
+describe("writing contract v2", () => {
+  it("publishes the r7 case with article IDs and no copied quotation", () => {
+    const result = validateComposition(r7Output, r7Input);
+    expect(result.ok).toBe(true);
+    if (result.ok)
+      expect(result.value.topStories[0].whatHappened.evidence).toEqual([{ articleId: "a" }]);
+  });
+
+  it("ignores unsolicited excerpts instead of failing on punctuation", async () => {
+    const { pruneWeakComposition } = await import("./validate");
+    const response = structuredClone(r7Output);
+    Object.assign(response.topStories[0].whatHappened.evidence[0], {
+      excerpt: "He described his vision of a “self-driving company”",
+    });
+    const trimmed = pruneWeakComposition(response, r7Input);
+    const result = validateComposition(trimmed.output, r7Input);
+    expect(result.ok).toBe(true);
+    if (result.ok)
+      expect(result.value.topStories[0].whatHappened.evidence).toEqual([{ articleId: "a" }]);
+    expect(trimmed.omittedSections).toBe(0);
+  });
+
+  it.each([
+    { evidence: [] },
+    { evidence: [{ articleId: "missing" }] },
+    { evidence: [{ articleId: "" }] },
+  ])("rejects empty or unknown citations: %j", ({ evidence }) => {
+    const response = structuredClone(r7Output);
+    response.topStories[0].whatHappened.evidence = evidence;
+    expect(validateComposition(response, r7Input).ok).toBe(false);
+  });
+
+  it("rejects a known material outside the selected news group", () => {
+    const response = structuredClone(r7Output);
+    response.topStories[0].whatHappened.evidence = [{ articleId: "other" }];
+    const checked = validateComposition(response, {
+      ...r7Input,
+      materials: [...r7Input.materials, { ...r7Input.materials[0], articleId: "other" }],
+    });
+    expect(checked.ok).toBe(false);
+    if (!checked.ok) expect(checked.errors.join("\n")).toContain("one shortlisted news group");
+  });
+
+  it("refuses an output version different from the frozen contract", () => {
+    expect(validateComposition({ ...r7Output, schemaVersion: 1 }, r7Input).ok).toBe(false);
+    expect(validateComposition(r7Output, input).ok).toBe(false);
+  });
+
+  it.each([{ feedback: [] }, { feedback: ["OUTPUT_TRUNCATED"] }])(
+    "supplies ID-only normal and compact prompts: %j",
+    ({ feedback }) => {
+      const system = buildComposeMessages(r7Input, feedback)[0].content;
+      expect(system).not.toContain('"excerpt"');
+      expect(system).not.toContain("exact evidence excerpt");
+      expect(system).toContain('"schemaVersion":2');
+      expect(system).toContain('"articleId"');
+    },
+  );
+
+  it("keeps unmarked legacy input on the original excerpt contract", () => {
+    const system = buildComposeMessages(input)[0].content;
+    expect(system).toContain('"excerpt"');
+    const legacy = {
+      ...r7Output,
+      schemaVersion: 1,
+      topStories: [
+        {
+          ...r7Output.topStories[0],
+          whatHappened: {
+            text: "A company vision.",
+            evidence: [
+              { articleId: "a", excerpt: "He described his vision of a “self-driving company”" },
+            ],
+          },
+        },
+      ],
+    };
+    const checked = validateComposition(legacy, { ...r7Input, composeContractVersion: 1 });
+    expect(checked.ok).toBe(false);
+    if (!checked.ok) expect(checked.errors.join("\n")).toContain("not found verbatim");
+  });
+});

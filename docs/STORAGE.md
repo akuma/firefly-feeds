@@ -92,7 +92,7 @@ change needs no migration.
 `briefings` and `briefingRuns` in the same additive way the earlier bumps did —
 a v2 or v3 database keeps every subscription, read flag and cached body and
 gains two empty stores. A published `BriefingEdition` carries its own source
-snapshots (headline, publication, link) beside every evidence excerpt, so it
+snapshots (headline, publication, link) beside its source references, so it
 survives the article cache by construction; `briefingRuns` holds the frozen
 input and stage checkpoints of one generation, and is the only thing
 `cleanupBriefingRuns` ever deletes. Publishing writes the edition and its run's
@@ -261,3 +261,18 @@ or rewriting is needed. Required prose and unknown references remain strict.
 
 The existing `omittedWeakItems` topic-omission total also includes whole items
 removed to meet edition size limits. Its name and record shape remain unchanged.
+
+### Writing citation contracts
+
+New prepared briefing inputs and published editions record optional
+`composeContractVersion: 2`. Their paragraph references contain only `articleId`;
+`excerpt` remains optional in the shared stored-reference type solely to read
+legacy records. Missing contract version means v1: old Resume uses its original
+excerpt schema and validators, and retains its recorded prompt version.
+Writing output uses schemaVersion 2 for contract v2; shortlist, input and edition
+envelopes remain schemaVersion 1. No stores, keys or indexes change.
+
+Existing editions and checkpoints are never rewritten or stripped of excerpts.
+The publication transaction and call/repair limits are unchanged. A failed new
+run cannot replace a saved edition. Rollback can disable new v2 runs while
+retaining v2 reading support. Legacy omission counters retain their meaning.

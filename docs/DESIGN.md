@@ -328,3 +328,10 @@ During Briefing generation, the live stage label has the existing small spark
 Firefly breathing dot and a brief fade when the stage changes. Detail counts
 update without restarting the fade. The existing reduced-motion rules disable
 both animations; stages and counts remain the actual pipeline state.
+
+New briefing writing returns source article IDs without requiring copied
+excerpts. The reading notice says “Source references have been checked; content
+is AI-generated and may contain errors.” Chinese editions say
+“来源引用已检查；内容由 AI 生成，可能存在错误。” This notice also replaces the stronger
+quotation claim on older editions; historical citations and excerpts stay stored.
+Source links, section layout and selection rules are unchanged.

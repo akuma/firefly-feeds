@@ -10,6 +10,7 @@ import { BRIEFING_SCHEMA_VERSION } from "./constants";
  */
 
 export type SchemaVersion = typeof BRIEFING_SCHEMA_VERSION;
+export type ComposeContractVersion = 1 | 2;
 
 /* ------------------------------------------------------- stage one input */
 
@@ -35,6 +36,8 @@ export type BriefingHistoryDigest = {
 
 /** Optional on older frozen runs, which retain their original broad selection. */
 export type BriefingFocusContext = {
+  /** Frozen writing contract; absent means legacy v1 with verbatim excerpts. */
+  composeContractVersion?: ComposeContractVersion;
   focusTopics?: Array<{ id: string; label: string }>;
   focusOnly?: boolean;
 };
@@ -110,8 +113,8 @@ export type ComposeInput = BriefingFocusContext & {
 
 export type EvidenceRef = {
   articleId: string;
-  /** A contiguous span of the material it cites — verified, never trusted. */
-  excerpt: string;
+  /** Required and verified by legacy v1; omitted by writing contract v2. */
+  excerpt?: string;
 };
 
 export type SupportedText = {
@@ -134,7 +137,7 @@ export type ComposedDeepRead = {
 
 export type ComposeOutput = {
   reassessedGroups?: Array<{ groupId: string; value: number; novelty: number; evidence: number }>;
-  schemaVersion: SchemaVersion;
+  schemaVersion: ComposeContractVersion;
   bigPicture: SupportedText | null;
   topStories: ComposedStory[];
   worthReading: ComposedDeepRead[];
@@ -203,6 +206,8 @@ export type BriefingEdition = {
   outputLanguage?: DigestLanguageId;
   schemaVersion: SchemaVersion;
   promptVersion: string;
+  /** Missing means the saved edition used the legacy excerpt contract. */
+  composeContractVersion?: ComposeContractVersion;
   model: { provider: string; model: string };
   sourceSnapshots: BriefingSourceSnapshot[];
   bigPicture: SupportedText | null;

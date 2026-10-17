@@ -1,4 +1,4 @@
-import { COMPOSE_SCHEMA, SHORTLIST_SCHEMA, schemaErrors, stripUnknownOutputFields } from "./schema";
+import { composeSchema, SHORTLIST_SCHEMA, schemaErrors, stripUnknownOutputFields } from "./schema";
 import { editorialScore, EDITORIAL_FLOOR } from "./score";
 import { BRIEFING_LIMITS } from "./constants";
 import type {
@@ -19,8 +19,8 @@ import type {
  * What the model may publish, decided here and nowhere else.
  *
  * Every rule below refuses rather than repairs: an id the model was not given,
- * an excerpt it cannot place verbatim in the material, a story with no evidence
- * at all — each stops the edition rather than being papered over. A gist
+ * a story with no source reference, or (in legacy v1) an excerpt it cannot
+ * place verbatim in the material — each stops the edition. A gist
  * attached to the wrong story is worse than no gist, and a quotation the
  * source never printed is worse than no quotation. See
  * docs/specs/ai-daily-briefing.md §8.
@@ -262,6 +262,7 @@ function validateSupportedText(
   at: string,
   materials: ReadonlyMap<string, ArticleMaterial>,
   errors: Errors,
+  contractVersion: 1 | 2 = 1,
 ): SupportedText | null {
   if (raw === null) return null;
   if (!isRecord(raw)) {
@@ -280,14 +281,24 @@ function validateSupportedText(
         errors.push(`${where}: expected an object`);
         return;
       }
-      errors.push(...exactKeys(entry, ["articleId", "excerpt"], where));
+      errors.push(
+        ...exactKeys(
+          entry,
+          contractVersion === 1 ? ["articleId", "excerpt"] : ["articleId"],
+          where,
+        ),
+      );
       const articleId = reqString(entry, "articleId", where, 200, errors);
-      const excerpt = reqString(entry, "excerpt", where, EXCERPT_MAX, errors);
       const material = materials.get(articleId);
       if (!material) {
         errors.push(`${where}.articleId: unknown material "${articleId}"`);
         return;
       }
+      if (contractVersion === 2) {
+        if (articleId) evidence.push({ articleId });
+        return;
+      }
+      const excerpt = reqString(entry, "excerpt", where, EXCERPT_MAX, errors);
       // Only an added outer quotation pair may be removed. Retain no wording
       // that is not a contiguous source excerpt; never drop a failing citation.
       const verified = excerpt ? verifiedExcerpt(excerpt, material.text) : null;
@@ -310,7 +321,9 @@ export function validateComposition(
   previouslyRecommended = [
     ...new Set([...previouslyRecommended, ...(input.previouslyRecommendedArticleIds ?? [])]),
   ];
-  const errors: Errors = schemaErrors(raw, COMPOSE_SCHEMA, "output");
+  const contractVersion = input.composeContractVersion ?? 1;
+  const schema = composeSchema(contractVersion);
+  const errors: Errors = schemaErrors(raw, schema, "output");
   const materials = new Map(input.materials.map((m) => [m.articleId, m]));
   if (!isRecord(raw)) return { ok: false, errors: ["output: expected one JSON object"] };
   errors.push(
@@ -326,7 +339,8 @@ export function validateComposition(
       "output",
     ),
   );
-  if (raw.schemaVersion !== 1) errors.push("output.schemaVersion: expected 1");
+  if (raw.schemaVersion !== contractVersion)
+    errors.push(`output.schemaVersion: expected ${contractVersion}`);
 
   const reassessedGroups: NonNullable<ComposeOutput["reassessedGroups"]> = [];
   const scores = new Map(input.shortlist.groups.map((g) => [g.groupId, editorialScore(g)]));
@@ -352,7 +366,13 @@ export function validateComposition(
         (scores.get(g.groupId) ?? 0) >= EDITORIAL_FLOOR &&
         ids.every((id) => g.articleIds.includes(id)),
     );
-  const bigPicture = validateSupportedText(raw.bigPicture, "bigPicture", materials, errors);
+  const bigPicture = validateSupportedText(
+    raw.bigPicture,
+    "bigPicture",
+    materials,
+    errors,
+    contractVersion,
+  );
 
   const topStories: ComposedStory[] = [];
   const seenGroups = new Set<string>();
@@ -382,6 +402,7 @@ export function validateComposition(
         `${at}.whatHappened`,
         materials,
         errors,
+        contractVersion,
       );
       if (!whatHappened) errors.push(`${at}.whatHappened: required supported text`);
       if (whatHappened) {
@@ -403,12 +424,19 @@ export function validateComposition(
           errors.push(`${at}: same event group already covered`);
         else seenGroups.add(matched.groupId);
       }
-      const context = validateSupportedText(entry.context, `${at}.context`, materials, errors);
+      const context = validateSupportedText(
+        entry.context,
+        `${at}.context`,
+        materials,
+        errors,
+        contractVersion,
+      );
       const whyItMatters = validateSupportedText(
         entry.whyItMatters,
         `${at}.whyItMatters`,
         materials,
         errors,
+        contractVersion,
       );
       const perspectives: SupportedText[] = [];
       if (!Array.isArray(entry.perspectives)) {
@@ -420,6 +448,7 @@ export function validateComposition(
             `${at}.perspectives[${i}]`,
             materials,
             errors,
+            contractVersion,
           );
           if (line) perspectives.push(line);
         });
@@ -462,7 +491,13 @@ export function validateComposition(
       }
       errors.push(...exactKeys(entry, ["articleId", "whyRead"], at));
       const articleId = reqString(entry, "articleId", at, 200, errors);
-      const whyRead = validateSupportedText(entry.whyRead, `${at}.whyRead`, materials, errors);
+      const whyRead = validateSupportedText(
+        entry.whyRead,
+        `${at}.whyRead`,
+        materials,
+        errors,
+        contractVersion,
+      );
       if (articleId && !materials.has(articleId)) {
         errors.push(`${at}.articleId: unknown material "${articleId}"`);
       }
@@ -497,7 +532,7 @@ export function validateComposition(
   return {
     ok: true,
     value: {
-      schemaVersion: 1,
+      schemaVersion: contractVersion,
       ...(reassessedGroups.length ? { reassessedGroups } : {}),
       bigPicture,
       topStories,
@@ -535,7 +570,8 @@ export function pruneWeakComposition(
     }
     return { output: bounded, omitted, omittedSections };
   };
-  const projected = stripUnknownOutputFields(answer, COMPOSE_SCHEMA);
+  const schema = composeSchema(input.composeContractVersion ?? 1);
+  const projected = stripUnknownOutputFields(answer, schema);
   if (
     !isRecord(projected) ||
     !Array.isArray(projected.topStories) ||
@@ -543,7 +579,7 @@ export function pruneWeakComposition(
   )
     return cap(projected);
   const root = { ...projected, topStories: [], worthReading: [] };
-  if (schemaErrors(root, COMPOSE_SCHEMA).length) return cap(projected);
+  if (schemaErrors(root, schema).length) return cap(projected);
   const normalizedRoot = withoutUnverifiableOptionalSections(
     root as unknown as ComposeOutput,
     input,
@@ -561,7 +597,7 @@ export function pruneWeakComposition(
         break;
       }
       const candidate = { ...normalizedRoot.output, bigPicture: null, [key]: [entry] };
-      if (schemaErrors(candidate, COMPOSE_SCHEMA).length) {
+      if (schemaErrors(candidate, schema).length) {
         kept.push(entry);
         continue;
       }
@@ -604,6 +640,7 @@ export function pruneWeakComposition(
 }
 
 function withoutUnverifiableOptionalSections(output: ComposeOutput, input: ComposeInput) {
+  if (input.composeContractVersion === 2) return { output, omittedSections: 0 };
   const materials = new Map(input.materials.map((material) => [material.articleId, material]));
   let omittedSections = 0;
   const keep = (section: SupportedText | null): SupportedText | null => {

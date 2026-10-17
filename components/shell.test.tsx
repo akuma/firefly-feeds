@@ -3150,7 +3150,7 @@ const shortlistReply: import("@/lib/briefing/types").ShortlistOutput = {
 };
 
 const composeReply: import("@/lib/briefing/types").ComposeOutput = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   bigPicture: null,
   topStories: [
     {
@@ -3289,7 +3289,11 @@ describe("the daily briefing", () => {
       expect(
         within(pane).getByText("The first summary is the whole of what happened."),
       ).toBeInTheDocument();
-      expect(within(pane).getByText(/Written from the selected stories/)).toBeInTheDocument();
+      expect(
+        within(pane).getByText(
+          /Source references have been checked; content is AI-generated and may contain errors/,
+        ),
+      ).toBeInTheDocument();
       expect(within(briefing()).getByText(/2 model calls/)).toBeInTheDocument();
       // the whole day was considered, and the run spent its two model calls
       expect(within(briefing()).getByText(/3 stories considered/)).toBeInTheDocument();
@@ -3548,9 +3552,10 @@ it("restores the saved briefing language, persists a change and sends it to both
     );
     const saved = (await repo.getBriefings())[0];
     expect(saved.topStories[0].headline).toBe("Feldman对家用AI设备...");
-    expect(saved.topStories[0].whatHappened.evidence).toEqual(
-      chinese.topStories[0].whatHappened.evidence,
-    );
+    expect(saved.topStories[0].whatHappened.evidence).toEqual([{ articleId: "sdig~one" }]);
+    expect(
+      within(reader()).getByText("来源引用已检查；内容由 AI 生成，可能存在错误。"),
+    ).toBeInTheDocument();
     expect(
       within(briefing()).getByRole("button", { name: "Feldman 对家用 AI 设备..." }),
     ).toBeInTheDocument();
@@ -3646,6 +3651,10 @@ it("keeps perspective-only source links visible when an older edition has an inc
       within(reader()).getByRole("button", { name: /Perspective Journal/ }),
     ).toBeInTheDocument(),
   );
+  const stored = (await repo.getBriefings())[0];
+  expect(stored.composeContractVersion).toBeUndefined();
+  expect(stored.topStories[0].perspectives[0].evidence[0].excerpt).toBe("Another viewpoint");
+  expect(within(reader()).getByText(/Source references have been checked/)).toBeInTheDocument();
 });
 
 async function seedBriefingRecoveryState(attempts: ("saved" | "interrupted")[]) {
