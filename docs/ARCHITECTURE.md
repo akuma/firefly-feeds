@@ -466,10 +466,10 @@ The invariants the implementation is built around:
   fetched (`BRIEFING_LIMITS`), two at a time, through the shared
   `ensureArticleContent` the reader uses — which also means the reader's retry
   windows apply to the briefing. Never a background crawl.
-- **Evidence is verified, not trusted.** Every claim's excerpt must appear
-  verbatim (whitespace aside) in the material the model was given; unknown
-  article ids, invented URLs and unevidenced sections are refused, never
-  repaired into fiction. Publisher text is untrusted data in the prompt.
+- **Source references are checked.** New writing contract v2 requires source
+  article IDs for each paragraph, checked against supplied material and section
+  eligibility. This does not verify the meaning of a claim. Legacy v1 Resume
+  also requires verbatim excerpts. Publisher text is untrusted prompt data.
 - **Program-made metadata.** Publication names, headlines and links on the
   published edition are computed from the frozen records — the model never
   names a source.
@@ -776,7 +776,16 @@ at most ten attempts, two at a time, with cached bodies and failure backoff pres
 Reader-visible bodies are not replaced mid-read. Material is labelled full, excerpted,
 or feed-summary; paragraphs, separators and total UTF-8 request bytes have budgets.
 The fixed versioned prompts include the same strict JSON schemas used at runtime;
-all references and evidence substrings are checked again before publication.
+all source IDs, group eligibility and structure are checked again before publication.
+New runs use writing contract v2 (output `schemaVersion: 2`): each paragraph
+returns `evidence: [{ articleId }]`, with no copied excerpt or substring check.
+The input/storage envelope and shortlist retain schema v1. Optional
+`composeContractVersion` is frozen in prepared input and saved on the edition;
+missing means legacy v1. Resume keeps that contract and the original prompt
+version, including legacy excerpt validation. Both hosted and direct transports
+choose the output schema from the request, never from the reply. Unsolicited
+excerpt fields in v2 are discarded as unknown output fields. Source membership
+is checked, not semantic entailment; reader copy makes that limit explicit.
 
 Hosted calls use `app/api/briefing/generate/route.ts`, with bounded streaming input,
 fixed built-in provider addresses, same-origin and rate guards, cancellation and a timeout.
@@ -824,8 +833,8 @@ closed language list. Settings exposes Written in again; the hook carries it thr
 both phases, and the API validates the same enum. Resume retains the prepared
 language. Published editions record optional `outputLanguage` (older records mean
 English); changing the preference neither rewrites history nor triggers generation.
-Headlines and editorial prose use the requested language, while evidence excerpts
-remain verbatim in the source language. With source selected, each item follows its
+Headlines and editorial prose use the requested language. Legacy v1 evidence
+excerpts remain verbatim in the source language; v2 returns only source IDs. With source selected, each item follows its
 main material and Big Picture follows the predominant source language. Application
 controls remain English.
 
@@ -938,8 +947,8 @@ latest bounded repairable-failure trace is checkpointed before cancellation can
 land, merged from storage in the cancellation handler, and reused for the same
 phase on Resume so targeted format corrections survive interruption.
 
-Optional Big Picture, context, why-it-matters and individual perspective paragraphs
-are omitted whole when their only validation failures are nonverbatim excerpts
+In legacy writing contract v1, optional Big Picture, context, why-it-matters and
+individual perspective paragraphs are omitted whole when their only validation failures are nonverbatim excerpts
 from known materials. Required news accounts and reading recommendations are
 never salvaged this way; unknown source IDs and structural errors still fail.
 The result is revalidated before publication and editorial omissions are then
@@ -956,7 +965,7 @@ required content among retained items still fails the final strict validation.
 Excess items count in the existing `omittedWeakItems` omission total and do not
 trigger a paid repair. No retained prose or citations are truncated to fit.
 
-### Evidence excerpt quotation wrappers
+### Legacy v1 evidence excerpt quotation wrappers
 
 Evidence matching first checks the complete excerpt using the existing Unicode
 and whitespace normalization. If that fails, one matching outer quotation pair

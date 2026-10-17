@@ -34,7 +34,7 @@ export const BRIEFING_LIMITS = {
 /** The fixed prompt versions, recorded on every published edition. */
 export const PROMPT_VERSIONS = {
   shortlist: "shortlist-v5",
-  compose: "compose-v7",
+  compose: "compose-v8",
 } as const;
 
 /** Runtime schema versions for the two model contracts. */

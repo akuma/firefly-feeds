@@ -123,7 +123,7 @@ export async function generatePhase(input: {
             "The model's answer ran out of room before the JSON ended.",
             true,
             [
-              "output: cut off at the token limit — write more compactly, with shorter excerpts and fewer optional sections",
+              "output: cut off at the token limit — write more compactly, with shorter prose and fewer optional sections",
             ],
           );
         return failure(
@@ -193,7 +193,7 @@ export async function generatePhase(input: {
           "The model's answer ran out of room before the JSON ended.",
           true,
           [
-            "output: cut off at the token limit — write more compactly, with shorter excerpts and fewer optional sections",
+            "output: cut off at the token limit — write more compactly, with shorter prose and fewer optional sections",
           ],
         )
       : failure("INVALID_OUTPUT", "The model's answer was not JSON.", true, [

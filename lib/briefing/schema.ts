@@ -50,56 +50,45 @@ const group = obj({
   selectionReason: str(500),
   missingInformation: str(500, 0),
 });
-const evidence = obj({ articleId: id, excerpt: str(240) });
-const supported = obj({ text: str(2000), evidence: arr(evidence, 3, 1) });
 export const SHORTLIST_SCHEMA = obj({
   schemaVersion: version,
   groups: arr(group, L.maxShortlistGroups),
   extractArticleIds: arr(id, L.maxNewExtracts),
 });
-export const COMPOSE_SCHEMA = obj(
-  {
-    schemaVersion: version,
-    reassessedGroups: arr(obj({ groupId: str(120), ...score }), L.maxCandidates),
-    bigPicture: nullable(supported),
-    topStories: arr(
-      obj({
-        headline: str(300),
-        whatHappened: supported,
-        context: nullable(supported),
-        whyItMatters: nullable(supported),
-        perspectives: arr(supported, 2),
-      }),
-      L.maxStories,
-    ),
-    worthReading: arr(obj({ articleId: id, whyRead: supported }), L.maxDeepReads),
-  },
-  ["schemaVersion", "bigPicture", "topStories", "worthReading"],
-);
-/** Compact retries leave room for the complete JSON and its evidence. */
-const compactSupported = obj({
-  text: str(800),
-  evidence: arr(obj({ articleId: id, excerpt: str(120) }), 1, 1),
-});
-export const COMPACT_COMPOSE_SCHEMA = obj(
-  {
-    schemaVersion: version,
-    reassessedGroups: arr(obj({ groupId: str(120), ...score }), 3),
-    bigPicture: { type: "null" },
-    topStories: arr(
-      obj({
-        headline: str(150),
-        whatHappened: compactSupported,
-        context: { type: "null" },
-        whyItMatters: nullable(compactSupported),
-        perspectives: arr(supported, 0),
-      }),
-      2,
-    ),
-    worthReading: arr(obj({ articleId: id, whyRead: compactSupported }), 1),
-  },
-  ["schemaVersion", "bigPicture", "topStories", "worthReading"],
-);
+
+/** Choose from the frozen request contract, never from the model's reply. */
+export function composeSchema(contractVersion: 1 | 2 = 1, compact = false): Schema {
+  const evidence =
+    contractVersion === 1
+      ? obj({ articleId: id, excerpt: str(compact ? 120 : 240) })
+      : obj({ articleId: id });
+  const supported = obj({
+    text: str(compact ? 800 : 2000),
+    evidence: arr(evidence, compact ? 1 : 3, 1),
+  });
+  return obj(
+    {
+      schemaVersion: { const: contractVersion },
+      reassessedGroups: arr(obj({ groupId: str(120), ...score }), compact ? 3 : L.maxCandidates),
+      bigPicture: compact ? { type: "null" } : nullable(supported),
+      topStories: arr(
+        obj({
+          headline: str(compact ? 150 : 300),
+          whatHappened: supported,
+          context: compact ? { type: "null" } : nullable(supported),
+          whyItMatters: nullable(supported),
+          perspectives: arr(supported, compact ? 0 : 2),
+        }),
+        compact ? 2 : L.maxStories,
+      ),
+      worthReading: arr(obj({ articleId: id, whyRead: supported }), compact ? 1 : L.maxDeepReads),
+    },
+    ["schemaVersion", "bigPicture", "topStories", "worthReading"],
+  );
+}
+
+export const COMPOSE_SCHEMA = composeSchema();
+export const COMPACT_COMPOSE_SCHEMA = composeSchema(1, true);
 
 const common = {
   schemaVersion: version,
@@ -109,6 +98,7 @@ const common = {
   outputLanguage: { enum: DIGEST_LANGUAGES.map((language) => language.id) },
 };
 const focusContext = {
+  composeContractVersion: { enum: [1, 2] },
   focusTopics: arr(obj({ id, label: str(200) }), L.maxFocusTopics),
   focusOnly: { type: "boolean" } as Schema,
 };

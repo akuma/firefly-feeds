@@ -480,9 +480,9 @@ export function BriefingReader({
           </p>
         )}
         <p className="mono mt-12 max-w-[62ch] text-[9.5px] leading-[1.9] tracking-[0.08em] text-ink4 uppercase">
-          Written from the selected stories&rsquo; own text and summaries, with every claim quoted
-          from them. References and quoted excerpts were checked against the supplied material; AI
-          interpretation can still contain errors.
+          {edition.outputLanguage?.startsWith("zh")
+            ? "来源引用已检查；内容由 AI 生成，可能存在错误。"
+            : "Source references have been checked; content is AI-generated and may contain errors."}
           {!!edition.stats.omittedWeakItems &&
             ` ${edition.stats.omittedWeakItems} proposed topic${edition.stats.omittedWeakItems === 1 ? " was" : "s were"} omitted after editorial checks.`}
           {!!edition.stats.omittedUnsupportedSections &&
