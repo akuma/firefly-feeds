@@ -1,4 +1,4 @@
-import { XMLParser } from "fast-xml-parser";
+import { XMLParser, XMLValidator } from "fast-xml-parser";
 import {
   blocksToText,
   bodyLeadsWithMedia,
@@ -438,13 +438,23 @@ export function parseFeedXml(xml: string, feedUrl: string): ParsedFeed {
   } else if (rdfRoot) {
     kind = "rdf";
     // RSS 1.0 keeps its metadata on <channel> alongside the top-level <item>s
-    channel = (asArray(rdfRoot.channel as never)[0] as Record<string, unknown>) ?? rdfRoot;
+    channel = asArray(rdfRoot.channel as never)[0] as Record<string, unknown>;
     rawItems = asArray(rdfRoot.item as never);
   } else if (rssRoot) {
-    channel = (asArray(rssRoot.channel as never)[0] as Record<string, unknown>) ?? {};
-    rawItems = asArray(channel.item as never);
+    channel = asArray(rssRoot.channel as never)[0] as Record<string, unknown>;
+    rawItems = asArray(channel?.item as never);
   } else {
     throw new FeedError("No feed was found at that address.", 422);
+  }
+
+  if (!channel || typeof channel !== "object" || Array.isArray(channel)) {
+    throw new FeedError("No feed was found at that address.", 422);
+  }
+
+  // A truncated document can parse as an empty feed. Only recognize a genuine
+  // empty response after checking its XML, without tightening nonempty intake.
+  if (!rawItems.length && XMLValidator.validate(xml) !== true) {
+    throw new FeedError("That page is not valid XML.", 422);
   }
 
   const siteUrl = pickLink(channel.link, feedUrl) || feedUrl;
@@ -465,7 +475,10 @@ export function parseFeedXml(xml: string, feedUrl: string): ParsedFeed {
     if (item) items.push(item);
   }
 
-  if (!items.length) throw new FeedError("That feed contains no readable entries.", 422);
+  // Announcement feeds may intentionally have no entries (for example arXiv
+  // on weekends). Existing entries that all fail parsing are still an error.
+  if (rawItems.length && !items.length)
+    throw new FeedError("That feed contains no readable entries.", 422);
 
   // A summary that is the same in every row is not a summary. Strip whatever
   // opening the feed repeats, so each row says something about its own entry.

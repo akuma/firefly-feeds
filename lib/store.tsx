@@ -101,6 +101,8 @@ export type SubscribeInput = {
   items: IncomingItem[];
 };
 
+type SourceRefreshResult = { added: number; expiresAt: number };
+
 type Ctx = {
   ready: boolean;
   edition: Edition;
@@ -136,6 +138,8 @@ type Ctx = {
   ) => Promise<void>;
   /** Sources with a refresh in flight; per-row spinners key off this set. */
   refreshing: ReadonlySet<string>;
+  /** Short-lived completion counts, separate from persisted unread state. */
+  refreshResults: ReadonlyMap<string, SourceRefreshResult>;
   refresh: (id: string, signal?: AbortSignal) => Promise<void>;
   /** Refresh every stale source; force refreshes even recently fetched ones. */
   refreshAll: (options?: { force?: boolean }) => Promise<void>;
@@ -362,6 +366,22 @@ export function useReaderState(edition: Edition): Ctx {
   const [editingId, setEditingId] = useState<FeedId | null>(null);
   const [pendingSource, setPendingSource] = useState<SuggestedSource | null>(null);
   const [refreshing, setRefreshing] = useState<ReadonlySet<string>>(new Set());
+  const [refreshResults, setRefreshResults] = useState<ReadonlyMap<string, SourceRefreshResult>>(
+    new Map(),
+  );
+  useEffect(() => {
+    if (!refreshResults.size) return;
+    const nextExpiry = Math.min(...[...refreshResults.values()].map((result) => result.expiresAt));
+    const timer = setTimeout(
+      () => {
+        setRefreshResults(
+          (current) => new Map([...current].filter(([, result]) => result.expiresAt > Date.now())),
+        );
+      },
+      Math.max(0, nextExpiry - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [refreshResults]);
   // Sources currently being fetched, so a second trigger (manual + scheduled)
   // never issues the same request twice.
   const refreshingIds = useRef(new Set<string>());
@@ -685,6 +705,12 @@ export function useReaderState(edition: Edition): Ctx {
       const source = override ?? sourcesRef.current.find((s) => s.id === id);
       if (!source || source.deletedAt) return;
       refreshingIds.current.add(id);
+      setRefreshResults((current) => {
+        if (!current.has(id)) return current;
+        const next = new Map(current);
+        next.delete(id);
+        return next;
+      });
       setRefreshing((current) => new Set(current).add(id));
       try {
         const res = await fetch(`/api/feed?url=${encodeURIComponent(source.url)}&full=1`, {
@@ -692,6 +718,7 @@ export function useReaderState(edition: Edition): Ctx {
         });
         const data = await res.json();
         if (!data?.ok) throw new Error(data?.error ?? "failed");
+        if (!Array.isArray(data.items)) throw new Error("The feed returned an invalid entry list.");
 
         const at = Date.now();
         const cachedArticles = await repo.getArticles(id);
@@ -716,7 +743,8 @@ export function useReaderState(edition: Edition): Ctx {
           updatedAt: at,
         };
         await repo.putSource(refreshedSource);
-        if (articlesUnchanged(cachedArticles, items)) {
+        // Empty announcements do not withdraw previously cached articles.
+        if (!items.length || articlesUnchanged(cachedArticles, items)) {
           setSources((current) => current.map((s) => (s.id === id ? refreshedSource : s)));
         } else {
           // anything the reader kept is exempt from cache eviction
@@ -727,6 +755,13 @@ export function useReaderState(edition: Edition): Ctx {
           await reloadSource(id);
           setNow(Date.now());
         }
+        const existing = new Set(cachedArticles.map((article) => article.id));
+        const added = new Set(
+          items.filter((article) => !existing.has(article.id)).map((article) => article.id),
+        ).size;
+        setRefreshResults((current) =>
+          new Map(current).set(id, { added, expiresAt: Date.now() + 8000 }),
+        );
       } catch (error) {
         const latest = override ?? sourcesRef.current.find((s) => s.id === id);
         if (latest) {
@@ -1666,6 +1701,7 @@ export function useReaderState(edition: Edition): Ctx {
     unsubscribe,
     editSource,
     refreshing,
+    refreshResults,
     refresh,
     refreshAll,
     extracting,

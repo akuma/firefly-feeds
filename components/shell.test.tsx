@@ -3853,3 +3853,73 @@ it("restores an interrupted task without automatically resuming after remount", 
     spy.restore();
   }
 });
+
+it("shows +N next to a source refresh, including +0 for a successful empty feed", async () => {
+  const repo = await seedCachedOriginal();
+  const cached = await repo.getArticles("sorig");
+  let items: import("@/lib/refreshing").IncomingItem[] = [
+    {
+      id: "new",
+      title: "A new entry",
+      summary: "New.",
+      body: [{ kind: "p", text: "New." }],
+      minutes: 1,
+      layout: "compact",
+      contentState: "full",
+    },
+  ];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => Response.json({ ok: true, items })) as typeof fetch;
+  try {
+    const { user } = await mount();
+    await user.click(within(nav()).getByRole("button", { name: "Refresh Original Source" }));
+    expect(
+      await within(nav()).findByRole("status", { name: "Original Source: 1 new article" }),
+    ).toHaveTextContent("+1");
+    items = [];
+    const beforeEmpty = await repo.getArticles("sorig");
+    await user.click(within(nav()).getByRole("button", { name: "Refresh Original Source" }));
+    expect(
+      await within(nav()).findByRole("status", { name: "Original Source: 0 new articles" }),
+    ).toHaveTextContent("+0");
+    expect(await repo.getArticles("sorig")).toEqual(beforeEmpty);
+    expect(cached[0].title).toBe("Cached original");
+    expect(
+      within(nav()).queryByRole("button", { name: "Refresh error for Original Source" }),
+    ).toBeNull();
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+it("lets readers click the failure mark to read the refresh error without selecting the source", async () => {
+  await seedCachedOriginal();
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    Response.json(
+      { ok: false, error: "HTTP 503: temporarily unavailable" },
+      { status: 503 },
+    )) as typeof fetch;
+  try {
+    const { user } = await mount();
+    await user.click(within(nav()).getByRole("button", { name: "Refresh Original Source" }));
+    const error = await within(nav()).findByRole("button", {
+      name: "Refresh error for Original Source",
+    });
+    await user.click(error);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "HTTP 503: temporarily unavailable",
+    );
+    expect(within(nav()).getByRole("button", { name: /^Original Source/ })).not.toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(
+      within(nav()).queryByRole("status", { name: /Original Source: .*new article/ }),
+    ).toBeNull();
+  } finally {
+    globalThis.fetch = original;
+  }
+});

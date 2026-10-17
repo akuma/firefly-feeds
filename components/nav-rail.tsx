@@ -15,6 +15,7 @@ import {
 import { clsx } from "./clsx";
 import { IconButton, Wordmark } from "./brand";
 import { Firefly } from "./plate";
+import { Hint } from "./hint";
 import { useEffect, useMemo, useState } from "react";
 import { FOLDERS } from "@/lib/sources";
 import { estimate } from "@/lib/storage/repository";
@@ -161,6 +162,7 @@ function SourceRow({
   active,
   count,
   refreshing,
+  added,
   error,
   onSelect,
   onRefresh,
@@ -171,6 +173,7 @@ function SourceRow({
   active: boolean;
   count: number;
   refreshing: boolean;
+  added?: number;
   error?: string | null;
   onSelect: () => void;
   onRefresh: () => void;
@@ -215,7 +218,7 @@ function SourceRow({
       >
         {feed.name}
       </span>
-      <span aria-hidden="true" className="relative flex shrink-0 items-center gap-1.5">
+      <span className="relative flex shrink-0 items-center gap-1.5">
         {refreshing ? (
           /* The one working state that had no words of its own, so it borrows the
              mono glyph the failed state already uses rather than the mark. */
@@ -223,16 +226,15 @@ function SourceRow({
             …
           </span>
         ) : error ? (
-          <span
-            title={error}
-            className="mono text-[10px] leading-none text-spark"
-            aria-label={`Last refresh failed: ${error}`}
-          >
-            !
-          </span>
+          <Hint label={`Last refresh failed: ${error}`} name={`Refresh error for ${feed.name}`}>
+            <span aria-hidden="true" className="mono text-[10px] leading-none">
+              !
+            </span>
+          </Hint>
         ) : (
           count > 0 && (
             <span
+              aria-hidden="true"
               className={clsx(
                 "mono tnum text-[10px] leading-none",
                 active ? "text-spark" : "text-ink4 group-hover:text-ink3",
@@ -243,7 +245,12 @@ function SourceRow({
           )
         )}
         {feed.subscribed && (
-          <span className="pointer-events-none flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 max-lg:pointer-events-auto max-lg:opacity-100">
+          <span
+            className={clsx(
+              "pointer-events-none flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-lg:pointer-events-auto max-lg:opacity-100",
+              added !== undefined && "pointer-events-auto opacity-100",
+            )}
+          >
             <IconButton
               icon={Pencil}
               label={`Rename ${feed.name}`}
@@ -258,6 +265,18 @@ function SourceRow({
               iconSize={11}
               onClick={onRefresh}
             />
+            {!refreshing && !error && added !== undefined && (
+              <span
+                role="status"
+                aria-label={`${feed.name}: ${added} new article${added === 1 ? "" : "s"}`}
+                title={
+                  added === 0 ? "No new articles" : `${added} new article${added === 1 ? "" : "s"}`
+                }
+                className="mono tnum px-1 text-[10px] leading-none text-spark"
+              >
+                +{added}
+              </span>
+            )}
             <IconButton
               icon={X}
               label={`Unsubscribe from ${feed.name}`}
@@ -463,6 +482,7 @@ export function NavRail({
                   active={r.view === `feed:${feed.id}`}
                   count={r.counts.feeds[feed.id as FeedId] ?? 0}
                   refreshing={r.refreshing.has(feed.id)}
+                  added={r.refreshResults.get(feed.id)?.added}
                   error={source.error}
                   onSelect={() => go(`feed:${feed.id}`)}
                   onRefresh={() => void r.refresh(feed.id)}

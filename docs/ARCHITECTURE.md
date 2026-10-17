@@ -50,6 +50,20 @@ route looks for `<link rel="alternate" type="application/rss+xml">` (or an Atom
 or RDF equivalent), resolves it against the document, and follows it. Candidates
 are tried in document order and stop at the first that parses.
 
+A recognized RSS/Atom/RDF feed with well-formed XML and no entries is a successful
+empty announcement, as with arXiv on non-announcement days. A nonempty entry list
+that yields no readable items still returns an error. On empty refresh, advance
+the source check time and clear its error while keeping every cached article and
+reading record; absence from an announcement feed is not a withdrawal.
+
+Each successful source refresh records a transient count of unique article IDs
+new to that source's cache, after the existing intake cap. Repeated entries and
+existing IDs do not increase it. The Sources row displays `+N` next to Refresh
+for eight seconds, including `+0` for an unchanged or empty response, separately
+from unread counts. Starting another refresh removes the previous result; failures
+retain the existing error state. These results are not persisted. The `!` error
+mark uses the shared Hint, available on hover, focus or click.
+
 ### It is a public endpoint that fetches a URL somebody else chose
 
 That is the feature, so it cannot be an allowlist. It does mean the route has to

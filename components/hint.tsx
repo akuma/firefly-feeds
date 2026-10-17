@@ -75,7 +75,8 @@ export function Hint({
           type="button"
           aria-label={name}
           aria-describedby={open ? id : undefined}
-          onClick={() => setOpen((v) => !v)}
+          // Hover/focus may already have opened it before the click arrives.
+          onClick={() => setOpen(true)}
           onFocus={() => setOpen(true)}
           onBlur={() => setOpen(false)}
           // The accent, not a quiet grey: this mark means the answer is a guess,

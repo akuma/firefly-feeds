@@ -342,3 +342,11 @@ is AI-generated and may contain errors.” Chinese editions say
 “来源引用已检查；内容由 AI 生成，可能存在错误。” This notice also replaces the stronger
 quotation claim on older editions; historical citations and excerpts stay stored.
 Source links, section layout and selection rules are unchanged.
+
+Source refresh completion uses a compact mono `+N` beside that source's Refresh
+control for eight seconds. It counts newly inserted unique article IDs, never
+unread articles or all returned rows. `+0` is successful with no additions,
+including a valid empty announcement feed; cached articles remain visible. The
+actions stay visible while the result is shown and on keyboard focus. Failures
+show `!` with an error hint that opens on hover, focus or click. A new refresh
+clears the old completion count; these short-lived counts are not stored.

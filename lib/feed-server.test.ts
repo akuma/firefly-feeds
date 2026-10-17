@@ -135,9 +135,33 @@ describe("parseFeedXml", () => {
     );
   });
 
-  it("throws when a feed has no readable entries", () => {
-    const empty = `<rss version="2.0"><channel><title>Empty</title></channel></rss>`;
-    expect(() => parseFeedXml(empty, "https://x.example/feed")).toThrow(FeedError);
+  it.each([
+    ["rss", '<rss version="2.0"><channel><title>Empty</title></channel></rss>'],
+    [
+      "atom",
+      '<feed xmlns="http://www.w3.org/2005/Atom"><id>https://rss.arxiv.org/atom/cs.AI+q-bio.NC</id><title>Empty</title><updated>2026-10-17T04:02:40Z</updated></feed>',
+    ],
+    [
+      "rdf",
+      '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><channel><title>Empty</title></channel></rdf:RDF>',
+    ],
+  ])("accepts a valid empty %s feed", (kind, xml) => {
+    expect(parseFeedXml(xml, "https://x.example/feed")).toMatchObject({
+      kind,
+      title: "Empty",
+      items: [],
+    });
+  });
+
+  it.each([
+    '<rss version="2.0"><channel><title>Empty</title><item><guid>unreadable</guid></item></channel></rss>',
+    '<feed xmlns="http://www.w3.org/2005/Atom"><title>Empty</title><entry><id>unreadable</id></entry></feed>',
+    '<rss version="2.0"></rss>',
+    "<feed broken><title>Broken</title></feed>",
+    '<rss version="2.0"><channel broken><title>Broken</title></channel></rss>',
+    '<feed xmlns="http://www.w3.org/2005/Atom"><title>Broken</title>',
+  ])("still rejects unreadable entries or malformed feeds: %s", (xml) => {
+    expect(() => parseFeedXml(xml, "https://x.example/feed")).toThrow(FeedError);
   });
 
   it("survives a malformed date instead of failing the whole feed", () => {
