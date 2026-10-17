@@ -58,7 +58,7 @@ reading record; absence from an announcement feed is not a withdrawal.
 
 Each successful source refresh records a transient count of unique article IDs
 new to that source's cache, after the existing intake cap. Repeated entries and
-existing IDs do not increase it. The Sources row displays `+N` next to Refresh
+existing IDs do not increase it. The Sources row displays `+N` in the idle action area
 for eight seconds, including `+0` for an unchanged or empty response, separately
 from unread counts. Starting another refresh removes the previous result; failures
 retain the existing error state. These results are not persisted. The `!` error

@@ -153,7 +153,7 @@ function Row({
 }
 
 /**
- * A source row is a whole-row hit target plus two small controls that only
+ * A source row is a whole-row hit target plus small controls that only
  * appear on hover — so refresh and unsubscribe are reachable without turning
  * the navigation into a list of buttons.
  */
@@ -245,26 +245,7 @@ function SourceRow({
           )
         )}
         {feed.subscribed && (
-          <span
-            className={clsx(
-              "pointer-events-none flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-lg:pointer-events-auto max-lg:opacity-100",
-              added !== undefined && "pointer-events-auto opacity-100",
-            )}
-          >
-            <IconButton
-              icon={Pencil}
-              label={`Rename ${feed.name}`}
-              size={20}
-              iconSize={11}
-              onClick={onEdit}
-            />
-            <IconButton
-              icon={RefreshCw}
-              label={`Refresh ${feed.name}`}
-              size={20}
-              iconSize={11}
-              onClick={onRefresh}
-            />
+          <span className="grid items-center">
             {!refreshing && !error && added !== undefined && (
               <span
                 role="status"
@@ -272,18 +253,34 @@ function SourceRow({
                 title={
                   added === 0 ? "No new articles" : `${added} new article${added === 1 ? "" : "s"}`
                 }
-                className="mono tnum px-1 text-[10px] leading-none text-spark"
+                className="mono tnum pointer-events-none col-start-1 row-start-1 justify-self-end px-1 text-[10px] leading-none text-spark group-hover:invisible group-has-[:focus-visible]:invisible max-lg:hidden"
               >
                 +{added}
               </span>
             )}
-            <IconButton
-              icon={X}
-              label={`Unsubscribe from ${feed.name}`}
-              size={20}
-              iconSize={12}
-              onClick={onRemove}
-            />
+            <span className="pointer-events-none col-start-1 row-start-1 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100 max-lg:pointer-events-auto max-lg:opacity-100">
+              <IconButton
+                icon={Pencil}
+                label={`Rename ${feed.name}`}
+                size={20}
+                iconSize={11}
+                onClick={onEdit}
+              />
+              <IconButton
+                icon={RefreshCw}
+                label={`Refresh ${feed.name}`}
+                size={20}
+                iconSize={11}
+                onClick={onRefresh}
+              />
+              <IconButton
+                icon={X}
+                label={`Unsubscribe from ${feed.name}`}
+                size={20}
+                iconSize={12}
+                onClick={onRemove}
+              />
+            </span>
           </span>
         )}
       </span>

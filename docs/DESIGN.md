@@ -343,10 +343,13 @@ is AI-generated and may contain errors.” Chinese editions say
 quotation claim on older editions; historical citations and excerpts stay stored.
 Source links, section layout and selection rules are unchanged.
 
-Source refresh completion uses a compact mono `+N` beside that source's Refresh
-control for eight seconds. It counts newly inserted unique article IDs, never
+Source refresh completion uses a compact mono `+N` in that source's action area
+for eight seconds. It counts newly inserted unique article IDs, never
 unread articles or all returned rows. `+0` is successful with no additions,
 including a valid empty announcement feed; cached articles remain visible. The
-actions stay visible while the result is shown and on keyboard focus. Failures
+count and actions share the same space: hover or keyboard focus reveals the
+actions and hides the count. Mouse focus alone does not keep actions visible
+after the pointer leaves. On small screens, actions remain visible and the count
+is hidden. Failures
 show `!` with an error hint that opens on hover, focus or click. A new refresh
 clears the old completion count; these short-lived counts are not stored.
